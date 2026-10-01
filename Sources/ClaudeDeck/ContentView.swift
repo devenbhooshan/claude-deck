@@ -7,7 +7,6 @@ struct ContentView: View {
     @State private var confirmHook = false
 
     private var waiting: [Session] { store.live.filter { $0.status == .waiting } }
-    private var active: [Session] { store.live.filter { $0.status != .waiting } }
 
     var body: some View {
         NavigationSplitView {
@@ -30,24 +29,34 @@ struct ContentView: View {
     private var sidebar: some View {
         @Bindable var store = store
         return List(selection: $store.selectedId) {
-            if !waiting.isEmpty {
-                Section {
-                    ForEach(waiting) { s in
-                        ApprovalRow(session: s).tag(s.id).contextMenu { rowMenu(s) }
-                    }
-                } header: {
-                    SectionHeader(title: "Needs you", count: waiting.count, tint: Theme.waiting)
-                }
-            }
+            // One fixed list: a session keeps its place and number (⌘1–9) whatever its status.
+            // Sessions waiting on you stay put and show Allow / Deny in place.
             Section {
-                if active.isEmpty && waiting.isEmpty {
+                if store.live.isEmpty {
                     Text("No running sessions").foregroundStyle(.tertiary).font(.callout)
                 }
-                ForEach(active) { s in
-                    SessionRow(session: s).tag(s.id).contextMenu { rowMenu(s) }
+                ForEach(Array(store.live.enumerated()), id: \.element.id) { i, s in
+                    Group {
+                        if s.status == .waiting {
+                            ApprovalRow(session: s, number: i + 1)
+                        } else {
+                            SessionRow(session: s, number: i + 1)
+                        }
+                    }
+                    .tag(s.id)
+                    .contextMenu { rowMenu(s) }
                 }
             } header: {
-                SectionHeader(title: "Running", count: active.count, tint: nil)
+                HStack(spacing: 6) {
+                    SectionHeader(title: "Running", count: store.live.count, tint: nil)
+                    if !waiting.isEmpty {
+                        Text("\(waiting.count) need\(waiting.count == 1 ? "s" : "") you")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(Theme.waiting.opacity(0.18)))
+                            .foregroundStyle(Theme.waiting)
+                    }
+                }
             }
             if !store.recent.isEmpty {
                 Section {
@@ -179,10 +188,11 @@ private struct HookSetupCard: View {
 struct ApprovalRow: View {
     @Environment(SessionStore.self) private var store
     let session: Session
+    var number: Int? = nil
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            SessionRow(session: session)
+            SessionRow(session: session, number: number)
             if let tool = session.pendingTool {
                 HStack(spacing: 6) {
                     Image(systemName: ToolStyle.symbol(tool.name)).font(.caption2)
@@ -191,12 +201,14 @@ struct ApprovalRow: View {
                         .lineLimit(2)
                 }
                 .foregroundStyle(.secondary)
-                .padding(.leading, 32)
+                .padding(.leading, SessionRow.titleInset)
             }
             ApprovalButtons(session: session)
-                .padding(.leading, 32)
+                .padding(.leading, SessionRow.titleInset)
         }
         .padding(.bottom, 4)
+        .listRowBackground(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
+            .fill(Theme.waiting.opacity(0.08)).padding(.horizontal, 10))
     }
 }
 
@@ -242,8 +254,8 @@ struct SessionSwitcher: View {
                                     .font(.caption).foregroundStyle(.secondary)
                             }
                             Spacer()
-                            if i < 9 && query.isEmpty {
-                                Text("⌘\(i + 1)").font(.caption).foregroundStyle(.tertiary)
+                            if let n = store.live.firstIndex(where: { $0.id == s.id }), n < 9 {
+                                Text("⌘\(n + 1)").font(.caption).foregroundStyle(.tertiary)
                             }
                         }
                         .padding(.horizontal, 10).padding(.vertical, 7)
@@ -301,9 +313,18 @@ struct SectionHeader: View {
 
 struct SessionRow: View {
     let session: Session
+    /// The session's fixed number (⌘1–9 opens it), shown for running sessions.
+    var number: Int? = nil
+
+    /// Space before the title, for indenting content under it.
+    static let titleInset: CGFloat = 50
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
+            Text(number.map(String.init) ?? "")
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(.tertiary)
+                .frame(width: 12, alignment: .trailing)
             StatusIcon(status: session.status)
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline) {

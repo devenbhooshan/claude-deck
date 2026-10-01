@@ -53,6 +53,8 @@ struct Session: Identifiable, Equatable {
     var statusSince: Date? = nil
     /// What a permission prompt is asking about, when known.
     var pendingTool: ToolCall? = nil
+    /// When the session started; running sessions keep this order so they never jump around.
+    var startedAt: Date? = nil
 
     var isLive: Bool { pid != nil }
 

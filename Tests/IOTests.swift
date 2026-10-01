@@ -1,8 +1,9 @@
 import AppKit
 
 private func record(_ pid: Int32, _ id: String, cwd: String = "/p/app", status: String? = "idle",
-                    waitingFor: String? = nil, updatedAt: Double = 2_000_000, statusUpdatedAt: Double? = nil) -> String {
-    var o: [String: Any] = ["pid": pid, "sessionId": id, "cwd": cwd, "startedAt": 1_000_000, "name": "n-\(id)"]
+                    waitingFor: String? = nil, updatedAt: Double = 2_000_000, statusUpdatedAt: Double? = nil,
+                    startedAt: Double = 1_000_000) -> String {
+    var o: [String: Any] = ["pid": pid, "sessionId": id, "cwd": cwd, "startedAt": startedAt, "name": "n-\(id)"]
     if let status { o["status"] = status }
     if let waitingFor { o["waitingFor"] = waitingFor }
     o["updatedAt"] = updatedAt
@@ -19,7 +20,7 @@ func loaderTests() {
         let box = Sandbox(); defer { box.cleanup() }
         let now = Date().timeIntervalSince1970 * 1000
         box.write("claude/sessions/1.json", record(1, "w", status: "waiting", waitingFor: "permission prompt", updatedAt: 3_000_000, statusUpdatedAt: now))
-        box.write("claude/sessions/2.json", record(2, "b", status: "busy"))
+        box.write("claude/sessions/2.json", record(2, "b", status: "busy", startedAt: 500))
         box.write("claude/sessions/3.json", record(3, "i", status: nil))
         box.write("claude/sessions/4.json", record(4, "dead"))
         box.write("claude/sessions/5.json", "{broken")
@@ -34,15 +35,18 @@ func loaderTests() {
         setMTime(old, Date().addingTimeInterval(-3600))
 
         let (live, updates) = SessionLoader.loadLive(cache: [:], alive: { $0 != 4 })
-        expectEqual(live.map(\.id), ["w", "old", "b", "i", "dup"])
-        expectEqual(live[0].title, "Waiting one")
-        expectEqual(live[0].pendingTool?.summary, "rm -rf x")
-        expect(live[1].pendingTool == nil, "a request from before the prompt opened is ignored")
-        expectEqual(live[2].status, .busy)
-        expectEqual(live[3].status, .idle)
-        expectEqual(live.last?.pid, 7)
+        // Stable order: by start time, then id; status and activity don't move a session.
+        expectEqual(live.map(\.id), ["b", "dup", "i", "old", "w"])
+        let w = live.first { $0.id == "w" }!
+        expectEqual(w.title, "Waiting one")
+        expectEqual(w.pendingTool?.summary, "rm -rf x")
+        expect(live.first { $0.id == "old" }!.pendingTool == nil, "a request from before the prompt opened is ignored")
+        expectEqual(live[0].status, .busy)
+        expectEqual(live.first { $0.id == "i" }?.status, .idle)
+        expectEqual(live.first { $0.id == "dup" }?.pid, 7)
         expectEqual(updates.count, 1)
-        expect(live[0].statusSince != nil)
+        expect(w.statusSince != nil)
+        expectEqual(live[0].startedAt, Date(timeIntervalSince1970: 0.5))
     }
     test("live sessions: defaults for missing timestamps; default liveness check") {
         let box = Sandbox(); defer { box.cleanup() }
@@ -56,6 +60,9 @@ func loaderTests() {
         expectEqual(live[0].pendingTool?.summary, "/f") // no status time: any captured request counts
         let started = SessionLoader.loadLive(cache: [:], alive: { _ in true }).0.first { $0.id == "b" }
         expectEqual(started?.updatedAt, Date(timeIntervalSince1970: 5))
+        // Sessions without a start time go last, in id order.
+        box.write("claude/sessions/99999997.json", #"{"pid":99999997,"sessionId":"c","cwd":"/p"}"#)
+        expectEqual(SessionLoader.loadLive(cache: [:], alive: { _ in true }).0.map(\.id), ["b", "a", "c"])
     }
     test("live sessions with no sessions folder") {
         let box = Sandbox(); defer { box.cleanup() }

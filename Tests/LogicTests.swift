@@ -68,8 +68,8 @@ func navTests() {
     let q = session("q", status: .waiting, waitingFor: "question")
     let b = session("b", status: .busy), r = session("r", status: .ended, pid: nil)
 
-    test("sidebar order: waiting, then running, then recent") {
-        expectEqual(SessionNav.ordered(live: [b, w1], recent: [r]).map(\.id), ["w1", "b", "r"])
+    test("sidebar order: running in fixed order (waiting doesn't move), then recent") {
+        expectEqual(SessionNav.ordered(live: [b, w1], recent: [r]).map(\.id), ["b", "w1", "r"])
     }
     test("step wraps both ways and starts at the ends") {
         let list = [w1, b, r]

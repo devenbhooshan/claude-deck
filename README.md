@@ -61,7 +61,7 @@ All of these are also listed in the **Sessions** menu.
 | ⌥⌘↩ | Allow the next permission prompt, from any app (selected session first, else the longest-waiting) |
 | ⌥⌘⌫ | Deny the next permission prompt, from any app |
 | ⌘J | Next session that needs you |
-| ⌘1 – ⌘9 | Go to session 1–9 (sidebar order) |
+| ⌘1 – ⌘9 | Go to running session 1–9 (the number shown next to it; numbers never change while it runs) |
 | ⌥⌘↑ / ⌥⌘↓ | Previous / next session |
 | ⌘R | Rename the selected session |
 | ⇧⌘T | Open the selected session's terminal |

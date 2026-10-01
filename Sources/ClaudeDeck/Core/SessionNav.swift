@@ -6,9 +6,10 @@ enum SessionNav {
     /// How long an answered prompt stays hidden while Claude's status catches up.
     static let answeredTimeout: TimeInterval = 5
 
-    /// Sidebar order: sessions needing you, then the other running ones, then recent ones.
+    /// Sidebar order: running sessions in their fixed (start-time) order, then recent ones.
+    /// A running session's position, and so its number and ⌘-shortcut, never changes while it runs.
     static func ordered(live: [Session], recent: [Session]) -> [Session] {
-        live.filter { $0.status == .waiting } + live.filter { $0.status != .waiting } + recent
+        live + recent
     }
 
     /// Unique project folders, running sessions first, then recent, in order.

@@ -76,8 +76,8 @@ struct SessionCommands: Commands {
             Divider()
             ForEach(1..<10) { n in
                 Button("Session \(n)") {
-                    let list = store.ordered
-                    if list.indices.contains(n - 1) { store.selectedId = list[n - 1].id }
+                    // The numbers shown next to running sessions.
+                    if store.live.indices.contains(n - 1) { store.selectedId = store.live[n - 1].id }
                 }
                 .keyboardShortcut(KeyEquivalent(Character("\(n)")), modifiers: .command)
             }

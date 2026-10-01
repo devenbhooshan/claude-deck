@@ -33,7 +33,8 @@ enum SessionLoader {
                 status: status, waitingFor: rec.waitingFor,
                 updatedAt: Date(timeIntervalSince1970: (rec.updatedAt ?? rec.startedAt ?? 0) / 1000),
                 transcriptURL: transcript,
-                statusSince: rec.statusUpdatedAt.map { Date(timeIntervalSince1970: $0 / 1000) })
+                statusSince: rec.statusUpdatedAt.map { Date(timeIntervalSince1970: $0 / 1000) },
+                startedAt: rec.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) })
             // Only trust a captured request made around the time this prompt opened.
             if status == .waiting, let req = requests[rec.sessionId],
                req.date.timeIntervalSince(s.statusSince ?? .distantPast) > -10 {
@@ -43,8 +44,10 @@ enum SessionLoader {
             if let existing = sessions[s.id], existing.updatedAt > s.updatedAt { continue }
             sessions[s.id] = s
         }
+        // A stable order: by start time (oldest first), never by status or activity, so a session
+        // doesn't move when it starts or stops working. New sessions join at the end.
         let sorted = sessions.values.sorted {
-            $0.status.sortRank != $1.status.sortRank ? $0.status.sortRank < $1.status.sortRank : $0.updatedAt > $1.updatedAt
+            ($0.startedAt ?? .distantFuture, $0.sessionId) < ($1.startedAt ?? .distantFuture, $1.sessionId)
         }
         return (sorted, updates)
     }
