@@ -45,6 +45,7 @@ struct TranscriptView: View {
             cwd: cwd, status: status,
             openToolId: status == .busy || status == .waiting ? openTool?.id : nil,
             loaded: model.loaded))
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .overlay(alignment: .bottomLeading) {
                 if status == .busy {
                     WorkingRow(tool: openTool, since: statusSince)
@@ -112,10 +113,24 @@ struct TranscriptTextView: NSViewRepresentable {
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
         scroll.documentView = tv
+        for axis in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            scroll.setContentHuggingPriority(.defaultLow, for: axis)
+            scroll.setContentCompressionResistancePriority(.defaultLow, for: axis)
+        }
 
         context.coordinator.textView = tv
+        // Follow the user's own scrolling to know whether to stay pinned to the newest message.
+        scroll.contentView.postsBoundsChangedNotifications = true
+        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.userScrolled),
+                                               name: NSView.boundsDidChangeNotification, object: scroll.contentView)
         tv.onColumnChange = { [weak coordinator = context.coordinator] in coordinator?.render(force: true) }
         return scroll
+    }
+
+    /// Take exactly the space offered. Without this SwiftUI sizes the view to the text's width,
+    /// which widened the whole session column past the window.
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 400, height: proposal.height ?? 400)
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
@@ -128,7 +143,22 @@ struct TranscriptTextView: NSViewRepresentable {
         var content: TranscriptContent?
         private var expanded: Set<String> = []
         private var lastSignature = ""
-        private var rendered = false
+        /// True while you're at the bottom; new content keeps you there. Scrolling up turns it off.
+        private var pinned = true
+        private var scrollingProgrammatically = false
+
+        @objc func userScrolled() {
+            guard !scrollingProgrammatically else { return }
+            pinned = isAtBottom(textView?.enclosingScrollView)
+        }
+
+        private func scrollToBottom() {
+            guard let tv = textView else { return }
+            scrollingProgrammatically = true
+            if let container = tv.textContainer { tv.layoutManager?.ensureLayout(for: container) }
+            tv.scrollToEndOfDocument(nil)
+            scrollingProgrammatically = false
+        }
 
         func render(force: Bool) {
             guard let tv = textView, let content, tv.columnWidth > 100 else { return }
@@ -137,7 +167,6 @@ struct TranscriptTextView: NSViewRepresentable {
             lastSignature = signature
 
             let scroll = tv.enclosingScrollView
-            let atBottom = !rendered || isAtBottom(scroll)
             let origin = scroll?.contentView.bounds.origin ?? .zero
             let selection = tv.selectedRange()
 
@@ -145,14 +174,16 @@ struct TranscriptTextView: NSViewRepresentable {
             tv.textStorage?.setAttributedString(text)
             if selection.length > 0, NSMaxRange(selection) <= text.length { tv.setSelectedRange(selection) }
 
-            if let container = tv.textContainer { tv.layoutManager?.ensureLayout(for: container) }
-            if atBottom {
-                tv.scrollToEndOfDocument(nil)
+            if pinned {
+                scrollToBottom()
+                // Layout can still settle (e.g. the width pin) after this pass; follow it.
+                DispatchQueue.main.async { [weak self] in if self?.pinned == true { self?.scrollToBottom() } }
             } else if let scroll {
+                scrollingProgrammatically = true
                 scroll.contentView.scroll(to: origin)
                 scroll.reflectScrolledClipView(scroll.contentView)
+                scrollingProgrammatically = false
             }
-            rendered = true
         }
 
         private func isAtBottom(_ scroll: NSScrollView?) -> Bool {
