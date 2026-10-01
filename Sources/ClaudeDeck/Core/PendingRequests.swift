@@ -38,7 +38,11 @@ enum PendingRequests {
                   let name = obj["tool_name"] as? String else { continue }
             if let existing = newest[session], existing.date > date { continue }
             let summary = describe(name: name, input: obj["tool_input"])
-            newest[session] = Request(date: date, tool: ToolCall(id: f.lastPathComponent, name: name, summary: summary))
+            let input = obj["tool_input"] as? [String: Any] ?? [:]
+            let diff = EditDiff.lines(toolName: name, input: input)
+            // An edit is shown as its diff, so the summary only needs to name the file.
+            let shown = diff != nil ? (input["file_path"] as? String ?? summary) : summary
+            newest[session] = Request(date: date, tool: ToolCall(id: f.lastPathComponent, name: name, summary: shown, diff: diff))
         }
         return newest
     }

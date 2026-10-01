@@ -74,9 +74,13 @@ struct ContentView: View {
         .sheet(isPresented: $store.showNewSession) { NewSessionSheet() }
         .sheet(isPresented: $store.showUsage) { UsageSheet() }
         .safeAreaInset(edge: .bottom) {
-            if !store.hookInstalled {
-                HookSetupCard { confirmHook = true }.padding(10)
+            VStack(spacing: 8) {
+                if !store.hookInstalled {
+                    HookSetupCard { confirmHook = true }
+                }
+                UsageStrip { store.showUsage = true }
             }
+            .padding(10)
         }
         .confirmationDialog("Show what each permission prompt is asking?", isPresented: $confirmHook) {
             Button("Add Hook to ~/.claude/settings.json") { store.installHook() }

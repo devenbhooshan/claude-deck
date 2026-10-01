@@ -10,6 +10,17 @@ final class UsageModel {
     private(set) var loading = false
     private(set) var error: String?
 
+    private var timer: Timer?
+
+    /// Loads now and every 5 minutes, so the menu bar and sidebar stay current.
+    func start() {
+        guard timer == nil else { return }
+        refresh()
+        timer = Timer.scheduledTimer(withTimeInterval: 300, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refresh(force: true) }
+        }
+    }
+
     func refresh(force: Bool = false) {
         if loading { return }
         if !force, let at = fetchedAt, Date().timeIntervalSince(at) < 60 { return }
@@ -93,10 +104,6 @@ struct UsageSheet: View {
 struct UsageBar: View {
     let limit: PlanUsage.Limit
 
-    private var color: Color {
-        limit.percent >= 80 ? Theme.danger : limit.percent >= 50 ? Theme.waiting : Theme.success
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
             HStack {
@@ -107,7 +114,7 @@ struct UsageBar: View {
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     Capsule().fill(Color.primary.opacity(0.08))
-                    Capsule().fill(color).frame(width: max(4, geo.size.width * CGFloat(min(limit.percent, 100)) / 100))
+                    Capsule().fill(UsageMeter.color(limit.percent)).frame(width: max(4, geo.size.width * CGFloat(min(limit.percent, 100)) / 100))
                 }
             }
             .frame(height: 7)
@@ -115,5 +122,53 @@ struct UsageBar: View {
                 Text("Resets \(limit.resets)").font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+/// Compact plan usage (small bars per limit) for the sidebar footer and menu bar panel.
+struct UsageStrip: View {
+    @Environment(UsageModel.self) private var model
+    let open: () -> Void
+
+    var body: some View {
+        if let usage = model.usage, !usage.limits.isEmpty {
+            Button(action: open) {
+                HStack(spacing: 12) {
+                    ForEach(usage.limits) { limit in
+                        VStack(alignment: .leading, spacing: 3) {
+                            HStack(spacing: 4) {
+                                Text(limit.shortLabel).foregroundStyle(.secondary)
+                                Spacer(minLength: 2)
+                                Text("\(limit.percent)%").monospacedDigit().foregroundStyle(.primary)
+                            }
+                            .font(.caption2.weight(.medium))
+                            UsageMeter(percent: limit.percent).frame(height: 4)
+                        }
+                    }
+                }
+                .padding(.horizontal, 10).padding(.vertical, 8)
+                .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(Color.primary.opacity(0.04)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Plan usage (⇧⌘U)")
+        }
+    }
+}
+
+struct UsageMeter: View {
+    let percent: Int
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.primary.opacity(0.08))
+                Capsule().fill(UsageMeter.color(percent)).frame(width: max(3, geo.size.width * CGFloat(min(percent, 100)) / 100))
+            }
+        }
+    }
+
+    static func color(_ percent: Int) -> Color {
+        percent >= 80 ? Theme.danger : percent >= 50 ? Theme.waiting : Theme.success
     }
 }

@@ -94,6 +94,7 @@ struct SessionDetailView: View {
                     if session.status == .waiting && !store.isAnswered(session) {
                         PendingCard(session: session,
                                     tool: session.pendingTool.map { ($0.name, $0.summary) },
+                                    diff: session.pendingTool?.diff,
                                     perform: act, respond: { store.respond(session, key: $0) })
                             .padding(.horizontal, 20).padding(.bottom, 12)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -214,6 +215,8 @@ struct SessionDetailView: View {
 private struct PendingCard: View {
     let session: Session
     let tool: (name: String, summary: String)?
+    /// For file edits: what will change.
+    var diff: [DiffLine]? = nil
     let perform: (@escaping () async throws -> Void) -> Void
     let respond: (String) -> Void
 
@@ -249,16 +252,28 @@ private struct PendingCard: View {
                             Text(ToolStyle.displayName(tool.name)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                             Spacer()
                             // Size up front, so nothing long can hide below the fold.
-                            Text(size(of: tool.summary)).font(.caption2).foregroundStyle(.tertiary)
+                            if let diff {
+                                let stats = LineDiff.stats(diff)
+                                Text("+\(stats.added)").font(.caption2.monospacedDigit()).foregroundStyle(Theme.success)
+                                Text("−\(stats.removed)").font(.caption2.monospacedDigit()).foregroundStyle(Theme.danger)
+                            } else {
+                                Text(size(of: tool.summary)).font(.caption2).foregroundStyle(.tertiary)
+                            }
                         }
-                        ScrollView {
-                            Text(tool.summary)
-                                .font(.system(.callout, design: .monospaced))
-                                .textSelection(.enabled)
-                                .frame(maxWidth: .infinity, alignment: .leading)
+                        if let diff {
+                            Text(Theme.shortPath(tool.summary))
+                                .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
+                            DiffView(lines: diff).frame(maxHeight: 220).fixedSize(horizontal: false, vertical: true)
+                        } else {
+                            ScrollView {
+                                Text(tool.summary)
+                                    .font(.system(.callout, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+                            .frame(maxHeight: 180)
+                            .fixedSize(horizontal: false, vertical: true)
                         }
-                        .frame(maxHeight: 180)
-                        .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 .padding(10)
@@ -304,4 +319,41 @@ private struct EndedBar: View {
 
 extension String {
     var capitalizedFirst: String { prefix(1).uppercased() + dropFirst() }
+}
+
+/// A line diff: removed lines on red, added on green, with +/− gutters.
+struct DiffView: View {
+    let lines: [DiffLine]
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    HStack(alignment: .top, spacing: 6) {
+                        Text(mark(line.kind)).foregroundStyle(.secondary).frame(width: 10)
+                        Text(line.text.isEmpty ? " " : line.text)
+                            .foregroundStyle(line.kind == .context ? .secondary : line.kind == .gap ? .tertiary : .primary)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .font(.system(.caption, design: .monospaced))
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(fill(line.kind))
+                }
+            }
+            .textSelection(.enabled)
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous))
+    }
+
+    private func mark(_ k: DiffLine.Kind) -> String {
+        switch k { case .added: "+"; case .removed: "−"; default: " " }
+    }
+
+    private func fill(_ k: DiffLine.Kind) -> Color {
+        switch k {
+        case .added: Theme.success.opacity(0.16)
+        case .removed: Theme.danger.opacity(0.13)
+        default: .clear
+        }
+    }
 }

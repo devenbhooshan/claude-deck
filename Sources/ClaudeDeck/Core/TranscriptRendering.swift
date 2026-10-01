@@ -536,6 +536,11 @@ struct TranscriptRenderer {
             line.append(NSAttributedString(string: String(firstLine.prefix(120)) + more, attributes: [
                 .font: mono, .foregroundColor: NSColor.secondaryLabelColor,
             ]))
+            if let diff = call.diff {
+                let (added, removed) = LineDiff.stats(diff)
+                line.append(NSAttributedString(string: "  +\(added)", attributes: [.font: mono, .foregroundColor: Palette.success]))
+                line.append(NSAttributedString(string: " −\(removed)", attributes: [.font: mono, .foregroundColor: Palette.danger]))
+            }
             line.append(NSAttributedString(string: "\t"))
             line.append(status(call, result, c))
             line.append(NSAttributedString(string: "\n"))
@@ -555,6 +560,7 @@ struct TranscriptRenderer {
                 out.append(NSAttributedString(string: call.summary + "\n", attributes: [
                     .font: small, .foregroundColor: NSColor.labelColor, .paragraphStyle: detailStyle,
                 ]))
+                if let diff = call.diff { out.append(diffLines(diff, in: card, width: inner)) }
                 if let result {
                     var text = result.text.isEmpty ? "(no output)" : result.text
                     if text.count > 6000 { text = String(text.prefix(6000)) + "\n… (truncated)" }
@@ -565,6 +571,38 @@ struct TranscriptRenderer {
                     ]))
                 }
             }
+        }
+        return out
+    }
+
+    /// A diff inside a tool card: one full-width tinted row per line, with +/− gutters.
+    func diffLines(_ diff: [DiffLine], in card: NSTextBlock, width: CGFloat) -> NSAttributedString {
+        let out = NSMutableAttributedString()
+        let font = NSFont.monospacedSystemFont(ofSize: 11, weight: .regular)
+        for line in diff {
+            let row = RoundedTextBlock()
+            row.radius = 0
+            let (fill, mark, color): (NSColor, String, NSColor) = switch line.kind {
+            case .added: (Palette.success.withAlphaComponent(0.14), "+", NSColor.labelColor)
+            case .removed: (Palette.danger.withAlphaComponent(0.12), "−", NSColor.labelColor)
+            case .context: (.clear, " ", NSColor.secondaryLabelColor)
+            case .gap: (.clear, " ", NSColor.tertiaryLabelColor)
+            }
+            row.fill = fill
+            row.setContentWidth(max(40, width - 22 - 12), type: .absoluteValueType)
+            row.setWidth(22, type: .absoluteValueType, for: .margin, edge: .minX)
+            row.setWidth(6, type: .absoluteValueType, for: .padding, edge: .minX)
+            row.setWidth(1, type: .absoluteValueType, for: .padding, edge: .minY)
+            row.setWidth(1, type: .absoluteValueType, for: .padding, edge: .maxY)
+            let style = paragraph { s in
+                s.textBlocks = [card, row]
+                s.paragraphSpacing = 0
+                s.lineSpacing = 0
+                s.lineBreakMode = .byCharWrapping
+            }
+            out.append(NSAttributedString(string: "\(mark) \(line.text)\n", attributes: [
+                .font: font, .foregroundColor: color, .paragraphStyle: style,
+            ]))
         }
         return out
     }

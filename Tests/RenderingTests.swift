@@ -40,11 +40,14 @@ func toolStyleTests() {
 }
 
 func rendererTests() {
-    let r = TranscriptRenderer(width: 700, cwd: "/p/app", expanded: ["t1", "t2", "t3"])
+    let r = TranscriptRenderer(width: 700, cwd: "/p/app", expanded: ["t1", "t2", "t3", "t7"])
     let calls = [ToolCall(id: "t1", name: "Bash", summary: "ls /p/app/src\nmore"), ToolCall(id: "t2", name: "Read", summary: "/p/app/x"),
                  ToolCall(id: "t3", name: "Write", summary: NSHomeDirectory() + "/y"), ToolCall(id: "t4", name: "Edit", summary: "e"),
                  ToolCall(id: "t5", name: "Grep", summary: "g"),
-                 ToolCall(id: "t6", name: "Glob", summary: "")]
+                 ToolCall(id: "t6", name: "Glob", summary: ""),
+                 ToolCall(id: "t7", name: "Edit", summary: "/p/app/f.swift",
+                          diff: [DiffLine(kind: .context, text: "a"), DiffLine(kind: .removed, text: "b"),
+                                 DiffLine(kind: .added, text: "B"), DiffLine(kind: .gap, text: "⋯ 3 unchanged lines")])]
     let results: [String: ToolResult] = ["t1": ToolResult(text: String(repeating: "o", count: 7000), isError: false),
                                          "t2": ToolResult(text: "", isError: true)]
     let md = """
@@ -82,7 +85,7 @@ func rendererTests() {
         let s = text.string
         for piece in ["hello", "/rename x", "/clear", "✦", "Heading", "bold", "link", "code block", "only", "Interrupted",
                       "✓ Built", "✗ Broke", "Bash", "ls src ⏎…", "~/y", "running…", "–", "(no output)", "… (truncated)",
-                      "queued msg", "Queued until", "Sending…", "Sent", "starts with code", "Starts with heading", "Context: 45% used"] {
+                      "queued msg", "Queued until", "Sending…", "Sent", "starts with code", "Starts with heading", "Context: 45% used", "+1", "−1", "− b", "+ B", "⋯ 3 unchanged lines"] {
             expect(s.contains(piece), "missing \(piece)")
         }
         // Tool rows are links that toggle expansion.

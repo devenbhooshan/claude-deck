@@ -27,6 +27,10 @@ lets you read each transcript live, send messages, and jump to the session's ter
   A session's terminal must be in the session's folder and show a Claude title; its title picks between several.
 - Ended sessions from the last 7 days can be reopened with "Resume in Ghostty".
 - **New session** (toolbar +, ⌘N) opens a Ghostty window in a folder and starts `claude`.
+- File edits show as diffs: Edit / MultiEdit / Write rows show `+added −removed`, expand to a
+  red/green line diff, and edit permission prompts show the diff you're approving.
+- Plan usage at a glance: session % in the menu bar, and session / week bars in the sidebar and
+  menu bar panel (refreshed every 5 minutes; click for details).
 - The sidebar lists the **skills** (project, global, claude.ai and plugin) and **MCP servers**
   (from `claude mcp list`, checked in the background) for the selected session's project.
   Clicking a skill puts its `/command` in the message box.

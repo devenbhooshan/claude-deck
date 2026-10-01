@@ -20,18 +20,27 @@ struct ClaudeDeckApp: App {
                 .onAppear {
                     delegate.store = store
                     store.start()
+                    usage.start()
                 }
         }
         .defaultSize(width: 1200, height: 780)
         .commands { SessionCommands(store: store) }
 
         MenuBarExtra {
-            MenuBarContent().environment(store)
+            MenuBarContent().environment(store).environment(usage)
         } label: {
             Image(systemName: store.waitingCount > 0 ? "exclamationmark.bubble.fill" : "bubble.left.and.bubble.right")
-            if store.waitingCount > 0 { Text("\(store.waitingCount)") }
+            Text(menuBarText)
         }
         .menuBarExtraStyle(.window)
+    }
+}
+
+extension ClaudeDeckApp {
+    /// "2 · 35%": sessions waiting on you, then your current-session plan usage.
+    var menuBarText: String {
+        let pct = usage.usage?.session.map { "\($0.percent)%" }
+        return [store.waitingCount > 0 ? "\(store.waitingCount)" : nil, pct].compactMap { $0 }.joined(separator: " · ")
     }
 }
 
@@ -166,6 +175,9 @@ struct MenuBarContent: View {
                 .help("Jump to a session (⇧⌘Space)")
             }
             .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
+
+            UsageStrip { store.showUsage = true; store.bringToFront() }
+                .padding(.horizontal, 12).padding(.bottom, 6)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {

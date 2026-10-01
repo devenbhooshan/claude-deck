@@ -89,7 +89,12 @@ func planUsageTests() {
         expectEqual(u.limits[0].id, "Current session")
         expectEqual(u.details.first, "What's contributing to your limits usage?")
         expectEqual(u.details.last, "  95% of your usage was at >150k context")
+        expectEqual(u.limits.map(\.shortLabel), ["Session", "Week", "Fable"])
+        expectEqual(u.session?.percent, 33)
+        expectEqual(PlanUsage.parse("Weekly limit: 5% used").session?.label, "Weekly limit")
+        expectEqual(PlanUsage.Limit(label: "Odd (", percent: 1, resets: "").shortLabel, "Odd (")
         let empty = PlanUsage.parse("")
+        expect(empty.session == nil)
         expect(empty.limits.isEmpty && empty.details.isEmpty && empty.summary.isEmpty)
     }
     test("strip ANSI") {

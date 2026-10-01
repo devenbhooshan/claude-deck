@@ -92,6 +92,8 @@ struct ToolCall: Identifiable, Equatable {
     let id: String
     let name: String
     let summary: String
+    /// For file edits: the change, as a compact line diff.
+    var diff: [DiffLine]? = nil
 }
 
 struct ToolResult {

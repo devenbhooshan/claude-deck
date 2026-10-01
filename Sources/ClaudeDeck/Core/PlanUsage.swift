@@ -8,7 +8,19 @@ struct PlanUsage: Equatable {
         let resets: String   // "Oct 6 at 1:29pm (Asia/Calcutta)"
 
         var id: String { label }
+
+        /// "Current session" → "Session", "Current week (all models)" → "Week", "Current week (Fable)" → "Fable".
+        var shortLabel: String {
+            if let open = label.firstIndex(of: "("), let close = label.lastIndex(of: ")"), open < close {
+                let inner = String(label[label.index(after: open)..<close])
+                return inner == "all models" ? "Week" : inner
+            }
+            return label.replacingOccurrences(of: "Current ", with: "").capitalized
+        }
     }
+
+    /// The current session limit, the one you'll hit first in practice.
+    var session: Limit? { limits.first { $0.label.lowercased().contains("session") } ?? limits.first }
 
     let limits: [Limit]
     /// The explanatory lines ("What's contributing…"), as printed.
