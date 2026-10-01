@@ -154,6 +154,12 @@ private struct Dialogs: ViewModifier {
 extension ContentView {
     @ViewBuilder
     func rowMenu(_ s: Session) -> some View {
+        if s.status == .waiting && PromptGuard.canAnswerHere(s) && !store.isAnswered(s) {
+            Button("Allow") { store.respond(s, key: "enter") }
+            Button("Always Allow (option 2)") { store.respond(s, key: "2") }
+            Button("Deny") { store.respond(s, key: "escape") }
+            Divider()
+        }
         Button("Rename…") { store.renameTarget = s }
         if s.isLive {
             Button("Open Terminal") { store.openTerminal(s) }
@@ -190,25 +196,46 @@ struct ApprovalRow: View {
     let session: Session
     var number: Int? = nil
 
+    /// A waiting session, the same size as any other row: the request in the subtitle and
+    /// small Allow / Deny buttons where the time usually is.
     var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            SessionRow(session: session, number: number)
-            if let tool = session.pendingTool {
-                HStack(spacing: 6) {
-                    Image(systemName: ToolStyle.symbol(tool.name)).font(.caption2)
-                    Text(tool.summary.replacingOccurrences(of: session.cwd + "/", with: ""))
-                        .font(.system(.caption, design: .monospaced))
-                        .lineLimit(2)
+        SessionRow(session: session, number: number) {
+            if store.isAnswered(session) {
+                Image(systemName: "checkmark").font(.caption).foregroundStyle(.secondary).help("Sent")
+            } else if PromptGuard.canAnswerHere(session) {
+                HStack(spacing: 4) {
+                    iconButton("checkmark", tint: Theme.accent, filled: true, help: "Allow: \(request)") {
+                        store.respond(session, key: "enter")
+                    }
+                    iconButton("xmark", tint: .secondary, filled: false, help: "Deny") {
+                        store.respond(session, key: "escape")
+                    }
                 }
-                .foregroundStyle(.secondary)
-                .padding(.leading, SessionRow.titleInset)
+            } else {
+                Button("Answer") { store.openTerminal(session) }
+                    .buttonStyle(.deck(.secondary, size: .mini))
+                    .help("This prompt is answered in the terminal")
             }
-            ApprovalButtons(session: session)
-                .padding(.leading, SessionRow.titleInset)
         }
-        .padding(.bottom, 4)
-        .listRowBackground(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-            .fill(Theme.waiting.opacity(0.08)).padding(.horizontal, 10))
+    }
+
+    private var request: String {
+        session.pendingTool.map { "\(ToolStyle.displayName($0.name)): \($0.summary)" } ?? "the open prompt"
+    }
+
+    private func iconButton(_ symbol: String, tint: Color, filled: Bool, help: String,
+                            action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 10, weight: .bold))
+                .foregroundStyle(filled ? .white : tint)
+                .frame(width: 22, height: 20)
+                .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
+                    .fill(filled ? tint : Color.primary.opacity(0.07)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
     }
 }
 
@@ -311,13 +338,18 @@ struct SectionHeader: View {
     }
 }
 
-struct SessionRow: View {
+struct SessionRow<Accessory: View>: View {
     let session: Session
     /// The session's fixed number (⌘1–9 opens it), shown for running sessions.
     var number: Int? = nil
+    /// Shown instead of the time (e.g. Allow / Deny for a waiting session).
+    var accessory: Accessory?
 
-    /// Space before the title, for indenting content under it.
-    static let titleInset: CGFloat = 50
+    init(session: Session, number: Int? = nil, @ViewBuilder accessory: () -> Accessory) {
+        self.session = session
+        self.number = number
+        self.accessory = accessory()
+    }
 
     var body: some View {
         HStack(spacing: 8) {
@@ -332,10 +364,14 @@ struct SessionRow: View {
                         .font(.body.weight(session.status == .waiting ? .semibold : .regular))
                         .lineLimit(1)
                     Spacer(minLength: 4)
-                    TimelineView(.periodic(from: .now, by: 30)) { ctx in
-                        Text(Theme.ago(session.updatedAt, now: ctx.date))
-                            .font(.caption).monospacedDigit()
-                            .foregroundStyle(.tertiary)
+                    if let accessory {
+                        accessory
+                    } else {
+                        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                            Text(Theme.ago(session.updatedAt, now: ctx.date))
+                                .font(.caption).monospacedDigit()
+                                .foregroundStyle(.tertiary)
+                        }
                     }
                 }
                 Text(subtitle)
@@ -348,6 +384,10 @@ struct SessionRow: View {
     }
 
     private var subtitle: String {
+        if session.status == .waiting, let tool = session.pendingTool {
+            let what = tool.summary.split(separator: "\n").first.map(String.init) ?? tool.summary
+            return "\(session.projectName) · \(what.replacingOccurrences(of: session.cwd + "/", with: ""))"
+        }
         if session.status == .waiting, let w = session.waitingFor {
             return "\(session.projectName) · \(w.prefix(1).uppercased() + w.dropFirst())"
         }
@@ -398,5 +438,13 @@ private struct EmptyDetail: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .navigationTitle("Claude Deck")
+    }
+}
+
+extension SessionRow where Accessory == EmptyView {
+    init(session: Session, number: Int? = nil) {
+        self.session = session
+        self.number = number
+        self.accessory = nil
     }
 }
