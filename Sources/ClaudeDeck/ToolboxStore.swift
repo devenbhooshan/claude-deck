@@ -64,28 +64,7 @@ final class ToolboxStore {
         }
     }
 
-    struct RunError: Error { let message: String }
-
-    nonisolated private static func runMCPList(in dir: String) -> Result<[MCPServer], RunError> {
-        guard let claude = ClaudeCLI.locate() else { return .failure(RunError(message: "Couldn't find the claude command")) }
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: claude)
-        p.arguments = ["mcp", "list"]
-        p.currentDirectoryURL = URL(fileURLWithPath: dir)
-        // Apps launched from Finder get a minimal PATH; stdio servers often need npx/uvx etc.
-        var env = ProcessInfo.processInfo.environment
-        let home = NSHomeDirectory()
-        env["PATH"] = "\(home)/.local/bin:/opt/homebrew/bin:/usr/local/bin:" + (env["PATH"] ?? "/usr/bin:/bin")
-        p.environment = env
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = Pipe()
-        do { try p.run() } catch { return .failure(RunError(message: error.localizedDescription)) }
-        let killer = DispatchWorkItem { if p.isRunning { p.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 45, execute: killer)
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
-        killer.cancel()
-        return .success(MCPCatalog.parse(String(decoding: data, as: UTF8.self)))
+    nonisolated private static func runMCPList(in dir: String) -> Result<[MCPServer], ClaudeRunner.RunError> {
+        ClaudeRunner.run(["mcp", "list"], in: dir).map(MCPCatalog.parse)
     }
 }

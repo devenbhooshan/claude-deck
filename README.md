@@ -16,6 +16,9 @@ How it works:
 - The sidebar lists the **skills** (project, global, claude.ai and plugin) and **MCP servers**
   (from `claude mcp list`, checked in the background) for the selected session's project.
   Clicking a skill puts its `/command` in the message box.
+- Typing `/` lists every command (custom, skills, built-ins). Built-ins are handled by kind: most
+  are sent as typed (their output appears in the transcript); ones that open a menu (`/model`,
+  `/mcp`, `/config`…) bring the terminal forward; `/usage` (or ⇧⌘U) shows your plan limits in Deck.
 
 ## Safety
 

@@ -178,6 +178,13 @@ struct Composer: View {
         guard canSend else { return }
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let staged = attachments
+        let kind = CommandCatalog.kind(of: text)
+        // Commands Deck handles itself (e.g. /usage) never reach the session.
+        if kind == .deck && staged.isEmpty {
+            draft = ""
+            store.showUsage = true
+            return
+        }
         // Show the message immediately; the terminal round trip happens in the background.
         let thumbs = staged.compactMap { (try? Data(contentsOf: $0.url)).flatMap { TranscriptParser.thumbnail($0) } }
         let outgoingId = model.addOutgoing(text: text, images: thumbs)
@@ -187,6 +194,11 @@ struct Composer: View {
             do {
                 try await Ghostty.send(text: text, images: staged.map(\.url), to: session)
                 model.markDelivered(outgoingId)
+                // Commands like /model or /mcp open a menu in the terminal: bring it forward.
+                if kind == .terminal {
+                    try? await Ghostty.focus(session)
+                    HUD.show("\(text.split(separator: " ")[0]) opened in the terminal", symbol: "apple.terminal", tint: Theme.accent)
+                }
             } catch {
                 model.removeOutgoing(outgoingId)
                 if draft.isEmpty { draft = text }
@@ -246,6 +258,12 @@ struct SlashMenu: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                 Spacer(minLength: 6)
+                                if item.kind != .send {
+                                    Label(item.kind == .terminal ? "opens in terminal" : "in Deck",
+                                          systemImage: item.kind == .terminal ? "apple.terminal" : "macwindow")
+                                        .font(.caption2)
+                                        .foregroundStyle(Theme.accent)
+                                }
                                 Text(item.source)
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)

@@ -77,6 +77,8 @@ struct TranscriptItem: Identifiable {
         case assistant(String)
         case tool(ToolCall)
         case notice(String)
+        /// Output of a slash command that ran in the terminal (e.g. /cost, /context).
+        case commandOutput(String)
         /// A background task finished (from a <task-notification>).
         case taskEvent(String, ok: Bool)
     }

@@ -71,7 +71,7 @@ func rendererTests() {
             .item(item(.assistant("```\nstarts with code\n```"))),
             .item(item(.assistant("| only | table |"))),
             .item(item(.assistant("# Starts with heading\ntext"))),
-            .item(item(.notice("Interrupted"))),
+            .item(item(.notice("Interrupted"))), .item(item(.commandOutput("Context: 45% used"))),
             .item(item(.taskEvent("Built", ok: true))), .item(item(.taskEvent("Broke", ok: false))),
             .item(item(.tool(calls[0]))),
             .tools(calls),
@@ -82,7 +82,7 @@ func rendererTests() {
         let s = text.string
         for piece in ["hello", "/rename x", "/clear", "✦", "Heading", "bold", "link", "code block", "only", "Interrupted",
                       "✓ Built", "✗ Broke", "Bash", "ls src ⏎…", "~/y", "running…", "–", "(no output)", "… (truncated)",
-                      "queued msg", "Queued until", "Sending…", "Sent", "starts with code", "Starts with heading"] {
+                      "queued msg", "Queued until", "Sending…", "Sent", "starts with code", "Starts with heading", "Context: 45% used"] {
             expect(s.contains(piece), "missing \(piece)")
         }
         // Tool rows are links that toggle expansion.

@@ -237,8 +237,8 @@ final class TranscriptParser: @unchecked Sendable {
             return .command([name, args].filter { !$0.isEmpty }.joined(separator: " "))
         }
         if text.hasPrefix("<local-command-stdout>") {
-            let out = between(text, "<local-command-stdout>", "</local-command-stdout>") ?? ""
-            return out.isEmpty ? nil : .notice(out)
+            let out = Safety.stripANSI(between(text, "<local-command-stdout>", "</local-command-stdout>") ?? "")
+            return out.isEmpty ? nil : .commandOutput(out)
         }
         if text.hasPrefix("<task-notification>") {
             let status = between(text, "<status>", "</status>") ?? "completed"

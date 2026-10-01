@@ -72,6 +72,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $store.showNewSession) { NewSessionSheet() }
+        .sheet(isPresented: $store.showUsage) { UsageSheet() }
         .safeAreaInset(edge: .bottom) {
             if !store.hookInstalled {
                 HookSetupCard { confirmHook = true }.padding(10)

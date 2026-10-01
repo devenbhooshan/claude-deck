@@ -68,7 +68,7 @@ func parserTests() {
             ["type": "user", "message": ["content": "   "]],
             ["type": "user", "message": ["content": "<command-name>/rename</command-name><command-args>New</command-args>"]],
             ["type": "user", "message": ["content": "<command-message>clear</command-message>"]],
-            ["type": "user", "message": ["content": "<local-command-stdout>Renamed</local-command-stdout>"]],
+            ["type": "user", "message": ["content": "<local-command-stdout>\u{1b}[1mRenamed\u{1b}[0m</local-command-stdout>"]],
             ["type": "user", "message": ["content": "<local-command-stdout></local-command-stdout>"]],
             ["type": "user", "message": ["content": "<local-command-stdout>unterminated"]],
             ["type": "ai-title"],
@@ -136,11 +136,12 @@ func parserTests() {
             case .assistant(let t): kinds.append("asst:\(t)")
             case .tool(let c): kinds.append("tool:\(c.name):\(c.summary)")
             case .notice(let t): kinds.append("notice:\(t)")
+            case .commandOutput(let t): kinds.append("out:\(t)")
             case let .taskEvent(t, ok): kinds.append("task:\(t):\(ok)")
             }
         }
         expectEqual(kinds, [
-            "user:first:0", "cmd:/rename New", "cmd:", "notice:Renamed", "task:Build broke:false",
+            "user:first:0", "cmd:/rename New", "cmd:", "out:Renamed", "task:Build broke:false",
             "task:Background task completed:true", "notice:Interrupted", "user:merge it:0", "user:no close:0",
             "user:look at this:1",
             "user:blocks only text:0", "asst:plain reply", "asst:Let me look.", "tool:Bash:ls -la", "tool:Read:/x",

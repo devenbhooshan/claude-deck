@@ -13,6 +13,11 @@ enum Safety {
         "'" + s.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 
+    /// Removes terminal colour/format escape sequences (ESC [ … letter).
+    static func stripANSI(_ s: String) -> String {
+        s.replacingOccurrences(of: #"\x{1B}\[[0-9;?]*[ -/]*[@-~]"#, with: "", options: .regularExpression)
+    }
+
     /// Removes control characters (escape sequences, bracketed-paste markers, etc.), keeping newlines and tabs.
     static func stripControls(_ s: String, keepNewlines: Bool = true) -> String {
         String(String.UnicodeScalarView(s.unicodeScalars.filter { scalar in

@@ -12,6 +12,7 @@ final class SessionStore {
     var selectedId: String?
     var showSwitcher = false
     var showNewSession = false
+    var showUsage = false
     /// A session we just started: select it as soon as it appears.
     private var starting: (folder: String, at: Date)?
     /// Text to drop into the message box (e.g. a skill's command), consumed by the composer.

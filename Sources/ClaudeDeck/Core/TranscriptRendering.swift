@@ -265,6 +265,7 @@ struct TranscriptRenderer {
                 case .command(let cmd): out.append(command(cmd))
                 case .assistant(let text): out.append(assistant(text))
                 case .notice(let text): out.append(notice(text, symbol: nil, color: .secondaryLabelColor))
+                case .commandOutput(let text): out.append(codeBlock(text, spacingBefore: 12))
                 case let .taskEvent(text, ok):
                     out.append(notice(text, symbol: ok ? "✓" : "✗", color: ok ? Palette.success : Palette.danger))
                 case .tool: break

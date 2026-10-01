@@ -17,6 +17,7 @@ enum TranscriptExport {
                 case .command(let c): out.append("**You:** `\(c.hasPrefix("/") ? c : "/" + c)`")
                 case .assistant(let t): out.append("**Claude:** \(t)")
                 case .notice(let t): out.append("_\(t)_")
+                case .commandOutput(let t): out.append("```\n\(t)\n```")
                 case .taskEvent(let t, _): out.append("_\(t)_")
                 case .tool: break
                 }

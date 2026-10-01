@@ -8,12 +8,14 @@ struct ClaudeDeckApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var store = SessionStore()
     @State private var toolbox = ToolboxStore()
+    @State private var usage = UsageModel()
 
     var body: some Scene {
         Window("Claude Deck", id: "main") {
             MainWindow()
                 .environment(store)
                 .environment(toolbox)
+                .environment(usage)
                 .frame(minWidth: 900, minHeight: 560)
                 .onAppear {
                     delegate.store = store
@@ -51,6 +53,8 @@ struct SessionCommands: Commands {
         CommandMenu("Sessions") {
             Button("New Session…") { store.showNewSession = true }
                 .keyboardShortcut("n", modifiers: .command)
+            Button("Plan Usage…") { store.showUsage = true }
+                .keyboardShortcut("u", modifiers: [.command, .shift])
             Button("Jump to Session…") { store.showSwitcher.toggle() }
                 .keyboardShortcut("k", modifiers: .command)
             Button("Next Session Needing You") { store.selectNextWaiting() }
@@ -199,7 +203,8 @@ struct MenuBarContent: View {
 
             Divider().padding(.top, 6)
             HStack {
-                Button("Open Claude Deck") { store.bringToFront() }
+                Button("Plan Usage…") { store.showUsage = true; store.bringToFront() }
+        Button("Open Claude Deck") { store.bringToFront() }
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
             }

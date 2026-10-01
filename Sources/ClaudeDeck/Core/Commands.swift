@@ -2,9 +2,20 @@ import Foundation
 
 /// Anything you can type after "/" in Claude Code: a built-in, a custom command, or a skill.
 struct SlashCommand: Identifiable, Equatable {
+    /// How Deck handles a command.
+    enum Kind: Equatable {
+        /// Typed into the session; any output lands in the transcript.
+        case send
+        /// Typed into the session, where it opens an interactive menu: Deck brings the terminal forward.
+        case terminal
+        /// Handled by Deck itself.
+        case deck
+    }
+
     let command: String      // "/review", "/frontend:design"
     let description: String
     let source: String       // "Built-in", "Project", "Global", "claude.ai", a plugin name
+    var kind: Kind = .send
 
     var id: String { command }
 }
@@ -12,23 +23,36 @@ struct SlashCommand: Identifiable, Equatable {
 enum CommandCatalog {
     /// Claude Code's built-in commands that make sense to send from Deck.
     static let builtIns: [SlashCommand] = [
-        ("/clear", "Start a fresh conversation"),
-        ("/compact", "Summarize the conversation to free up context"),
-        ("/context", "Show what's using the context window"),
-        ("/cost", "Show token usage and cost for this session"),
-        ("/model", "Switch the model"),
-        ("/rename", "Rename this session"),
-        ("/review", "Review a pull request"),
-        ("/init", "Create a CLAUDE.md for this project"),
-        ("/memory", "Edit Claude's memory files"),
-        ("/mcp", "Manage MCP servers"),
-        ("/agents", "Manage subagents"),
-        ("/permissions", "View or change tool permissions"),
-        ("/hooks", "Manage hooks"),
-        ("/status", "Show version, model and account"),
-        ("/config", "Open settings"),
-        ("/help", "Show help"),
-    ].map { SlashCommand(command: $0.0, description: $0.1, source: "Built-in") }
+        ("/usage", "Plan usage limits (shown in Deck)", SlashCommand.Kind.deck),
+        ("/clear", "Start a fresh conversation", .send),
+        ("/compact", "Summarize the conversation to free up context", .send),
+        ("/context", "Show what's using the context window", .send),
+        ("/cost", "Show token usage and cost for this session", .send),
+        ("/rename", "Rename this session", .send),
+        ("/review", "Review a pull request", .send),
+        ("/init", "Create a CLAUDE.md for this project", .send),
+        ("/model", "Switch the model", .terminal),
+        ("/memory", "Edit Claude's memory files", .terminal),
+        ("/mcp", "Manage MCP servers", .terminal),
+        ("/agents", "Manage subagents", .terminal),
+        ("/permissions", "View or change tool permissions", .terminal),
+        ("/hooks", "Manage hooks", .terminal),
+        ("/status", "Show version, model and account", .terminal),
+        ("/config", "Open settings", .terminal),
+        ("/doctor", "Check the Claude Code installation", .terminal),
+        ("/help", "Show help", .terminal),
+    ].map { SlashCommand(command: $0.0, description: $0.1, source: "Built-in", kind: $0.2) }
+
+    /// How to handle a message before sending it: built-ins by their kind (`/model sonnet`
+    /// with an argument just switches, so it's sent), everything else is sent as-is.
+    static func kind(of message: String) -> SlashCommand.Kind {
+        let trimmed = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("/") else { return .send }
+        let parts = trimmed.split(separator: " ", maxSplits: 1)
+        guard let builtIn = builtIns.first(where: { $0.command == String(parts[0]) }) else { return .send }
+        if builtIn.kind == .terminal && parts.count > 1 && builtIn.command == "/model" { return .send }
+        return builtIn.kind
+    }
 
     /// Custom commands (project, then global, then plugins), then skills, then built-ins.
     /// The first one with a given name wins, as in Claude Code.
