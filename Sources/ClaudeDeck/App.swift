@@ -199,7 +199,9 @@ struct MenuBarContent: View {
                 }
                 .padding(.horizontal, 8)
             }
+            // Size to the content (up to 460pt); otherwise the scroll area collapses to nothing here.
             .frame(maxHeight: 460)
+            .fixedSize(horizontal: false, vertical: true)
 
             Divider().padding(.top, 6)
             HStack {
