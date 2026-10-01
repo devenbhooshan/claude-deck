@@ -107,7 +107,7 @@ struct TranscriptTextView: NSViewRepresentable {
         tv.linkTextAttributes = [.cursor: NSCursor.pointingHand]
         tv.delegate = context.coordinator
 
-        let scroll = NSScrollView()
+        let scroll = PinnedScrollView()
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
@@ -172,6 +172,18 @@ struct TranscriptTextView: NSViewRepresentable {
             }
             NSWorkspace.shared.open(url)
             return true
+        }
+    }
+}
+
+/// Keeps the text view exactly as wide as the visible area, so the column can't drift off-screen.
+final class PinnedScrollView: NSScrollView {
+    override func tile() {
+        super.tile()
+        guard let doc = documentView else { return }
+        let width = contentView.bounds.width
+        if abs(doc.frame.width - width) > 0.5 {
+            doc.setFrameSize(NSSize(width: width, height: doc.frame.height))
         }
     }
 }
@@ -418,6 +430,7 @@ struct TranscriptRenderer {
         block.fill = NSColor.labelColor.withAlphaComponent(0.05)
         block.radius = Theme.Radius.medium
         block.setWidth(10, type: .absoluteValueType, for: .padding)
+        block.setContentWidth(width - indent - 20, type: .absoluteValueType)
         block.setWidth(indent, type: .absoluteValueType, for: .margin, edge: .minX)
         block.setWidth(spacingBefore, type: .absoluteValueType, for: .margin, edge: .minY)
         block.setWidth(6, type: .absoluteValueType, for: .margin, edge: .maxY)
@@ -473,6 +486,7 @@ struct TranscriptRenderer {
         card.setWidth(7, type: .absoluteValueType, for: .padding, edge: .minY)
         card.setWidth(7, type: .absoluteValueType, for: .padding, edge: .maxY)
         card.setWidth(indent, type: .absoluteValueType, for: .margin, edge: .minX)
+        card.setContentWidth(width - indent - 20, type: .absoluteValueType)
         card.setWidth(10, type: .absoluteValueType, for: .margin, edge: .minY)
         let inner = width - indent - 20
 
@@ -562,8 +576,8 @@ struct TranscriptRenderer {
             var attrs: [NSAttributedString.Key: Any] = [.foregroundColor: color]
             if let intent = run.inlinePresentationIntent {
                 if intent.contains(.code) {
+                    // No background tint: on wrapped lines NSTextView smears it across the line.
                     f = NSFont.monospacedSystemFont(ofSize: font.pointSize - 1.5, weight: .regular)
-                    attrs[.backgroundColor] = NSColor.labelColor.withAlphaComponent(0.06)
                 }
                 if intent.contains(.stronglyEmphasized) { f = NSFontManager.shared.convert(f, toHaveTrait: .boldFontMask) }
                 if intent.contains(.emphasized) { f = NSFontManager.shared.convert(f, toHaveTrait: .italicFontMask) }
