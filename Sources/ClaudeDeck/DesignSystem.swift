@@ -34,6 +34,10 @@ struct StatusIcon: View {
 
     var body: some View {
         ZStack {
+            // A solid base under the tint, so the tile reads the same on any row background
+            // (a see-through tint turned muddy on the selection highlight).
+            RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
+                .fill(Color(nsColor: .controlBackgroundColor))
             RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
                 .fill(Theme.color(status).opacity(status == .ended ? 0.12 : 0.16))
             switch status {
