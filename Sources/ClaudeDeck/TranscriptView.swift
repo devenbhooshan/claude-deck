@@ -19,6 +19,14 @@ struct TranscriptView: View {
         return last
     }
 
+    /// A message you just sent that Claude hasn't picked up yet: show activity right away,
+    /// instead of waiting for Claude Code to report the session as busy.
+    private var sendingSince: Date? {
+        status == .busy || status == .waiting ? nil : model.outgoing.map(\.sentAt).min()
+    }
+
+    private var active: Bool { status == .busy || sendingSince != nil }
+
     var body: some View {
         TranscriptTextView(content: TranscriptContent(
             blocks: model.blocks, results: model.results, queued: model.queued, outgoing: model.outgoing,
@@ -27,28 +35,34 @@ struct TranscriptView: View {
             loaded: model.loaded))
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                if status == .busy {
-                    // Lined up with the reading column, under the last message (never covering it).
-                    HStack(spacing: 8) {
-                        WorkingRow(tool: openTool, since: statusSince)
-                            .padding(.horizontal, 12).padding(.vertical, 6)
-                            .background(Capsule().fill(Color.primary.opacity(0.05)))
-                        if let onStop {
-                            Button(action: onStop) {
-                                Label("Stop", systemImage: "stop.fill")
-                            }
-                            .buttonStyle(.deck(.secondary, size: .small))
-                            .keyboardShortcut(".", modifiers: .command)
-                            .help("Stop Claude's current step (⌘.)")
+                // The row's space is always reserved, so the transcript never jumps when it appears;
+                // its contents fade in and out. Lined up with the reading column, under the last message.
+                HStack(spacing: 8) {
+                    WorkingRow(tool: status == .busy ? openTool : nil, since: status == .busy ? statusSince : sendingSince,
+                               sending: status != .busy)
+                        .padding(.horizontal, 12).padding(.vertical, 6)
+                        .background(Capsule().fill(Color.primary.opacity(0.05)))
+                    if let onStop {
+                        // Present from the start (no second pop-in), usable once Claude is working.
+                        Button(action: onStop) {
+                            Label("Stop", systemImage: "stop.fill")
                         }
-                        Spacer()
+                        .buttonStyle(.deck(.secondary, size: .small))
+                        .keyboardShortcut(".", modifiers: .command)
+                        .disabled(status != .busy)
+                        .help("Stop Claude's current step (⌘.)")
                     }
-                    .frame(maxWidth: ColumnTextView.maxColumn)
-                    .padding(.horizontal, 28)
-                    .padding(.vertical, 6)
-                    .frame(maxWidth: .infinity)
-                    .transition(.opacity)
+                    Spacer()
                 }
+                .frame(height: 30)
+                .frame(maxWidth: ColumnTextView.maxColumn)
+                .padding(.horizontal, 28)
+                .padding(.vertical, 5)
+                .frame(maxWidth: .infinity)
+                .opacity(active ? 1 : 0)
+                .allowsHitTesting(active)
+                .animation(.easeInOut(duration: 0.2), value: active)
+                .animation(.easeInOut(duration: 0.2), value: status)
             }
     }
 }
@@ -83,6 +97,8 @@ struct TranscriptTextView: NSViewRepresentable {
 struct WorkingRow: View {
     let tool: ToolCall?
     let since: Date?
+    /// A message is on its way and Claude hasn't picked it up yet.
+    var sending = false
     @State private var pulse = false
 
     var body: some View {
@@ -106,6 +122,7 @@ struct WorkingRow: View {
     }
 
     private var label: String {
+        if sending { return "Sending…" }
         guard let tool else { return "Thinking…" }
         return "Running \(ToolStyle.displayName(tool.name))…"
     }
