@@ -1,0 +1,241 @@
+import AppKit
+import Carbon.HIToolbox
+import SwiftUI
+import UserNotifications
+
+@main
+struct ClaudeDeckApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @State private var store = SessionStore()
+
+    var body: some Scene {
+        Window("Claude Deck", id: "main") {
+            MainWindow()
+                .environment(store)
+                .frame(minWidth: 900, minHeight: 560)
+                .onAppear {
+                    delegate.store = store
+                    store.start()
+                }
+        }
+        .defaultSize(width: 1200, height: 780)
+        .commands { SessionCommands(store: store) }
+
+        MenuBarExtra {
+            MenuBarContent().environment(store)
+        } label: {
+            Image(systemName: store.waitingCount > 0 ? "exclamationmark.bubble.fill" : "bubble.left.and.bubble.right")
+            if store.waitingCount > 0 { Text("\(store.waitingCount)") }
+        }
+        .menuBarExtraStyle(.window)
+    }
+}
+
+/// Hosts ContentView and hands the store a way to re-open this window.
+private struct MainWindow: View {
+    @Environment(SessionStore.self) private var store
+    @Environment(\.openWindow) private var openWindow
+
+    var body: some View {
+        ContentView()
+            .onAppear { store.openMainWindow = { openWindow(id: "main") } }
+    }
+}
+
+struct SessionCommands: Commands {
+    let store: SessionStore
+
+    var body: some Commands {
+        CommandMenu("Sessions") {
+            Button("Jump to Session…") { store.showSwitcher.toggle() }
+                .keyboardShortcut("k", modifiers: .command)
+            Button("Next Session Needing You") { store.selectNextWaiting() }
+                .keyboardShortcut("j", modifiers: .command)
+            Divider()
+            Button("Previous Session") { store.select(offset: -1) }
+                .keyboardShortcut(.upArrow, modifiers: [.command, .option])
+            Button("Next Session") { store.select(offset: 1) }
+                .keyboardShortcut(.downArrow, modifiers: [.command, .option])
+            Divider()
+            ForEach(1..<10) { n in
+                Button("Session \(n)") {
+                    let list = store.ordered
+                    if list.indices.contains(n - 1) { store.selectedId = list[n - 1].id }
+                }
+                .keyboardShortcut(KeyEquivalent(Character("\(n)")), modifiers: .command)
+            }
+            Divider()
+            Button("Allow Next Prompt  ⌥⌘↩") { store.respondToNext(allow: true) }
+            Button("Deny Next Prompt  ⌥⌘⌫") { store.respondToNext(allow: false) }
+            Divider()
+            Button("Rename Session…") {
+                if let s = store.session(store.selectedId) { store.renameTarget = s }
+            }
+            .keyboardShortcut("r", modifiers: .command)
+            .disabled(store.selectedId == nil)
+            Button("Open Terminal") {
+                if let s = store.session(store.selectedId), s.isLive {
+                    Task {
+                        do { try await Ghostty.focus(s) } catch { store.lastError = error.localizedDescription }
+                    }
+                }
+            }
+            .keyboardShortcut("t", modifiers: [.command, .shift])
+        }
+    }
+}
+
+final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
+    weak var store: SessionStore?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        NSApp.setActivationPolicy(.regular)
+        UNUserNotificationCenter.current().delegate = self
+        Notifications.registerCategories()
+        // ⇧⌘Space from anywhere: bring Deck forward with the session switcher open.
+        GlobalHotKey.register(keyCode: kVK_Space, modifiers: cmdKey | shiftKey) { [weak self] in
+            MainActor.assumeIsolated { self?.store?.bringToFront(switcher: true) }
+        }
+        // ⌥⌘↩ / ⌥⌘⌫ from anywhere: allow / deny the next permission prompt.
+        // (⌥⌘↩ is Ghostty's zoom-split and ⌥⌘⎋ is Force Quit, so those are avoided.)
+        GlobalHotKey.register(keyCode: kVK_Return, modifiers: cmdKey | optionKey) { [weak self] in
+            MainActor.assumeIsolated { self?.store?.respondToNext(allow: true) }
+        }
+        GlobalHotKey.register(keyCode: kVK_Delete, modifiers: cmdKey | optionKey) { [weak self] in
+            MainActor.assumeIsolated { self?.store?.respondToNext(allow: false) }
+        }
+    }
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !flag { MainActor.assumeIsolated { store?.bringToFront() } }
+        return true
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
+        let id = response.notification.request.content.userInfo["sessionId"] as? String
+        let action = response.actionIdentifier
+        await MainActor.run {
+            guard let store else { return }
+            switch action {
+            case Notifications.allow, Notifications.deny:
+                // Answer in place; don't pull you away from what you're doing.
+                if let s = store.live.first(where: { $0.id == id }) {
+                    store.respond(s, key: action == Notifications.allow ? "enter" : "escape")
+                }
+            default:
+                store.selectedId = id
+                store.bringToFront()
+            }
+        }
+    }
+}
+
+/// The menu bar panel, built from the same components as the main window.
+struct MenuBarContent: View {
+    @Environment(SessionStore.self) private var store
+
+    var body: some View {
+        let waiting = store.live.filter { $0.status == .waiting }
+        let others = store.live.filter { $0.status != .waiting }
+
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text("Claude Deck").font(.headline)
+                Spacer()
+                Button {
+                    store.bringToFront(switcher: true)
+                } label: {
+                    Label("Jump to Session", systemImage: "magnifyingglass")
+                }
+                .buttonStyle(.borderless)
+                .labelStyle(.iconOnly)
+                .help("Jump to a session (⇧⌘Space)")
+            }
+            .padding(.horizontal, 14).padding(.top, 12).padding(.bottom, 8)
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: 4) {
+                    if !waiting.isEmpty {
+                        header("Needs you", count: waiting.count)
+                        ForEach(waiting) { s in
+                            VStack(alignment: .leading, spacing: 6) {
+                                row(s)
+                                if let tool = s.pendingTool {
+                                    Text("\(ToolStyle.displayName(tool.name)): \(tool.summary)")
+                                        .font(.system(.caption, design: .monospaced))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(2)
+                                        .padding(.leading, 32)
+                                }
+                                ApprovalButtons(session: s).padding(.leading, 32)
+                            }
+                            .padding(8)
+                            .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
+                                .fill(Theme.waiting.opacity(0.08)))
+                        }
+                    }
+                    header("Running", count: others.count)
+                    if store.live.isEmpty {
+                        Text("No running sessions").font(.callout).foregroundStyle(.tertiary).padding(8)
+                    }
+                    ForEach(others) { s in
+                        Button { open(s) } label: { row(s).padding(8).contentShape(Rectangle()) }
+                            .buttonStyle(MenuRowStyle())
+                    }
+                }
+                .padding(.horizontal, 8)
+            }
+            .frame(maxHeight: 460)
+
+            Divider().padding(.top, 6)
+            HStack {
+                Button("Open Claude Deck") { store.bringToFront() }
+                Spacer()
+                Button("Quit") { NSApp.terminate(nil) }
+            }
+            .buttonStyle(.borderless)
+            .padding(.horizontal, 14).padding(.vertical, 10)
+        }
+        .frame(width: 360)
+        .tint(Theme.accent)
+    }
+
+    private func header(_ title: String, count: Int) -> some View {
+        Text(count > 0 ? "\(title) · \(count)" : title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+            .padding(.horizontal, 8).padding(.top, 8).padding(.bottom, 2)
+    }
+
+    private func row(_ s: Session) -> some View {
+        HStack(spacing: 10) {
+            StatusIcon(status: s.status)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(s.displayTitle).lineLimit(1)
+                Text(s.projectName).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+
+    private func open(_ s: Session) {
+        store.selectedId = s.id
+        store.bringToFront()
+    }
+}
+
+/// Highlight on hover, like a native menu item.
+private struct MenuRowStyle: ButtonStyle {
+    @State private var hovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
+                .fill(Color.primary.opacity(configuration.isPressed ? 0.1 : hovering ? 0.06 : 0)))
+            .onHover { hovering = $0 }
+    }
+}
