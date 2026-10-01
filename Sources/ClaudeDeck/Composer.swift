@@ -3,6 +3,7 @@ import SwiftUI
 
 struct Composer: View {
     @Environment(SessionStore.self) private var store
+    @Environment(ToolboxStore.self) private var toolbox
     let session: Session
     let model: TranscriptModel
     @Binding var attachments: [Attachment]
@@ -10,10 +11,19 @@ struct Composer: View {
 
     @State private var draft = ""
     @State private var pasteMonitor: Any?
+    @State private var menuIndex = 0
+    /// Esc closes the menu for the text typed so far; typing more reopens it.
+    @State private var menuDismissedFor: String?
     @FocusState private var focused: Bool
 
     /// Typing while a dialog is open would land in the dialog, and Return would pick an option.
     private var promptOpen: Bool { session.status == .waiting }
+
+    /// Commands matching what's typed after "/", or none when the menu shouldn't show.
+    private var menuItems: [SlashCommand] {
+        guard let q = CommandCatalog.query(in: draft), menuDismissedFor != draft else { return [] }
+        return CommandCatalog.matches(q, in: toolbox.commands)
+    }
 
     private var canSend: Bool {
         !promptOpen && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
@@ -52,6 +62,17 @@ struct Composer: View {
                     .focused($focused)
                     .padding(.vertical, 5)
                     .onSubmit(send)
+                    // While the "/" menu is open, the arrow keys, Tab, Return and Esc drive it.
+                    .onKeyPress(.downArrow) { moveMenu(1) }
+                    .onKeyPress(.upArrow) { moveMenu(-1) }
+                    .onKeyPress(.tab) { acceptMenu() }
+                    .onKeyPress(.return) { acceptMenu() }
+                    .onKeyPress(.escape) {
+                        guard !menuItems.isEmpty else { return .ignored }
+                        menuDismissedFor = draft
+                        return .handled
+                    }
+                    .onChange(of: draft) { menuIndex = 0 }
 
                 Button(action: send) {
                     ZStack {
@@ -77,13 +98,19 @@ struct Composer: View {
             RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous)
                 .strokeBorder(focused ? Theme.accent.opacity(0.6) : Color.primary.opacity(0.12), lineWidth: 1)
         }
+        .overlay(alignment: .top) {
+            if !menuItems.isEmpty {
+                SlashMenu(items: menuItems, selected: min(menuIndex, menuItems.count - 1)) { accept($0) }
+                    .alignmentGuide(.top) { $0[.bottom] + 8 }
+            }
+        }
         .frame(maxWidth: 816)
         .padding(.horizontal, 20)
         .padding(.top, 8)
         .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            Text("↩ send · ⌥↩ new line · paste or drop images")
+            Text("↩ send · ⌥↩ new line · / commands · paste or drop images")
                 .font(.caption2).foregroundStyle(.tertiary)
                 .padding(.bottom, 8)
         }
@@ -103,6 +130,26 @@ struct Composer: View {
         .onDisappear {
             if let m = pasteMonitor { NSEvent.removeMonitor(m) }
         }
+    }
+
+    private func moveMenu(_ step: Int) -> KeyPress.Result {
+        let items = menuItems
+        guard !items.isEmpty else { return .ignored }
+        menuIndex = (min(menuIndex, items.count - 1) + step + items.count) % items.count
+        return .handled
+    }
+
+    private func acceptMenu() -> KeyPress.Result {
+        let items = menuItems
+        guard !items.isEmpty else { return .ignored }
+        accept(items[min(menuIndex, items.count - 1)])
+        return .handled
+    }
+
+    private func accept(_ command: SlashCommand) {
+        draft = command.command + " "
+        menuDismissedFor = nil
+        focusSoon()
     }
 
     /// The sidebar keeps focus while it handles the selection, so take it just after.
@@ -179,5 +226,55 @@ private struct Thumbnail: View {
                 .opacity(hovering ? 1 : 0.85)
             }
             .onHover { hovering = $0 }
+    }
+}
+
+/// The "/" menu: every command you can type here, filtered as you type.
+struct SlashMenu: View {
+    let items: [SlashCommand]
+    let selected: Int
+    let pick: (SlashCommand) -> Void
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView {
+                VStack(spacing: 1) {
+                    ForEach(Array(items.enumerated()), id: \.element.id) { i, item in
+                        Button { pick(item) } label: {
+                            HStack(spacing: 10) {
+                                Text(item.command)
+                                    .font(.system(.callout, design: .monospaced).weight(.medium))
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                    .layoutPriority(1)
+                                Text(item.description)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                                Spacer(minLength: 6)
+                                Text(item.source)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 5).padding(.vertical, 1)
+                                    .background(Capsule().fill(Color.primary.opacity(0.06)))
+                            }
+                            .padding(.horizontal, 10).padding(.vertical, 6)
+                            .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
+                                .fill(i == selected ? Theme.accent.opacity(0.16) : .clear))
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .id(item.id)
+                    }
+                }
+                .padding(6)
+            }
+            .frame(maxHeight: 280)
+            .fixedSize(horizontal: false, vertical: true)
+            .onChange(of: selected) { proxy.scrollTo(items[selected].id) }
+        }
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(.regularMaterial)
+            .shadow(color: .black.opacity(0.15), radius: 14, y: 4))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
     }
 }

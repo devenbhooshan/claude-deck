@@ -13,6 +13,8 @@ final class ToolboxStore {
     }
 
     private(set) var skills: [Skill] = []
+    /// Everything you can type after "/" here: custom commands, skills and built-ins.
+    private(set) var commands: [SlashCommand] = CommandCatalog.builtIns
     private(set) var mcp: [String: MCPState] = [:]
     /// The project folder the toolbox is showing (the selected session's cwd).
     private(set) var cwd: String?
@@ -31,7 +33,12 @@ final class ToolboxStore {
         let dir = cwd
         Task.detached(priority: .utility) {
             let found = SkillCatalog.load(projectDir: dir)
-            await MainActor.run { if self.cwd == dir { self.skills = found } }
+            let commands = CommandCatalog.all(skills: found, projectDir: dir)
+            await MainActor.run {
+                guard self.cwd == dir else { return }
+                self.skills = found
+                self.commands = commands
+            }
         }
     }
 
