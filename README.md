@@ -66,7 +66,8 @@ All of these are also listed in the **Sessions** menu.
 | ⌘R | Rename the selected session |
 | ⇧⌘T | Open the selected session's terminal |
 | ⌘. | Stop Claude's current step (also the Stop button on the "Working…" pill) |
-| ⌘↩ | Send message |
+| ↩ | Send message |
+| ⇧↩ / ⌘↩ | New line in the message |
 
 ## Tests
 

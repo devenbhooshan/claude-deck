@@ -43,7 +43,7 @@ struct Composer: View {
         .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            Text("↩ send · ⌥↩ new line · / commands · paste or drop images")
+            Text("↩ send · ⇧↩ or ⌘↩ new line · / commands · paste or drop images")
                 .font(.caption2).foregroundStyle(.tertiary)
                 .padding(.bottom, 8)
         }
@@ -111,7 +111,6 @@ struct Composer: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(!canSend)
-                .keyboardShortcut(.return, modifiers: .command)
             }
             .padding(.horizontal, 8).padding(.vertical, 6)
         }
@@ -142,6 +141,11 @@ struct Composer: View {
                 case 53: menuDismissedFor = draft; return nil                                 // Esc
                 default: break
                 }
+            }
+            // ⌘↩ and ⇧↩ add a new line at the cursor (↩ sends, ⌥↩ is the field's own new line).
+            if (event.keyCode == 36 || event.keyCode == 76) && (mods == .command || mods == .shift) {
+                NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
+                return nil
             }
             if mods == .command, event.charactersIgnoringModifiers == "v" {
                 let pb = NSPasteboard.general
