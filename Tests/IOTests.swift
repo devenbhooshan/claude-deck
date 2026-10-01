@@ -70,6 +70,7 @@ func loaderTests() {
         let old = box.jsonl("claude/projects/p1/old.jsonl", [["type": "user", "cwd": "/p/x"]])
         box.jsonl("claude/projects/p2/live.jsonl", [["type": "user", "cwd": "/p/x"]])
         box.jsonl("claude/projects/p2/nocwd.jsonl", [["type": "user"]])
+        box.jsonl("claude/projects/p2/script.jsonl", [["type": "queue-operation"], ["type": "user", "cwd": "/p/s", "entrypoint": "sdk-cli"]])
         box.write("claude/projects/p2/readme.md", "x")
         box.write("claude/projects/stray-file", "x")
         setMTime(a, now.addingTimeInterval(-60)); setMTime(b, now.addingTimeInterval(-30))
@@ -105,6 +106,12 @@ func loaderTests() {
         let none = box.jsonl("n.jsonl", [["type": "user"]])
         expectEqual(SessionLoader.title(for: none, cache: [none.path: TitleInfo(mtime: .distantPast, title: "Prev", isCustom: false)]).0, "Prev")
         expect(SessionLoader.title(for: none, cache: [:]).0 == nil)
+    }
+    test("non-interactive transcripts") {
+        let box = Sandbox(); defer { box.cleanup() }
+        expect(SessionLoader.isNonInteractive(box.jsonl("a.jsonl", [["x": 1], ["entrypoint": "sdk-cli"]])))
+        expect(!SessionLoader.isNonInteractive(box.jsonl("b.jsonl", [["entrypoint": "cli"]])))
+        expect(!SessionLoader.isNonInteractive(box.jsonl("c.jsonl", [["x": 1]])))
     }
     test("cwd and liveness") {
         let box = Sandbox(); defer { box.cleanup() }

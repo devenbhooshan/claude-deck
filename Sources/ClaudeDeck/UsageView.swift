@@ -26,7 +26,8 @@ final class UsageModel {
         if !force, let at = fetchedAt, Date().timeIntervalSince(at) < 60 { return }
         loading = true
         Task.detached(priority: .userInitiated) {
-            let result = ClaudeRunner.run(["-p", "/usage"], in: NSHomeDirectory(), timeout: 60)
+            // --no-session-persistence: don't leave a transcript behind every 5 minutes.
+            let result = ClaudeRunner.run(["-p", "--no-session-persistence", "/usage"], in: NSHomeDirectory(), timeout: 60)
             await MainActor.run {
                 self.loading = false
                 switch result {

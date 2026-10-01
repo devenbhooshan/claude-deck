@@ -65,6 +65,8 @@ enum SessionLoader {
             }
         }
         return found.sorted { $0.1 > $1.1 }.prefix(40).compactMap { url, mtime in
+            // Script/SDK runs (`claude -p`) aren't sessions you'd reopen.
+            guard !isNonInteractive(url) else { return nil }
             let (title, _) = title(for: url, cache: cache)
             guard let cwd = cwd(of: url) else { return nil }
             return Session(sessionId: url.deletingPathExtension().lastPathComponent, pid: nil, cwd: cwd,
@@ -91,6 +93,18 @@ enum SessionLoader {
         if custom == nil, let cached = cache[url.path]?.title, cache[url.path]?.isCustom == true { title = cached }
         if title == nil { title = cache[url.path]?.title }
         return (title, TitleInfo(mtime: mtime, title: title, isCustom: custom != nil || cache[url.path]?.isCustom == true))
+    }
+
+    /// Whether a transcript came from `claude -p` or the SDK (entrypoint "sdk-…") rather than you.
+    static func isNonInteractive(_ url: URL) -> Bool {
+        let (lines, _) = TailReader.read(url, from: nil, maxBytes: 64_000)
+        for line in lines {
+            if let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+               let entry = obj["entrypoint"] as? String {
+                return entry.hasPrefix("sdk")
+            }
+        }
+        return false
     }
 
     static func cwd(of url: URL) -> String? {

@@ -18,6 +18,8 @@ enum ClaudeRunner {
         let out = Pipe()
         p.standardOutput = out
         p.standardError = Pipe()
+        // No input: otherwise `claude -p` waits a few seconds for stdin first.
+        p.standardInput = FileHandle.nullDevice
         do { try p.run() } catch { return .failure(RunError(message: error.localizedDescription)) }
         let killer = DispatchWorkItem { if p.isRunning { p.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
