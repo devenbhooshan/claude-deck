@@ -10,7 +10,7 @@ struct Composer: View {
     let onError: (String) -> Void
 
     @State private var draft = ""
-    @State private var pasteMonitor: Any?
+    @State private var keyMonitor: Any?
     @State private var menuIndex = 0
     /// Esc closes the menu for the text typed so far; typing more reopens it.
     @State private var menuDismissedFor: String?
@@ -21,7 +21,7 @@ struct Composer: View {
 
     /// Commands matching what's typed after "/", or none when the menu shouldn't show.
     private var menuItems: [SlashCommand] {
-        guard let q = CommandCatalog.query(in: draft), menuDismissedFor != draft else { return [] }
+        guard focused, let q = CommandCatalog.query(in: draft), menuDismissedFor != draft else { return [] }
         return CommandCatalog.matches(q, in: toolbox.commands)
     }
 
@@ -30,6 +30,43 @@ struct Composer: View {
     }
 
     var body: some View {
+        // The "/" menu sits directly above the message box, in the layout, so it never overlaps it.
+        VStack(spacing: 8) {
+            if !menuItems.isEmpty {
+                SlashMenu(items: menuItems, selected: min(menuIndex, menuItems.count - 1)) { accept($0) }
+            }
+            inputBox
+        }
+        .frame(maxWidth: 816)
+        .padding(.horizontal, 20)
+        .padding(.top, 8)
+        .padding(.bottom, 4)
+        .frame(maxWidth: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            Text("↩ send · ⌥↩ new line · / commands · paste or drop images")
+                .font(.caption2).foregroundStyle(.tertiary)
+                .padding(.bottom, 8)
+        }
+        .onAppear {
+            focusSoon()
+            installKeyMonitor()
+        }
+        // Switching sessions (click, ⌘K, ⌘1–9, ⌥⌘↑/↓) lands you in the message box.
+        .onChange(of: store.selectedId) { focusSoon() }
+        .onChange(of: store.showSwitcher) { if !store.showSwitcher { focusSoon() } }
+        .onChange(of: draft) { menuIndex = 0 }
+        .onChange(of: store.composerInsert) {
+            guard let insert = store.composerInsert else { return }
+            store.composerInsert = nil
+            draft = draft.isEmpty ? insert : draft + (draft.hasSuffix(" ") ? "" : " ") + insert
+            focusSoon()
+        }
+        .onDisappear {
+            if let m = keyMonitor { NSEvent.removeMonitor(m) }
+        }
+    }
+
+    private var inputBox: some View {
         VStack(alignment: .leading, spacing: 0) {
             if !attachments.isEmpty {
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -62,17 +99,6 @@ struct Composer: View {
                     .focused($focused)
                     .padding(.vertical, 5)
                     .onSubmit(send)
-                    // While the "/" menu is open, the arrow keys, Tab, Return and Esc drive it.
-                    .onKeyPress(.downArrow) { moveMenu(1) }
-                    .onKeyPress(.upArrow) { moveMenu(-1) }
-                    .onKeyPress(.tab) { acceptMenu() }
-                    .onKeyPress(.return) { acceptMenu() }
-                    .onKeyPress(.escape) {
-                        guard !menuItems.isEmpty else { return .ignored }
-                        menuDismissedFor = draft
-                        return .handled
-                    }
-                    .onChange(of: draft) { menuIndex = 0 }
 
                 Button(action: send) {
                     ZStack {
@@ -98,52 +124,35 @@ struct Composer: View {
             RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous)
                 .strokeBorder(focused ? Theme.accent.opacity(0.6) : Color.primary.opacity(0.12), lineWidth: 1)
         }
-        .overlay(alignment: .top) {
-            if !menuItems.isEmpty {
-                SlashMenu(items: menuItems, selected: min(menuIndex, menuItems.count - 1)) { accept($0) }
-                    .alignmentGuide(.top) { $0[.bottom] + 8 }
+    }
+
+    /// Handles keys before the text field sees them (it would otherwise swallow Esc and the arrows):
+    /// the "/" menu's ↑/↓, Tab, Return and Esc, and ⌘V of images.
+    private func installKeyMonitor() {
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard focused else { return event }
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])
+            let items = menuItems
+            if !items.isEmpty && mods.isEmpty {
+                let current = min(menuIndex, items.count - 1)
+                switch event.keyCode {
+                case 125: menuIndex = (current + 1) % items.count; return nil                 // ↓
+                case 126: menuIndex = (current + items.count - 1) % items.count; return nil   // ↑
+                case 48, 36, 76: accept(items[current]); return nil                          // Tab, Return
+                case 53: menuDismissedFor = draft; return nil                                 // Esc
+                default: break
+                }
             }
+            if mods == .command, event.charactersIgnoringModifiers == "v" {
+                let pb = NSPasteboard.general
+                guard AttachmentStore.shouldAttach(from: pb) else { return event }
+                let found = AttachmentStore.from(pasteboard: pb)
+                guard !found.isEmpty else { return event }
+                attachments += found
+                return nil
+            }
+            return event
         }
-        .frame(maxWidth: 816)
-        .padding(.horizontal, 20)
-        .padding(.top, 8)
-        .padding(.bottom, 4)
-        .frame(maxWidth: .infinity)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            Text("↩ send · ⌥↩ new line · / commands · paste or drop images")
-                .font(.caption2).foregroundStyle(.tertiary)
-                .padding(.bottom, 8)
-        }
-        .onAppear {
-            focusSoon()
-            installPasteMonitor()
-        }
-        // Switching sessions (click, ⌘K, ⌘1–9, ⌥⌘↑/↓) lands you in the message box.
-        .onChange(of: store.selectedId) { focusSoon() }
-        .onChange(of: store.showSwitcher) { if !store.showSwitcher { focusSoon() } }
-        .onChange(of: store.composerInsert) {
-            guard let insert = store.composerInsert else { return }
-            store.composerInsert = nil
-            draft = draft.isEmpty ? insert : draft + (draft.hasSuffix(" ") ? "" : " ") + insert
-            focusSoon()
-        }
-        .onDisappear {
-            if let m = pasteMonitor { NSEvent.removeMonitor(m) }
-        }
-    }
-
-    private func moveMenu(_ step: Int) -> KeyPress.Result {
-        let items = menuItems
-        guard !items.isEmpty else { return .ignored }
-        menuIndex = (min(menuIndex, items.count - 1) + step + items.count) % items.count
-        return .handled
-    }
-
-    private func acceptMenu() -> KeyPress.Result {
-        let items = menuItems
-        guard !items.isEmpty else { return .ignored }
-        accept(items[min(menuIndex, items.count - 1)])
-        return .handled
     }
 
     private func accept(_ command: SlashCommand) {
@@ -162,21 +171,6 @@ struct Composer: View {
         case .busy: "Message Claude — it'll be queued until the current step finishes"
         case .waiting: "Answer the prompt above first…"
         default: "Message Claude…"
-        }
-    }
-
-    /// ⌘V with an image on the clipboard attaches it instead of pasting text.
-    private func installPasteMonitor() {
-        pasteMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard focused,
-                  event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
-                  event.charactersIgnoringModifiers == "v" else { return event }
-            let pb = NSPasteboard.general
-            guard AttachmentStore.shouldAttach(from: pb) else { return event }
-            let found = AttachmentStore.from(pasteboard: pb)
-            guard !found.isEmpty else { return event }
-            attachments += found
-            return nil
         }
     }
 
