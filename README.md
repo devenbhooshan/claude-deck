@@ -3,6 +3,17 @@
 A Mac app that lists your local Claude Code sessions, shows which ones are waiting on you,
 lets you read each transcript live, send messages, and jump to the session's terminal.
 
+## Why Claude Deck
+
+- **You stay terminal-first.** Deck sits on top of the Claude Code sessions you already run in
+  Ghostty, with no change in how you start or use them.
+- **Fast keyboard approvals from any app.** ⌥⌘↩ approves the next waiting prompt while you're
+  working in another session, with a check that it's the prompt you meant. Plus the menu bar,
+  notifications with Allow / Deny, and a Dock badge.
+- **Everything stays local.** It reads files on your Mac and talks to nothing on the network.
+- **It's yours to shape.** Your skills, project commands, plan usage and shortcuts are all built
+  around how you work, and you can change anything in an afternoon.
+
     ./build.sh            # builds build/Claude Deck.app
     ./build.sh --install  # also copies it to /Applications
 
