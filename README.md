@@ -14,14 +14,17 @@ lets you read each transcript live, send messages, and jump to the session's ter
 - **It's yours to shape.** Your skills, project commands, plan usage and shortcuts are all built
   around how you work, and you can change anything in an afternoon.
 
+## Install
+
     ./build.sh            # builds build/Claude Deck.app
     ./build.sh --install  # also copies it to /Applications
 
-How it works:
+## How it works
+
 - Running sessions and their status (`busy` / `idle` / `waiting` + `waitingFor`) come from `~/.claude/sessions/<pid>.json`.
 - Transcripts are tailed from `~/.claude/projects/<cwd>/<sessionId>.jsonl`.
 - Sending messages, approving/denying prompts, and "Open Terminal" drive Ghostty 1.3+ over AppleScript.
-  The session's terminal is matched by Claude's terminal title (its ai-title), falling back to the working directory.
+  A session's terminal must be in the session's folder and show a Claude title; its title picks between several.
 - Ended sessions from the last 7 days can be reopened with "Resume in Ghostty".
 - **New session** (toolbar +, ⌘N) opens a Ghostty window in a folder and starts `claude`.
 - The sidebar lists the **skills** (project, global, claude.ai and plugin) and **MCP servers**
