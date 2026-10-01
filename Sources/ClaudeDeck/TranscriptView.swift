@@ -46,14 +46,20 @@ struct TranscriptView: View {
             openToolId: status == .busy || status == .waiting ? openTool?.id : nil,
             loaded: model.loaded))
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-            .overlay(alignment: .bottomLeading) {
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 if status == .busy {
-                    WorkingRow(tool: openTool, since: statusSince)
-                        .padding(.horizontal, 14).padding(.vertical, 7)
-                        .background(Capsule().fill(.regularMaterial))
-                        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.08)))
-                        .padding(.leading, 20).padding(.bottom, 10)
-                        .transition(.opacity)
+                    // Lined up with the reading column, under the last message (never covering it).
+                    HStack {
+                        WorkingRow(tool: openTool, since: statusSince)
+                            .padding(.horizontal, 12).padding(.vertical, 6)
+                            .background(Capsule().fill(Color.primary.opacity(0.05)))
+                        Spacer()
+                    }
+                    .frame(maxWidth: ColumnTextView.maxColumn)
+                    .padding(.horizontal, 28)
+                    .padding(.vertical, 6)
+                    .frame(maxWidth: .infinity)
+                    .transition(.opacity)
                 }
             }
     }
@@ -113,16 +119,22 @@ struct TranscriptTextView: NSViewRepresentable {
         scroll.autohidesScrollers = true
         scroll.drawsBackground = false
         scroll.documentView = tv
+        // macOS pads scroll views for the title bar automatically; SwiftUI already lays us out below it,
+        // and the extra inset made "scroll to bottom" stop 48pt short.
+        scroll.automaticallyAdjustsContentInsets = false
+        scroll.contentInsets = NSEdgeInsetsZero
         for axis in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
             scroll.setContentHuggingPriority(.defaultLow, for: axis)
             scroll.setContentCompressionResistancePriority(.defaultLow, for: axis)
         }
 
         context.coordinator.textView = tv
-        // Follow the user's own scrolling to know whether to stay pinned to the newest message.
-        scroll.contentView.postsBoundsChangedNotifications = true
-        NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.userScrolled),
-                                               name: NSView.boundsDidChangeNotification, object: scroll.contentView)
+        // Only real scrolling (trackpad, wheel, scroller) decides whether to keep following new messages;
+        // re-layout also moves the clip view, and must not count.
+        for name in [NSScrollView.didLiveScrollNotification, NSScrollView.didEndLiveScrollNotification] {
+            NotificationCenter.default.addObserver(context.coordinator, selector: #selector(Coordinator.userScrolled),
+                                                   name: name, object: scroll)
+        }
         tv.onColumnChange = { [weak coordinator = context.coordinator] in coordinator?.render(force: true) }
         return scroll
     }
@@ -145,19 +157,20 @@ struct TranscriptTextView: NSViewRepresentable {
         private var lastSignature = ""
         /// True while you're at the bottom; new content keeps you there. Scrolling up turns it off.
         private var pinned = true
-        private var scrollingProgrammatically = false
 
         @objc func userScrolled() {
-            guard !scrollingProgrammatically else { return }
             pinned = isAtBottom(textView?.enclosingScrollView)
         }
 
+        /// Scrolls after the text view has resized to its laid-out text, so the last line is fully visible.
         private func scrollToBottom() {
-            guard let tv = textView else { return }
-            scrollingProgrammatically = true
+            guard let tv = textView, let scroll = tv.enclosingScrollView else { return }
             if let container = tv.textContainer { tv.layoutManager?.ensureLayout(for: container) }
-            tv.scrollToEndOfDocument(nil)
-            scrollingProgrammatically = false
+            tv.sizeToFit()
+            let clip = scroll.contentView
+            let y = max(0, tv.frame.height - clip.bounds.height)
+            clip.scroll(to: NSPoint(x: 0, y: y))
+            scroll.reflectScrolledClipView(clip)
         }
 
         func render(force: Bool) {
@@ -176,13 +189,15 @@ struct TranscriptTextView: NSViewRepresentable {
 
             if pinned {
                 scrollToBottom()
-                // Layout can still settle (e.g. the width pin) after this pass; follow it.
-                DispatchQueue.main.async { [weak self] in if self?.pinned == true { self?.scrollToBottom() } }
+                // Layout can still settle (width pin, attachments) after this pass; follow it.
+                for delay in [0.0, 0.15] {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                        if self?.pinned == true { self?.scrollToBottom() }
+                    }
+                }
             } else if let scroll {
-                scrollingProgrammatically = true
                 scroll.contentView.scroll(to: origin)
                 scroll.reflectScrolledClipView(scroll.contentView)
-                scrollingProgrammatically = false
             }
         }
 
@@ -417,6 +432,18 @@ struct TranscriptRenderer {
                 }
                 let inline = Self.inline(p, font: body, color: .labelColor)
                 inline.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: inline.length))
+                // Lines after the first (e.g. a list right under "Two problems:") are their own paragraphs;
+                // they must be indented normally, not styled like the ✦ line.
+                let firstBreak = (inline.string as NSString).range(of: "\n")
+                if first, firstBreak.location != NSNotFound {
+                    let rest = paragraph { s in
+                        s.headIndent = indent
+                        s.firstLineHeadIndent = indent
+                        s.paragraphSpacingBefore = 4
+                    }
+                    let start = firstBreak.location + 1
+                    inline.addAttribute(.paragraphStyle, value: rest, range: NSRange(location: start, length: inline.length - start))
+                }
                 out.append(inline)
                 out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
             case let .heading(t, level):
