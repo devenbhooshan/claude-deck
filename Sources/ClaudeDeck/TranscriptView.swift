@@ -157,6 +157,7 @@ struct TranscriptTextView: NSViewRepresentable {
         private var lastSignature = ""
         /// True while you're at the bottom; new content keeps you there. Scrolling up turns it off.
         private var pinned = true
+        private var outgoingCount = 0
 
         @objc func userScrolled() {
             pinned = isAtBottom(textView?.enclosingScrollView)
@@ -175,6 +176,9 @@ struct TranscriptTextView: NSViewRepresentable {
 
         func render(force: Bool) {
             guard let tv = textView, let content, tv.columnWidth > 100 else { return }
+            // Sending a message always jumps to the bottom, even if you'd scrolled up to read.
+            if content.outgoing.count > outgoingCount { pinned = true }
+            outgoingCount = content.outgoing.count
             let signature = content.signature + "|\(expanded.sorted().joined())|\(Int(tv.columnWidth))"
             if !force && signature == lastSignature { return }
             lastSignature = signature
