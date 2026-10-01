@@ -89,7 +89,8 @@ struct SessionDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            TranscriptView(model: model, cwd: session.cwd, status: session.status, statusSince: session.statusSince)
+            TranscriptView(model: model, cwd: session.cwd, status: session.status, statusSince: session.statusSince,
+                           onStop: session.isLive ? { store.interrupt(session) } : nil)
                 .overlay(alignment: .bottom) {
                     if session.status == .waiting && !store.isAnswered(session) {
                         PendingCard(session: session,

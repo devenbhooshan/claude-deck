@@ -134,6 +134,18 @@ final class SessionStore {
         }
     }
 
+    /// Stops the session's current step.
+    func interrupt(_ s: Session) {
+        Task {
+            do {
+                try await Ghostty.interrupt(s)
+                HUD.show("Stopped", detail: s.displayTitle, symbol: "stop.circle.fill", tint: Theme.danger)
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
     func openTerminal(_ s: Session) {
         Task {
             do { try await Ghostty.focus(s) } catch { lastError = error.localizedDescription }

@@ -9,6 +9,8 @@ struct TranscriptView: View {
     let cwd: String
     let status: SessionStatus
     let statusSince: Date?
+    /// Stops the current step (shown as a Stop button while Claude works).
+    var onStop: (() -> Void)? = nil
 
     /// The last tool call, if it has no result yet. Older unresolved calls were interrupted.
     private var openTool: ToolCall? {
@@ -27,10 +29,18 @@ struct TranscriptView: View {
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if status == .busy {
                     // Lined up with the reading column, under the last message (never covering it).
-                    HStack {
+                    HStack(spacing: 8) {
                         WorkingRow(tool: openTool, since: statusSince)
                             .padding(.horizontal, 12).padding(.vertical, 6)
                             .background(Capsule().fill(Color.primary.opacity(0.05)))
+                        if let onStop {
+                            Button(action: onStop) {
+                                Label("Stop", systemImage: "stop.fill")
+                            }
+                            .buttonStyle(.deck(.secondary, size: .small))
+                            .keyboardShortcut(".", modifiers: .command)
+                            .help("Stop Claude's current step (⌘.)")
+                        }
                         Spacer()
                     }
                     .frame(maxWidth: ColumnTextView.maxColumn)

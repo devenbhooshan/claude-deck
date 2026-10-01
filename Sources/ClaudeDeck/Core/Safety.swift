@@ -46,6 +46,11 @@ enum PromptGuard {
         return record.status != "waiting"
     }
 
+    /// Esc stops Claude only while it's working; at the prompt it would clear what's typed there.
+    static func canInterrupt(_ record: SessionRecord?) -> Bool {
+        record?.status == "busy"
+    }
+
     /// Answering is only safe for the prompt you were shown: still waiting, and the same one
     /// (its status hasn't changed since).
     static func canAnswer(_ record: SessionRecord?, expectedSince: Double?) -> Bool {

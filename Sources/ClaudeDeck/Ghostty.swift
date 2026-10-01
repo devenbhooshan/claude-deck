@@ -17,6 +17,7 @@ enum Ghostty {
         case promptOpen
         case promptChanged
         case invalidSession
+        case notWorking
 
         var errorDescription: String? {
             switch self {
@@ -25,6 +26,7 @@ enum Ghostty {
             case .promptOpen: "Claude is showing a prompt. Answer it first, then send your message."
             case .promptChanged: "That prompt was already answered or has changed. Nothing was sent."
             case .invalidSession: "This doesn't look like a Claude Code session id, so it wasn't resumed."
+            case .notWorking: "Claude had already finished that step, so nothing was stopped."
             }
         }
     }
@@ -82,6 +84,14 @@ enum Ghostty {
         try await act(on: session, """
               send key (item 4 of argv) to t
             """, args: [key, ""])
+    }
+
+    /// Stops Claude's current step (Esc), only if it's still working.
+    static func interrupt(_ session: Session) async throws {
+        guard PromptGuard.canInterrupt(session.pid.flatMap(SessionLoader.record(pid:))) else { throw Failure.notWorking }
+        try await act(on: session, """
+              send key "escape" to t
+            """, args: ["", ""])
     }
 
     static func focus(_ session: Session) async throws {

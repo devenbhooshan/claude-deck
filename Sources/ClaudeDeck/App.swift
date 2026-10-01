@@ -90,6 +90,10 @@ struct SessionCommands: Commands {
             }
             .keyboardShortcut("r", modifiers: .command)
             .disabled(store.selectedId == nil)
+            Button("Stop Current Step") {
+                if let s = store.session(store.selectedId), s.isLive, s.status == .busy { store.interrupt(s) }
+            }
+            .disabled(store.session(store.selectedId)?.status != .busy)
             Button("Open Terminal") {
                 if let s = store.session(store.selectedId), s.isLive {
                     Task {
