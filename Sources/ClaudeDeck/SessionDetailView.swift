@@ -268,8 +268,7 @@ private struct PendingCard: View {
                 }
                 Spacer()
                 OpenTerminalButton(session: session)
-                    .buttonStyle(.link)
-                    .font(.callout)
+                    .buttonStyle(.deck(.link))
             }
 
             if isPermission, let tool {
@@ -315,7 +314,7 @@ private struct EndedBar: View {
             Image(systemName: "moon.zzz").foregroundStyle(.secondary)
             Text("This session has ended.").foregroundStyle(.secondary)
             Spacer()
-            Button("Resume in Ghostty", action: resume).buttonStyle(.borderedProminent)
+            Button("Resume in Ghostty", action: resume).buttonStyle(.deck(.primary))
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
         .background(.bar)

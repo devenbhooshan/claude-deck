@@ -90,17 +90,19 @@ struct ApprovalButtons: View {
                     .font(.caption).foregroundStyle(.secondary)
             } else if Theme.isPermission(session) {
                 Button("Allow") { store.respond(session, key: "enter") }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.deck(.primary, size: size))
                     .help("Allow once (⌥⌘↩ from any app)")
                 Button("Always Allow") { store.respond(session, key: "2") }
+                    .buttonStyle(.deck(.secondary, size: size))
                     .help("Allow, and don't ask again for this (option 2)")
                 Button("Deny") { store.respond(session, key: "escape") }
+                    .buttonStyle(.deck(.secondary, size: size))
                     .help("Deny (⌥⌘⌫ from any app)")
             } else {
                 OpenTerminalButton(session: session, label: "Answer in Terminal")
+                    .buttonStyle(.deck(.secondary, size: size))
             }
         }
-        .controlSize(size)
     }
 }
 
@@ -178,5 +180,50 @@ struct Copyable: ViewModifier {
 extension View {
     func copyable(_ text: String, alignment: Alignment = .topTrailing) -> some View {
         modifier(Copyable(text: text, alignment: alignment))
+    }
+}
+
+/// The app's one button look: primary (filled accent), secondary (quiet fill, normal text),
+/// link (accent text). Toolbar buttons stay native.
+struct DeckButtonStyle: ButtonStyle {
+    enum Kind { case primary, secondary, link }
+    var kind: Kind = .secondary
+    var size: ControlSize = .regular
+    @Environment(\.isEnabled) private var isEnabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        let small = size == .small || size == .mini
+        let large = size == .large
+        configuration.label
+            .font(small ? .caption.weight(.medium) : .callout.weight(.medium))
+            .lineLimit(1)
+            .padding(.horizontal, kind == .link ? 0 : (small ? 9 : large ? 14 : 12))
+            .padding(.vertical, kind == .link ? 0 : (small ? 4 : large ? 7 : 6))
+            .foregroundStyle(foreground)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous).fill(background))
+            .opacity(configuration.isPressed ? 0.7 : (isEnabled ? 1 : 0.45))
+            .contentShape(Rectangle())
+    }
+
+    private var foreground: Color {
+        switch kind {
+        case .primary: .white
+        case .secondary: .primary
+        case .link: Theme.accent
+        }
+    }
+
+    private var background: Color {
+        switch kind {
+        case .primary: Theme.accent
+        case .secondary: Color.primary.opacity(0.07)
+        case .link: .clear
+        }
+    }
+}
+
+extension ButtonStyle where Self == DeckButtonStyle {
+    static func deck(_ kind: DeckButtonStyle.Kind = .secondary, size: ControlSize = .regular) -> DeckButtonStyle {
+        DeckButtonStyle(kind: kind, size: size)
     }
 }

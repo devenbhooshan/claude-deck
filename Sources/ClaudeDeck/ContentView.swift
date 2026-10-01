@@ -147,7 +147,7 @@ private struct HookSetupCard: View {
             Text("Show the exact command behind each permission prompt, here and in notifications.")
                 .font(.caption).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Set Up…", action: action).controlSize(.small)
+            Button("Set Up…", action: action).buttonStyle(.deck(.secondary, size: .small))
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
