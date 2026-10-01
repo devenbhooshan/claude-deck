@@ -29,3 +29,17 @@ All of these are also listed in the **Sessions** menu.
 | ⌘R | Rename the selected session |
 | ⇧⌘T | Open the selected session's terminal |
 | ⌘↩ | Send message |
+
+## Tests
+
+    ./test.sh
+
+All logic lives in `Sources/ClaudeDeck/Core` (transcript parsing, Markdown, session loading,
+navigation and approval targeting, terminal matching, permission-request capture, attachments,
+export, and the transcript renderer). `test.sh` compiles Core with `Tests/` into a runner, measures
+coverage with `llvm-cov`, and **fails unless every line of Core is covered**. It needs only the
+Command Line Tools, since XCTest and Swift Testing ship with full Xcode. Tests use a temporary
+folder, never your real `~/.claude`.
+
+The rest of `Sources/ClaudeDeck` is SwiftUI views and glue (AppleScript calls into Ghostty, global
+hotkeys, notifications), which isn't unit-tested.

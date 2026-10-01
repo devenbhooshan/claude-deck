@@ -3,9 +3,10 @@ import Foundation
 import ImageIO
 
 enum ClaudePaths {
-    static let home = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude")
-    static let sessions = home.appendingPathComponent("sessions")
-    static let projects = home.appendingPathComponent("projects")
+    /// Claude Code's data folder. Tests point this at a temporary folder.
+    nonisolated(unsafe) static var home = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude")
+    static var sessions: URL { home.appendingPathComponent("sessions") }
+    static var projects: URL { home.appendingPathComponent("projects") }
 
     /// Transcripts live at ~/.claude/projects/<encoded cwd>/<sessionId>.jsonl.
     static func transcript(for sessionId: String, cwd: String?) -> URL? {
@@ -27,22 +28,25 @@ enum ClaudePaths {
 /// Reads complete lines from the end of a file without loading all of it.
 enum TailReader {
     static func read(_ url: URL, from offset: UInt64?, maxBytes: UInt64) -> (lines: [Data], end: UInt64) {
-        guard let handle = try? FileHandle(forReadingFrom: url) else { return ([], offset ?? 0) }
+        guard let handle = try? FileHandle(forReadingFrom: url), let size = try? handle.seekToEnd() else {
+            return ([], offset ?? 0)
+        }
         defer { try? handle.close() }
-        let size = (try? handle.seekToEnd()) ?? 0
-        var start = offset ?? (size > maxBytes ? size - maxBytes : 0)
-        if start > size { start = size > maxBytes ? size - maxBytes : 0 } // file was truncated/rewritten
-        let skipFirstPartial = offset == nil && start > 0
-        try? handle.seek(toOffset: start)
-        guard let data = try? handle.readToEnd(), !data.isEmpty else { return ([], start) }
+        // A fresh read, or the file shrank below our offset (rewritten): read the last maxBytes.
+        let fresh = offset.map { $0 > size } ?? true
+        let start = fresh ? (size > maxBytes ? size - maxBytes : 0) : offset!
+        // Starting mid-file, include the byte before `start` so we can tell whether the first
+        // line is complete; the (possibly empty) piece before the first newline is then dropped.
+        let midFile = fresh && start > 0
+        try? handle.seek(toOffset: midFile ? start - 1 : start)
+        let data = (try? handle.readToEnd()) ?? Data()
 
         var lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false).map { Data($0) }
-        if skipFirstPartial, !lines.isEmpty { lines.removeFirst() }
+        if midFile { lines.removeFirst() }
         // Keep the trailing partial line for the next read.
-        var consumed = UInt64(data.count)
-        if let last = lines.last, data.last != UInt8(ascii: "\n") {
+        var consumed = UInt64(data.count) - (midFile ? 1 : 0)
+        if data.last != UInt8(ascii: "\n"), let last = lines.popLast() {
             consumed -= UInt64(last.count)
-            lines.removeLast()
         }
         return (lines.filter { !$0.isEmpty }, start + consumed)
     }
@@ -256,11 +260,9 @@ final class TranscriptParser: @unchecked Sendable {
         for key in keys {
             if let v = input[key] as? String, !v.isEmpty { return truncate(v, 300) }
         }
-        if let data = try? JSONSerialization.data(withJSONObject: input, options: [.sortedKeys]),
-           let s = String(data: data, encoding: .utf8) {
-            return truncate(s, 300)
-        }
-        return ""
+        // `input` was itself parsed from JSON, so it always serializes back.
+        let json = try! JSONSerialization.data(withJSONObject: input, options: [.sortedKeys])
+        return truncate(String(decoding: json, as: UTF8.self), 300)
     }
 
     private static func resultText(_ content: Any?) -> String {

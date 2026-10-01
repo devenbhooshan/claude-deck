@@ -12,15 +12,8 @@ final class TranscriptModel {
     private(set) var queued: [String] = []
     private(set) var loaded = false
     /// Messages sent from Deck that haven't shown up in the transcript yet.
-    private(set) var outgoing: [Outgoing] = []
+    private(set) var outgoing: [OutgoingMessage] = []
 
-    struct Outgoing: Identifiable {
-        let id = UUID()
-        let text: String
-        let images: [NSImage]
-        let sentAt = Date()
-        var delivered = false
-    }
 
     private let queue = DispatchQueue(label: "transcript")
     private var parser: TranscriptParser?
@@ -47,32 +40,10 @@ final class TranscriptModel {
         watcher = nil
     }
 
-    /// The conversation as Markdown, for copying.
-    func markdown(title: String) -> String {
-        var out = ["# \(title)"]
-        for block in blocks {
-            switch block {
-            case .tools(let calls):
-                out.append(calls.map { "- `\($0.name)`: `\($0.summary.replacingOccurrences(of: "\n", with: " "))`" }
-                    .joined(separator: "\n"))
-            case .item(let item):
-                switch item.kind {
-                case let .user(text, images):
-                    let note = images.isEmpty ? "" : " _(\(images.count) image\(images.count == 1 ? "" : "s"))_"
-                    out.append("**You:**\(note) \(text)")
-                case .command(let c): out.append("**You:** `\(c.hasPrefix("/") ? c : "/" + c)`")
-                case .assistant(let t): out.append("**Claude:** \(t)")
-                case .notice(let t): out.append("_\(t)_")
-                case .taskEvent(let t, _): out.append("_\(t)_")
-                case .tool: break
-                }
-            }
-        }
-        return out.joined(separator: "\n\n")
-    }
+    func markdown(title: String) -> String { TranscriptExport.markdown(title: title, blocks: blocks) }
 
     func addOutgoing(text: String, images: [NSImage]) -> UUID {
-        let o = Outgoing(text: text, images: images)
+        let o = OutgoingMessage(text: text, images: images)
         outgoing.append(o)
         return o.id
     }
@@ -85,18 +56,8 @@ final class TranscriptModel {
         outgoing.removeAll { $0.id == id }
     }
 
-    /// Drop optimistic bubbles once the transcript shows the real message (or after a timeout).
     private func reconcileOutgoing() {
-        guard !outgoing.isEmpty else { return }
-        var recentUserTexts: [String] = queued
-        for block in blocks.suffix(30) {
-            if case .item(let item) = block, case let .user(text, _) = item.kind { recentUserTexts.append(text) }
-        }
-        outgoing.removeAll { o in
-            let needle = o.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let seen = recentUserTexts.contains { needle.isEmpty ? false : $0.contains(needle) }
-            return seen || Date().timeIntervalSince(o.sentAt) > 20
-        }
+        outgoing = TranscriptExport.reconcile(outgoing, queued: queued, blocks: blocks)
     }
 
     private func poll(force: Bool) {

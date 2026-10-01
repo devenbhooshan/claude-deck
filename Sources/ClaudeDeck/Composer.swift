@@ -116,9 +116,7 @@ struct Composer: View {
                   event.modifierFlags.intersection(.deviceIndependentFlagsMask) == .command,
                   event.charactersIgnoringModifiers == "v" else { return event }
             let pb = NSPasteboard.general
-            let hasFiles = pb.canReadObject(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true])
-            let hasPlainText = pb.string(forType: .string) != nil
-            guard hasFiles || !hasPlainText, AttachmentStore.hasImage(pb) else { return event }
+            guard AttachmentStore.shouldAttach(from: pb) else { return event }
             let found = AttachmentStore.from(pasteboard: pb)
             guard !found.isEmpty else { return event }
             attachments += found

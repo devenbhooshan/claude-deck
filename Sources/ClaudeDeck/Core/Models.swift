@@ -121,3 +121,26 @@ enum TranscriptBlock: Identifiable {
         return blocks
     }
 }
+
+/// Cached transcript title, keyed by transcript path.
+struct TitleInfo: Equatable {
+    let mtime: Date
+    let title: String?
+    let isCustom: Bool
+}
+
+/// A message just sent from Deck, shown until the transcript catches up.
+struct OutgoingMessage: Identifiable {
+    let id: UUID
+    let text: String
+    let images: [NSImage]
+    var sentAt: Date
+    var delivered = false
+
+    init(text: String, images: [NSImage], sentAt: Date = Date()) {
+        self.id = UUID()
+        self.text = text
+        self.images = images
+        self.sentAt = sentAt
+    }
+}

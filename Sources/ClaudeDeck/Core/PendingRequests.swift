@@ -6,12 +6,11 @@ import Foundation
 /// transcript can't say what it's asking. The hook writes the request (tool_name, tool_input)
 /// to a file here just before Claude shows the dialog. It only observes; it never answers.
 enum PendingRequests {
-    static let dir: URL = {
-        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("com.devenbhooshan.claudedeck/pending")
-    }()
+    /// Where the hook drops requests. Tests point this at a temporary folder.
+    nonisolated(unsafe) static var dir: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("com.devenbhooshan.claudedeck/pending")
 
-    static let settingsURL = ClaudePaths.home.appendingPathComponent("settings.json")
+    static var settingsURL: URL { ClaudePaths.home.appendingPathComponent("settings.json") }
     private static let marker = "com.devenbhooshan.claudedeck/pending"
 
     /// Writes stdin to a unique file and prints nothing, so Claude's normal dialog still appears.

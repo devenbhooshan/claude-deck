@@ -7,12 +7,6 @@ import Foundation
 /// Each session's terminal id is cached, so actions are a single direct
 /// `terminal id "…"` call (~0.1s) instead of a scan of every terminal.
 enum Ghostty {
-    struct Terminal {
-        let id: String
-        let name: String
-        let workingDirectory: String
-    }
-
     enum Failure: LocalizedError {
         case script(String)
         case notFound
@@ -24,9 +18,6 @@ enum Ghostty {
             }
         }
     }
-
-    // Claude Code prefixes the terminal title with an idle mark or a spinner frame.
-    private static let claudeMarks: Set<Character> = ["✳", "✻", "✶", "✢", "✽", "·", "*", "◐", "◓", "◑", "◒"]
 
     private final class IdCache: @unchecked Sendable {
         private var ids: [String: String] = [:]
@@ -136,7 +127,7 @@ enum Ghostty {
         return id
     }
 
-    static func terminals() async throws -> [Terminal] {
+    static func terminals() async throws -> [GhosttyTerminal] {
         // Fetch each property for all terminals in one Apple event, then join locally.
         let out = try await run("""
             on run argv
@@ -157,39 +148,12 @@ enum Ghostty {
               return out
             end run
             """)
-        return out.split(separator: "\n").compactMap { line in
-            let parts = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
-            guard parts.count >= 3 else { return nil }
-            return Terminal(id: parts[0], name: parts[1], workingDirectory: parts[2])
-        }
+        return TerminalMatch.parse(out)
     }
 
-    /// Matches by Claude's title first (it mirrors the transcript's ai-title), then by working directory.
-    static func findTerminal(for session: Session) async throws -> Terminal {
-        let all = try await terminals()
-        let claude = all.filter { t in t.name.first.map { claudeMarks.contains($0) || isBraille($0) } ?? false }
-        let cwd = session.cwd
-
-        if let title = session.title, !title.isEmpty {
-            let titled = claude.filter { strippedTitle($0.name) == title }
-            if let t = titled.first(where: { $0.workingDirectory == cwd }) ?? (titled.count == 1 ? titled.first : nil) {
-                return t
-            }
-        }
-        let inDir = claude.filter { $0.workingDirectory == cwd }
-        if inDir.count == 1 { return inDir[0] }
-        throw Failure.notFound
-    }
-
-    private static func strippedTitle(_ name: String) -> String {
-        var s = Substring(name)
-        while let c = s.first, claudeMarks.contains(c) || isBraille(c) || c == " " { s = s.dropFirst() }
-        return String(s)
-    }
-
-    private static func isBraille(_ c: Character) -> Bool {
-        guard let v = c.unicodeScalars.first?.value else { return false }
-        return (0x2800...0x28FF).contains(v)
+    static func findTerminal(for session: Session) async throws -> GhosttyTerminal {
+        guard let t = TerminalMatch.find(for: session, in: try await terminals()) else { throw Failure.notFound }
+        return t
     }
 
     private static func run(_ script: String, args: [String] = []) async throws -> String {

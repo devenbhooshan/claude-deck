@@ -4,24 +4,16 @@ import SwiftUI
 // Shared design tokens and components. Every view should use these rather than local values.
 
 enum Theme {
-    static let accent = Color(red: 0.85, green: 0.47, blue: 0.34) // Claude's terracotta
-    static let waiting = Color(red: 0.93, green: 0.55, blue: 0.20)
-    static let busy = Color.blue
-    static let idle = Color.green
-    static let success = Color.green.opacity(0.75)
-    static let danger = Color.red.opacity(0.85)
+    static let accent = Color(nsColor: Palette.accent)
+    static let waiting = Color(nsColor: Palette.waiting)
+    static let busy = Color(nsColor: Palette.busy)
+    static let idle = Color(nsColor: Palette.idle)
+    static let success = Color(nsColor: Palette.success)
+    static let danger = Color(nsColor: Palette.danger)
 
-    /// Three corner sizes for everything: keycaps and inner wells, cards, and large surfaces.
-    enum Radius {
-        static let small: CGFloat = 6   // keycaps, tool output wells
-        static let medium: CGFloat = 10 // cards: tool groups, tables, code, thumbnails
-        static let large: CGFloat = 16  // bubbles, composer, approval card, palettes, HUD
-    }
+    typealias Radius = Palette.Radius
 
-    /// Permission prompts can be answered with Allow / Deny; other waits (questions) need the terminal.
-    static func isPermission(_ s: Session) -> Bool {
-        s.waitingFor?.localizedCaseInsensitiveContains("permission") ?? false
-    }
+    static func isPermission(_ s: Session) -> Bool { SessionNav.isPermission(s) }
 
     static func color(_ status: SessionStatus) -> Color {
         switch status {
@@ -32,19 +24,8 @@ enum Theme {
         }
     }
 
-    static func shortPath(_ path: String) -> String {
-        path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
-    }
-
-    static func ago(_ date: Date, now: Date = .now) -> String {
-        let s = max(0, Int(now.timeIntervalSince(date)))
-        switch s {
-        case ..<60: return "now"
-        case ..<3600: return "\(s / 60)m"
-        case ..<86400: return "\(s / 3600)h"
-        default: return "\(s / 86400)d"
-        }
-    }
+    static func shortPath(_ path: String) -> String { Format.shortPath(path) }
+    static func ago(_ date: Date, now: Date = .now) -> String { Format.ago(date, now: now) }
 }
 
 struct StatusIcon: View {
