@@ -11,6 +11,12 @@ enum SessionNav {
         live.filter { $0.status == .waiting } + live.filter { $0.status != .waiting } + recent
     }
 
+    /// Unique project folders, running sessions first, then recent, in order.
+    static func projectFolders(live: [Session], recent: [Session]) -> [String] {
+        var seen = Set<String>()
+        return (live + recent).map(\.cwd).filter { seen.insert($0).inserted }
+    }
+
     /// The id `offset` places from the selection, wrapping around. With nothing selected,
     /// moving forward starts at the first session and moving back at the last.
     static func step(_ list: [Session], from selected: String?, by offset: Int) -> String? {

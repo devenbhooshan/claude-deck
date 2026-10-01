@@ -11,10 +11,14 @@ enum Notifications {
         let category = UNNotificationCategory(
             identifier: approvalCategory,
             actions: [
-                UNNotificationAction(identifier: allow, title: "Allow", options: []),
+                // Approving runs something on your Mac, so it needs the Mac unlocked.
+                UNNotificationAction(identifier: allow, title: "Allow", options: [.authenticationRequired]),
                 UNNotificationAction(identifier: deny, title: "Deny", options: [.destructive]),
             ],
-            intentIdentifiers: [])
+            intentIdentifiers: [],
+            // Commands can contain secrets: hide them when previews are hidden (e.g. on the lock screen).
+            hiddenPreviewsBodyPlaceholder: "Claude needs your approval",
+            options: [])
         UNUserNotificationCenter.current().setNotificationCategories([category])
     }
 }

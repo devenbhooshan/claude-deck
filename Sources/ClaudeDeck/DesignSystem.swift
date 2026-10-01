@@ -69,7 +69,7 @@ struct ApprovalButtons: View {
             if store.isAnswered(session) {
                 Label("Sent", systemImage: "checkmark")
                     .font(.caption).foregroundStyle(.secondary)
-            } else if Theme.isPermission(session) {
+            } else if PromptGuard.canAnswerHere(session) {
                 Button("Allow") { store.respond(session, key: "enter") }
                     .buttonStyle(.deck(.primary, size: size))
                     .help("Allow once (⌥⌘↩ from any app)")
@@ -82,6 +82,9 @@ struct ApprovalButtons: View {
             } else {
                 OpenTerminalButton(session: session, label: "Answer in Terminal")
                     .buttonStyle(.deck(.secondary, size: size))
+                    .help(session.pendingTool == nil
+                          ? "Deck can't see what this prompt is asking (set up approval details in the sidebar)"
+                          : "This kind of prompt has its own options; answer it in the terminal")
             }
         }
     }

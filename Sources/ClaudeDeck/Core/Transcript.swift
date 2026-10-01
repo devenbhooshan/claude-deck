@@ -246,6 +246,12 @@ final class TranscriptParser: @unchecked Sendable {
             return .taskEvent(summary, ok: status == "completed")
         }
         if text.hasPrefix("[Request interrupted") { return .notice("Interrupted") }
+        // Messages pasted into the terminal (how older Deck versions sent them) are wrapped.
+        if text.hasPrefix("<pasted_content"), let open = text.firstIndex(of: ">") {
+            var inner = text[text.index(after: open)...]
+            if let close = inner.range(of: "</pasted_content", options: .backwards) { inner = inner[..<close.lowerBound] }
+            return userKind(String(inner))
+        }
         return .user(text, images: [])
     }
 

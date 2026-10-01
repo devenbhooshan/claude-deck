@@ -531,7 +531,8 @@ struct TranscriptRenderer {
             let firstLine = (call.summary.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? "")
                 .replacingOccurrences(of: cwd + "/", with: "")
                 .replacingOccurrences(of: NSHomeDirectory(), with: "~")
-            line.append(NSAttributedString(string: String(firstLine.prefix(120)), attributes: [
+            let more = call.summary.contains("\n") ? " ⏎…" : ""
+            line.append(NSAttributedString(string: String(firstLine.prefix(120)) + more, attributes: [
                 .font: mono, .foregroundColor: NSColor.secondaryLabelColor,
             ]))
             line.append(NSAttributedString(string: "\t"))
@@ -604,6 +605,8 @@ struct TranscriptRenderer {
             }
             if let link = run.link {
                 attrs[.link] = link
+                // Hovering shows where a link really goes, whatever its text says.
+                attrs[.toolTip] = link.absoluteString
                 attrs[.foregroundColor] = Palette.accent
             }
             attrs[.font] = f

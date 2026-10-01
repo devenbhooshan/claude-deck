@@ -2,11 +2,12 @@ import AppKit
 
 let suites: [(String, () -> Void)] = [
     ("Models", modelTests), ("Format & palette", formatTests), ("Navigation", navTests),
-    ("Terminal matching", terminalTests), ("Markdown", markdownTests), ("Export", exportTests),
+    ("Terminal matching", terminalTests), ("Safety", safetyTests), ("Markdown", markdownTests), ("Export", exportTests),
     ("Notifications", notificationTests), ("Transcript writer", writerTests), ("File watcher", watcherTests),
     ("Paths", pathTests), ("Tail reader", tailTests), ("Transcript parser", parserTests),
-    ("Session loading", loaderTests), ("Permission requests", pendingTests), ("Attachments", attachmentTests),
+    ("Session loading", loaderTests), ("Fresh records", recordTests), ("Attachment purge", purgeTests), ("Permission requests", pendingTests), ("Attachments", attachmentTests),
     ("Tool style", toolStyleTests), ("Renderer", rendererTests), ("Text view", textViewTests),
+    ("Skills", skillTests), ("MCP servers", mcpTests),
 ]
 for (name, run) in suites {
     print("• \(name)")

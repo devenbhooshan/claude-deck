@@ -37,10 +37,37 @@ enum PendingRequests {
                   let session = obj["session_id"] as? String,
                   let name = obj["tool_name"] as? String else { continue }
             if let existing = newest[session], existing.date > date { continue }
-            let summary = TranscriptParser.summarize(name: name, input: obj["tool_input"])
+            let summary = describe(name: name, input: obj["tool_input"])
             newest[session] = Request(date: date, tool: ToolCall(id: f.lastPathComponent, name: name, summary: summary))
         }
         return newest
+    }
+
+    /// The full request, for approving: a Bash command or file path as-is, anything else (MCP tools
+    /// etc.) as all of its parameters, so no field can hide behind a harmless-looking one.
+    static func describe(name: String, input: Any?) -> String {
+        guard let input = input as? [String: Any] else { return "" }
+        // A request that is just one command/path/URL (plus harmless options) shows it plainly.
+        let harmless: Set<String> = ["description", "timeout", "run_in_background"]
+        for key in ["command", "file_path", "url", "pattern"] {
+            if let v = input[key] as? String, Set(input.keys).subtracting(harmless).subtracting([key]).isEmpty {
+                return v
+            }
+        }
+        let json = try! JSONSerialization.data(withJSONObject: input, options: [.sortedKeys, .prettyPrinted])
+        return String(decoding: json, as: UTF8.self)
+    }
+
+    /// Deletes captured requests for sessions that are no longer waiting: they hold full commands
+    /// and file contents, so they shouldn't outlive the prompt.
+    static func prune(keeping waitingSessions: Set<String>) {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) else { return }
+        for f in files {
+            let session = (try? Data(contentsOf: f))
+                .flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["session_id"] as? String
+            if session.map({ !waitingSessions.contains($0) }) ?? true { try? fm.removeItem(at: f) }
+        }
     }
 
     static var isInstalled: Bool {
@@ -51,6 +78,8 @@ enum PendingRequests {
     /// Adds the hook to ~/.claude/settings.json (after backing it up). Running sessions pick it up live.
     static func install() throws {
         let fm = FileManager.default
+        // Write through a symlinked settings file (dotfiles setups) instead of replacing the link.
+        let settingsURL = settingsURL.resolvingSymlinksInPath()
         var settings: [String: Any] = [:]
         if let data = try? Data(contentsOf: settingsURL) {
             guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {

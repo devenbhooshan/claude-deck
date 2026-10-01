@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(SessionStore.self) private var store
+    @Environment(ToolboxStore.self) private var toolbox
     @State private var newName = ""
     @State private var confirmHook = false
 
@@ -22,6 +23,8 @@ struct ContentView: View {
         .overlay(alignment: .top) { switcherOverlay }
         .animation(.easeOut(duration: 0.12), value: store.showSwitcher)
         .modifier(Dialogs(newName: $newName))
+        // The sidebar's skills and MCP servers follow the selected session's project.
+        .onChange(of: store.selectedId, initial: true) { toolbox.focus(cwd: store.session(store.selectedId)?.cwd) }
     }
 
     private var sidebar: some View {
@@ -55,8 +58,20 @@ struct ContentView: View {
                     SectionHeader(title: "Recent", count: nil, tint: nil)
                 }
             }
+            ToolboxSections()
         }
         .listStyle(.sidebar)
+        .toolbar {
+            ToolbarItem {
+                Button {
+                    store.showNewSession = true
+                } label: {
+                    Label("New Session", systemImage: "plus")
+                }
+                .help("Start Claude in a folder (⌘N)")
+            }
+        }
+        .sheet(isPresented: $store.showNewSession) { NewSessionSheet() }
         .safeAreaInset(edge: .bottom) {
             if !store.hookInstalled {
                 HookSetupCard { confirmHook = true }.padding(10)
@@ -260,7 +275,7 @@ struct SessionSwitcher: View {
     }
 }
 
-private struct SectionHeader: View {
+struct SectionHeader: View {
     let title: String
     let count: Int?
     let tint: Color?

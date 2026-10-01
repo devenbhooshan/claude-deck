@@ -12,11 +12,17 @@ struct NotificationText: Equatable {
         title = s.displayTitle
         if let tool = s.pendingTool {
             subtitle = "\(s.projectName) · \(ToolStyle.displayName(tool.name))"
-            body = String(tool.summary.prefix(180))
+            body = Self.preview(tool.summary)
         } else {
             subtitle = nil
             body = "\(s.projectName) is waiting for \(s.waitingFor ?? "your input")"
         }
         isApproval = SessionNav.isPermission(s)
+    }
+
+    /// A one-paragraph preview that can't hide anything: newlines are shown as ⏎ and a cut is marked.
+    static func preview(_ text: String, limit: Int = 180) -> String {
+        let flat = text.replacingOccurrences(of: "\n", with: " ⏎ ")
+        return flat.count > limit ? String(flat.prefix(limit)) + "… (\(text.count) chars)" : flat
     }
 }

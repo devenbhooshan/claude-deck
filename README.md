@@ -12,6 +12,22 @@ How it works:
 - Sending messages, approving/denying prompts, and "Open Terminal" drive Ghostty 1.3+ over AppleScript.
   The session's terminal is matched by Claude's terminal title (its ai-title), falling back to the working directory.
 - Ended sessions from the last 7 days can be reopened with "Resume in Ghostty".
+- **New session** (toolbar +, ⌘N) opens a Ghostty window in a folder and starts `claude`.
+- The sidebar lists the **skills** (project, global, claude.ai and plugin) and **MCP servers**
+  (from `claude mcp list`, checked in the background) for the selected session's project.
+  Clicking a skill puts its `/command` in the message box.
+
+## Safety
+
+- Messages are *typed* (Ghostty's `text:` action), not pasted, so Claude treats them as yours.
+- Deck never types while Claude shows a prompt, and only answers the exact prompt you saw
+  (re-checked from the session's record right before pressing a key).
+- Before every action, the target terminal is re-checked (same folder, Claude title).
+- One-click Allow (and ⌥⌘↩) only when Deck knows the exact request and the dialog is the standard
+  Yes / Always / No; everything else is answered in the terminal.
+- Transcript links open only http(s) and mailto. Session ids are validated and folders quoted
+  before anything reaches a shell. Captured requests are deleted once their prompt is gone, and
+  staged images after a day.
 
 ## Keyboard shortcuts
 

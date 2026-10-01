@@ -4,17 +4,27 @@ import Foundation
 /// Drives Ghostty (1.3+) over AppleScript: find the terminal hosting a session,
 /// type into it, press keys, and bring it to the front.
 ///
-/// Each session's terminal id is cached, so actions are a single direct
-/// `terminal id "…"` call (~0.1s) instead of a scan of every terminal.
+/// Safety rules, enforced here so every caller gets them:
+/// - Before any action, the same script re-checks that the terminal is still in the session's
+///   folder and still shows a Claude title; otherwise nothing is typed (`mismatch`).
+/// - Messages are only typed when the session isn't showing a dialog, and keys only answer
+///   the dialog you were shown (`PromptGuard`, from a fresh read of the session's record).
+/// - Only "terminal not found / moved" is retried, never a half-finished action.
 enum Ghostty {
     enum Failure: LocalizedError {
         case script(String)
         case notFound
+        case promptOpen
+        case promptChanged
+        case invalidSession
 
         var errorDescription: String? {
             switch self {
             case .script(let msg): msg
             case .notFound: "Couldn't find this session's Ghostty terminal. Is it running in Ghostty?"
+            case .promptOpen: "Claude is showing a prompt. Answer it first, then send your message."
+            case .promptChanged: "That prompt was already answered or has changed. Nothing was sent."
+            case .invalidSession: "This doesn't look like a Claude Code session id, so it wasn't resumed."
             }
         }
     }
@@ -33,6 +43,10 @@ enum Ghostty {
 
     private static func cacheKey(_ s: Session) -> String { "\(s.sessionId):\(s.pid ?? 0)" }
 
+    /// Every character Claude Code starts its title with, for the in-script check.
+    private static let marks: String = String(TerminalMatch.claudeMarks)
+        + String(String.UnicodeScalarView((0x2800...0x28FF).compactMap(Unicode.Scalar.init)))
+
     // MARK: - Actions
 
     /// Resolves and caches the session's terminal ahead of time so the first action is instant.
@@ -40,83 +54,106 @@ enum Ghostty {
         _ = try? await terminalId(for: session)
     }
 
-    /// Images are sent as pasted file paths, which Claude Code turns into image attachments
-    /// (the same thing that happens when you drag an image into the terminal).
+    /// Types a message (as typed input, not a paste, so Claude treats it as yours) and presses Return.
+    /// Images are pasted as file paths first, which Claude Code turns into image attachments.
     static func send(text: String, images: [URL] = [], to session: Session) async throws {
-        try await withTerminal(session) { id in
-            _ = try await run("""
-                on run argv
-                  set n to count of argv
-                  tell application "Ghostty"
-                    set t to terminal id (item 1 of argv)
-                    repeat with i from 3 to n
-                      input text (item i of argv) to t
-                      -- Give Claude Code a moment to load each image before the next paste.
-                      delay 0.3
-                    end repeat
-                    if (item 2 of argv) is not "" then
-                      if n > 2 then input text " " to t
-                      input text (item 2 of argv) to t
-                    end if
-                    send key "enter" to t
-                  end tell
-                end run
-                """, args: [id, text] + images.map(\.path))
-        }
+        guard PromptGuard.canType(session.pid.flatMap(SessionLoader.record(pid:))) else { throw Failure.promptOpen }
+        let typed = text.isEmpty ? "" : Safety.typedTextAction(text)
+        try await act(on: session, """
+              repeat with i from 6 to count of argv
+                input text (item i of argv) to t
+                -- Give Claude Code a moment to load each image before the next paste.
+                delay 0.3
+              end repeat
+              if (item 4 of argv) is not "" then
+                if (count of argv) > 5 then input text " " to t
+                perform action (item 4 of argv) on t
+              end if
+              -- Return right after typing counts as part of the typing burst (a new line); pause first.
+              delay 0.25
+              send key "enter" to t
+            """, args: [typed, ""] + images.map(\.path))
     }
 
-    static func press(key: String, on session: Session) async throws {
-        try await withTerminal(session) { id in
-            _ = try await run("""
-                on run argv
-                  tell application "Ghostty" to send key (item 2 of argv) to terminal id (item 1 of argv)
-                end run
-                """, args: [id, key])
-        }
+    /// Presses a key in the session's permission dialog, only if it's still the one you saw.
+    static func press(key: String, on session: Session, expectedSince: Double?) async throws {
+        let record = session.pid.flatMap(SessionLoader.record(pid:))
+        guard PromptGuard.canAnswer(record, expectedSince: expectedSince) else { throw Failure.promptChanged }
+        try await act(on: session, """
+              send key (item 4 of argv) to t
+            """, args: [key, ""])
     }
 
     static func focus(_ session: Session) async throws {
-        try await withTerminal(session) { id in
-            _ = try await run("""
-                on run argv
-                  tell application "Ghostty"
-                    focus terminal id (item 1 of argv)
-                    activate
-                  end tell
-                end run
-                """, args: [id])
-        }
+        try await act(on: session, """
+              focus t
+              activate
+            """, args: ["", ""])
     }
 
     /// Opens a new Ghostty window that resumes an ended session.
     static func resume(_ session: Session) async throws {
+        // The id is typed into a shell, so it must be exactly a session id.
+        guard Safety.isSessionId(session.sessionId) else { throw Failure.invalidSession }
+        try await openWindow(in: session.cwd, typing: "claude --resume \(session.sessionId)")
+    }
+
+    /// Opens a new Ghostty window in `folder` and starts Claude Code there.
+    static func newSession(in folder: String) async throws {
+        try await openWindow(in: folder, typing: "claude")
+    }
+
+    /// The folder is passed as Ghostty's working directory (never through the shell); `command`
+    /// is a fixed string we built, typed into the new shell.
+    private static func openWindow(in folder: String, typing command: String) async throws {
         _ = try await run("""
             on run argv
               tell application "Ghostty"
                 set cfg to new surface configuration
                 set initial working directory of cfg to (item 1 of argv)
-                set initial input of cfg to ("claude --resume " & (item 2 of argv) & linefeed)
+                set initial input of cfg to ((item 2 of argv) & linefeed)
                 new window with configuration cfg
                 activate
               end tell
             end run
-            """, args: [session.cwd, session.sessionId])
+            """, args: [folder, command])
     }
 
     // MARK: - Terminal lookup
 
-    /// Runs `body` with the cached terminal id; if that terminal is gone, re-resolves once and retries.
-    private static func withTerminal(_ session: Session, _ body: (String) async throws -> Void) async throws {
+    /// Runs `body` (AppleScript using `t`) on the session's terminal after re-checking, in the same
+    /// script, that it's still in the session's folder with a Claude title. argv: 1 id, 2 folder,
+    /// 3 marks, then `args`. A stale cached id is re-resolved once; other failures aren't retried.
+    private static func act(on session: Session, _ body: String, args: [String]) async throws {
+        let script = """
+            on run argv
+              tell application "Ghostty"
+                set t to terminal id (item 1 of argv)
+                set n to name of t
+                set d to working directory of t
+              end tell
+              if d is not (item 2 of argv) then return "mismatch"
+              if n is "" then return "mismatch"
+              if (character 1 of n) is not in (item 3 of argv) then return "mismatch"
+              tell application "Ghostty"
+            \(body)
+              end tell
+              return "ok"
+            end run
+            """
         let key = cacheKey(session)
-        if let cached = cache[key] {
+        for attempt in 0..<2 {
+            let id = try await terminalId(for: session)
+            let result: String
             do {
-                try await body(cached)
-                return
-            } catch {
-                cache[key] = nil
+                result = try await run(script, args: [id, session.cwd, marks] + args)
+            } catch Failure.script(let msg) where msg.contains("-1728") || msg.contains("terminal id") {
+                result = "mismatch" // The cached terminal is gone.
             }
+            if result.trimmingCharacters(in: .whitespacesAndNewlines) == "ok" { return }
+            cache[key] = nil
+            if attempt == 1 { throw Failure.notFound }
         }
-        try await body(try await terminalId(for: session))
     }
 
     private static func terminalId(for session: Session) async throws -> String {
@@ -128,10 +165,12 @@ enum Ghostty {
     }
 
     static func terminals() async throws -> [GhosttyTerminal] {
-        // Fetch each property for all terminals in one Apple event, then join locally.
+        // Fetch each property for all terminals in one Apple event, then join locally with
+        // separators (US/RS) that can't appear in titles.
         let out = try await run("""
             on run argv
-              set sep to character id 9
+              set fs to character id 31
+              set rs to character id 30
               tell application "Ghostty"
                 set ids to id of terminals
                 set names to name of terminals
@@ -143,7 +182,7 @@ enum Ghostty {
                 try
                   set d to item i of dirs as text
                 end try
-                set out to out & (item i of ids) & sep & (item i of names) & sep & d & linefeed
+                set out to out & (item i of ids) & fs & (item i of names) & fs & d & rs
               end repeat
               return out
             end run

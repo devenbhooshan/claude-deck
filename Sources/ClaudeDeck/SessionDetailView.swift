@@ -93,7 +93,7 @@ struct SessionDetailView: View {
                 .overlay(alignment: .bottom) {
                     if session.status == .waiting && !store.isAnswered(session) {
                         PendingCard(session: session,
-                                    tool: session.pendingTool.map { ($0.name, $0.summary) } ?? model.pendingTool,
+                                    tool: session.pendingTool.map { ($0.name, $0.summary) },
                                     perform: act, respond: { store.respond(session, key: $0) })
                             .padding(.horizontal, 20).padding(.bottom, 12)
                             .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -162,7 +162,9 @@ struct SessionDetailView: View {
                 Divider()
                 Button("Copy Transcript") { copy(model.markdown(title: session.displayTitle)) }
                 Button("Copy Session ID") { copy(session.sessionId) }
-                Button("Copy Resume Command") { copy("cd \(session.cwd) && claude --resume \(session.sessionId)") }
+                Button("Copy Resume Command") {
+                    copy("cd \(Safety.shellQuote(session.cwd)) && claude --resume \(Safety.shellQuote(session.sessionId))")
+                }
                 Divider()
                 Button("Show Project in Finder") {
                     NSWorkspace.shared.selectFile(nil, inFileViewerRootedAtPath: session.cwd)
@@ -217,6 +219,11 @@ private struct PendingCard: View {
 
     private var isPermission: Bool { Theme.isPermission(session) }
 
+    private func size(of text: String) -> String {
+        let lines = text.components(separatedBy: "\n").count
+        return lines > 1 ? "\(lines) lines · \(text.count) chars" : "\(text.count) chars"
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
@@ -237,17 +244,29 @@ private struct PendingCard: View {
                     Image(systemName: ToolStyle.symbol(tool.name))
                         .foregroundStyle(.secondary)
                         .frame(width: 16)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(ToolStyle.displayName(tool.name)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                        Text(tool.summary)
-                            .font(.system(.callout, design: .monospaced))
-                            .lineLimit(5)
-                            .textSelection(.enabled)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Text(ToolStyle.displayName(tool.name)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                            Spacer()
+                            // Size up front, so nothing long can hide below the fold.
+                            Text(size(of: tool.summary)).font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        ScrollView {
+                            Text(tool.summary)
+                                .font(.system(.callout, design: .monospaced))
+                                .textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .frame(maxHeight: 180)
+                        .fixedSize(horizontal: false, vertical: true)
                     }
-                    Spacer(minLength: 0)
                 }
                 .padding(10)
                 .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(Color.primary.opacity(0.05)))
+            } else if isPermission {
+                Label("Deck can't see what this prompt is asking. Check it in the terminal, or set up approval details from the sidebar.",
+                      systemImage: "eye.slash")
+                    .font(.callout).foregroundStyle(.secondary)
             }
 
             ApprovalButtons(session: session, size: .large)

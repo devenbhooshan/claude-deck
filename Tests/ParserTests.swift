@@ -75,6 +75,8 @@ func parserTests() {
             ["type": "user", "message": ["content": "<task-notification><status>failed</status><summary>Build broke</summary></task-notification>"]],
             ["type": "user", "message": ["content": "<task-notification></task-notification>"]],
             ["type": "user", "message": ["content": "[Request interrupted by user]"]],
+            ["type": "user", "message": ["content": "<pasted_content id=\"a1\">\nmerge it\n</pasted_content id=\"a1\">"]],
+            ["type": "user", "message": ["content": "<pasted_content id=\"a2\">no close"]],
             ["type": "user", "message": ["content": [
                 ["type": "text", "text": "[Image #1] look at this"],
                 ["type": "image", "source": ["data": png]],
@@ -139,7 +141,8 @@ func parserTests() {
         }
         expectEqual(kinds, [
             "user:first:0", "cmd:/rename New", "cmd:", "notice:Renamed", "task:Build broke:false",
-            "task:Background task completed:true", "notice:Interrupted", "user:look at this:1",
+            "task:Background task completed:true", "notice:Interrupted", "user:merge it:0", "user:no close:0",
+            "user:look at this:1",
             "user:blocks only text:0", "asst:plain reply", "asst:Let me look.", "tool:Bash:ls -la", "tool:Read:/x",
             "tool:Custom:{\"a\":1}", "tool:NoInput:", "tool:tool:", "user:third:0",
         ])

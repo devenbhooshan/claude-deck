@@ -56,6 +56,9 @@ struct Session: Identifiable, Equatable {
 
     var isLive: Bool { pid != nil }
 
+    /// `statusSince` as Claude Code writes it (milliseconds), to identify the prompt being answered.
+    var statusStamp: Double? { statusSince.map { $0.timeIntervalSince1970 * 1000 } }
+
     var displayTitle: String {
         if let title, !title.isEmpty { return title }
         if let name, !name.isEmpty { return name }

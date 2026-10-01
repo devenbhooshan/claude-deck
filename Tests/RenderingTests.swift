@@ -81,7 +81,7 @@ func rendererTests() {
         let text = r.render(c)
         let s = text.string
         for piece in ["hello", "/rename x", "/clear", "✦", "Heading", "bold", "link", "code block", "only", "Interrupted",
-                      "✓ Built", "✗ Broke", "Bash", "ls src", "~/y", "running…", "–", "(no output)", "… (truncated)",
+                      "✓ Built", "✗ Broke", "Bash", "ls src ⏎…", "~/y", "running…", "–", "(no output)", "… (truncated)",
                       "queued msg", "Queued until", "Sending…", "Sent", "starts with code", "Starts with heading"] {
             expect(s.contains(piece), "missing \(piece)")
         }
@@ -108,8 +108,9 @@ func rendererTests() {
         struct Bad: Error {}
         let raw = TranscriptRenderer.inline("**x**", font: .systemFont(ofSize: 12), color: .labelColor, parse: { _ in throw Bad() })
         expectEqual(raw.string, "**x**")
-        let styled = TranscriptRenderer.inline("**b** *i* `c` ~~s~~", font: .systemFont(ofSize: 12), color: .labelColor)
-        expectEqual(styled.string, "b i c s")
+        let styled = TranscriptRenderer.inline("**b** *i* `c` ~~s~~ [t](https://real.example)", font: .systemFont(ofSize: 12), color: .labelColor)
+        expectEqual(styled.string, "b i c s t")
+        expectEqual(styled.attribute(.toolTip, at: styled.length - 1, effectiveRange: nil) as? String, "https://real.example")
         let small = TranscriptRenderer.rounded(image(width: 10, height: 10), fitting: NSSize(width: 100, height: 100))
         expectEqual(small.size, NSSize(width: 10, height: 10))
         let big = TranscriptRenderer.rounded(image(width: 400, height: 200), fitting: NSSize(width: 100, height: 100))

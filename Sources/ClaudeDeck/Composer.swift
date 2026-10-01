@@ -12,8 +12,11 @@ struct Composer: View {
     @State private var pasteMonitor: Any?
     @FocusState private var focused: Bool
 
+    /// Typing while a dialog is open would land in the dialog, and Return would pick an option.
+    private var promptOpen: Bool { session.status == .waiting }
+
     private var canSend: Bool {
-        (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
+        !promptOpen && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
     }
 
     var body: some View {
@@ -91,6 +94,12 @@ struct Composer: View {
         // Switching sessions (click, ⌘K, ⌘1–9, ⌥⌘↑/↓) lands you in the message box.
         .onChange(of: store.selectedId) { focusSoon() }
         .onChange(of: store.showSwitcher) { if !store.showSwitcher { focusSoon() } }
+        .onChange(of: store.composerInsert) {
+            guard let insert = store.composerInsert else { return }
+            store.composerInsert = nil
+            draft = draft.isEmpty ? insert : draft + (draft.hasSuffix(" ") ? "" : " ") + insert
+            focusSoon()
+        }
         .onDisappear {
             if let m = pasteMonitor { NSEvent.removeMonitor(m) }
         }
@@ -104,7 +113,7 @@ struct Composer: View {
     private var placeholder: String {
         switch session.status {
         case .busy: "Message Claude — it'll be queued until the current step finishes"
-        case .waiting: "Reply to Claude…"
+        case .waiting: "Answer the prompt above first…"
         default: "Message Claude…"
         }
     }

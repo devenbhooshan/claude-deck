@@ -7,11 +7,13 @@ import UserNotifications
 struct ClaudeDeckApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var store = SessionStore()
+    @State private var toolbox = ToolboxStore()
 
     var body: some Scene {
         Window("Claude Deck", id: "main") {
             MainWindow()
                 .environment(store)
+                .environment(toolbox)
                 .frame(minWidth: 900, minHeight: 560)
                 .onAppear {
                     delegate.store = store
@@ -47,6 +49,8 @@ struct SessionCommands: Commands {
 
     var body: some Commands {
         CommandMenu("Sessions") {
+            Button("New Session…") { store.showNewSession = true }
+                .keyboardShortcut("n", modifiers: .command)
             Button("Jump to Session…") { store.showSwitcher.toggle() }
                 .keyboardShortcut("k", modifiers: .command)
             Button("Next Session Needing You") { store.selectNextWaiting() }
@@ -122,9 +126,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             guard let store else { return }
             switch action {
             case Notifications.allow, Notifications.deny:
-                // Answer in place; don't pull you away from what you're doing.
+                // Answer in place; don't pull you away from what you're doing. Only the exact
+                // prompt the banner was about can be answered.
+                let since = response.notification.request.content.userInfo["since"] as? Double
                 if let s = store.live.first(where: { $0.id == id }) {
-                    store.respond(s, key: action == Notifications.allow ? "enter" : "escape")
+                    store.respond(s, key: action == Notifications.allow ? "enter" : "escape", expectedSince: since)
                 }
             default:
                 store.selectedId = id

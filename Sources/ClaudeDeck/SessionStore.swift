@@ -11,6 +11,11 @@ final class SessionStore {
     private(set) var recent: [Session] = []
     var selectedId: String?
     var showSwitcher = false
+    var showNewSession = false
+    /// A session we just started: select it as soon as it appears.
+    private var starting: (folder: String, at: Date)?
+    /// Text to drop into the message box (e.g. a skill's command), consumed by the composer.
+    var composerInsert: String?
     var lastError: String?
     /// Opens (or re-opens) the main window; set by the window scene.
     var openMainWindow: (() -> Void)?
@@ -33,6 +38,10 @@ final class SessionStore {
     /// Renames via Claude Code's own /rename for running sessions, so the name shows everywhere.
     /// Ended sessions get the same custom-title record appended to their transcript.
     func rename(_ s: Session, to raw: String) {
+        if s.isLive && s.status == .waiting {
+            lastError = "Claude is showing a prompt. Answer it first, then rename."
+            return
+        }
         guard let name = TranscriptWriter.normalizedName(raw) else { return }
         pendingNames[s.id] = name
         applyNames()
@@ -69,12 +78,14 @@ final class SessionStore {
 
     func isAnswered(_ s: Session) -> Bool { SessionNav.isAnswered(at: answered[s.id]) }
 
-    /// Answers a session's prompt by pressing a key in its terminal (enter = allow, escape = deny).
-    func respond(_ s: Session, key: String) {
+    /// Answers a session's prompt by pressing a key in its terminal (enter = allow, escape = deny),
+    /// only if it's still the prompt you saw (`expectedSince` defaults to the one on screen).
+    func respond(_ s: Session, key: String, expectedSince: Double? = nil) {
         answered[s.id] = Date()
+        let since = expectedSince ?? s.statusStamp
         Task {
             do {
-                try await Ghostty.press(key: key, on: s)
+                try await Ghostty.press(key: key, on: s, expectedSince: since)
             } catch {
                 answered[s.id] = nil
                 lastError = error.localizedDescription
@@ -90,11 +101,36 @@ final class SessionStore {
             HUD.show("Nothing waiting", symbol: "checkmark.circle", tint: Color.secondary)
             return
         }
+        // Never approve blind: Deck must know exactly what's being asked.
+        guard PromptGuard.canAnswerHere(target) else {
+            HUD.show("Answer this one in the terminal", detail: "\(target.displayTitle): Deck can't see what it's asking",
+                     symbol: "exclamationmark.triangle.fill", tint: Theme.waiting)
+            return
+        }
         respond(target, key: allow ? "enter" : "escape")
         let message = SessionNav.approvalMessage(for: target, allow: allow, remaining: remaining)
         HUD.show(message.title, detail: message.detail,
                  symbol: allow ? "checkmark.circle.fill" : "xmark.circle.fill",
                  tint: allow ? Theme.success : Theme.danger)
+    }
+
+    /// Folders you've run Claude in (running first, then recent), that still exist.
+    var projectFolders: [String] {
+        SessionNav.projectFolders(live: live, recent: recent)
+            .filter { var dir: ObjCBool = false; return FileManager.default.fileExists(atPath: $0, isDirectory: &dir) && dir.boolValue }
+    }
+
+    func startSession(in folder: String) {
+        starting = (folder, Date())
+        Task {
+            do {
+                try await Ghostty.newSession(in: folder)
+                HUD.show("Starting Claude", detail: Theme.shortPath(folder), symbol: "plus.circle.fill", tint: Theme.accent)
+            } catch {
+                starting = nil
+                lastError = error.localizedDescription
+            }
+        }
     }
 
     func openTerminal(_ s: Session) {
@@ -132,6 +168,7 @@ final class SessionStore {
     private var refreshPending = false
 
     func start() {
+        AttachmentStore.purge()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
         refresh()
         // The directory changes when sessions start or exit.
@@ -177,8 +214,20 @@ final class SessionStore {
         pendingNames = named.pending
         let newLive = named.live
         if newLive != live { live = newLive }
+        // Select a session we just started once Claude Code registers it.
+        if let start = starting {
+            if let s = newLive.first(where: { $0.cwd == start.folder && $0.updatedAt >= start.at.addingTimeInterval(-2) }) {
+                selectedId = s.id
+                starting = nil
+            } else if Date().timeIntervalSince(start.at) > 60 {
+                starting = nil
+            }
+        }
         // Forget answers once the session has moved on (or after a timeout).
         answered = SessionNav.pruneAnswered(answered, live: newLive)
+        // Captured requests hold full commands; delete them once their prompt is gone.
+        let waitingIds = Set(newLive.filter { $0.status == .waiting }.map(\.sessionId))
+        DispatchQueue.global(qos: .utility).async { PendingRequests.prune(keeping: waitingIds) }
         syncRecordWatchers(Set(newLive.compactMap(\.pid)))
         if let newRecent {
             let liveIds = Set(newLive.map(\.id))
@@ -209,8 +258,9 @@ final class SessionStore {
         if let subtitle = text.subtitle { content.subtitle = subtitle }
         content.body = text.body
         content.sound = .default
-        content.userInfo = ["sessionId": s.sessionId]
-        if text.isApproval { content.categoryIdentifier = Notifications.approvalCategory }
+        // Identify the exact prompt, so a stale banner can't answer a newer one.
+        content.userInfo = ["sessionId": s.sessionId, "since": s.statusStamp ?? 0]
+        if text.isApproval && PromptGuard.canAnswerHere(s) { content.categoryIdentifier = Notifications.approvalCategory }
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: s.sessionId + "-\(Date().timeIntervalSince1970)", content: content, trigger: nil))
     }
 

@@ -2,6 +2,13 @@ import Foundation
 
 /// Reads Claude Code's session records (~/.claude/sessions) and transcripts (~/.claude/projects).
 enum SessionLoader {
+    /// A fresh read of one session's record, used right before typing into or answering it.
+    static func record(pid: Int32) -> SessionRecord? {
+        let url = ClaudePaths.sessions.appendingPathComponent("\(pid).json")
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(SessionRecord.self, from: data)
+    }
+
     static func loadLive(cache: [String: TitleInfo], alive: (Int32) -> Bool = isAlive) -> ([Session], [String: TitleInfo]) {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(atPath: ClaudePaths.sessions.path) else { return ([], [:]) }

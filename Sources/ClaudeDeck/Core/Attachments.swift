@@ -24,6 +24,16 @@ enum AttachmentStore {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
+    /// Deletes staged images older than `age` (they're only needed until Claude has read them).
+    static func purge(olderThan age: TimeInterval = 86400, now: Date = Date()) {
+        let fm = FileManager.default
+        guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        for f in files {
+            guard let modified = try? f.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { continue }
+            if now.timeIntervalSince(modified) > age { try? fm.removeItem(at: f) }
+        }
+    }
+
     static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp"]
 
     static func from(fileURL: URL) -> Attachment? {

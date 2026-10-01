@@ -116,7 +116,46 @@ func loaderTests() {
     }
 }
 
+func recordTests() {
+    test("fresh record read") {
+        let box = Sandbox(); defer { box.cleanup() }
+        box.write("claude/sessions/42.json", #"{"pid":42,"sessionId":"s","cwd":"/p","status":"waiting","statusUpdatedAt":5}"#)
+        expectEqual(SessionLoader.record(pid: 42)?.status, "waiting")
+        expect(SessionLoader.record(pid: 43) == nil)
+        box.write("claude/sessions/44.json", "{")
+        expect(SessionLoader.record(pid: 44) == nil)
+    }
+}
+
 func pendingTests() {
+    test("describe shows the whole request") {
+        expectEqual(PendingRequests.describe(name: "Bash", input: ["command": "ls\nrm -rf ~", "description": "list"]), "ls\nrm -rf ~")
+        expectEqual(PendingRequests.describe(name: "Read", input: ["file_path": "/f"]), "/f")
+        let mcp = PendingRequests.describe(name: "mcp__x__send", input: ["description": "harmless", "to": "everyone"])
+        expect(mcp.contains("\"to\" : \"everyone\""), "every parameter is shown")
+        expect(PendingRequests.describe(name: "Edit", input: ["file_path": "/f", "new_string": "x"]).contains("new_string"))
+        expectEqual(PendingRequests.describe(name: "x", input: nil), "")
+    }
+    test("prune drops requests whose prompt is gone") {
+        let box = Sandbox(); defer { box.cleanup() }
+        PendingRequests.prune(keeping: []) // no folder: nothing to do
+        let keep = box.write("pending/req.1", #"{"session_id":"a","tool_name":"Bash"}"#)
+        let drop = box.write("pending/req.2", #"{"session_id":"b","tool_name":"Bash"}"#)
+        let junk = box.write("pending/req.3", "junk")
+        PendingRequests.prune(keeping: ["a"])
+        let fm = FileManager.default
+        expect(fm.fileExists(atPath: keep.path))
+        expect(!fm.fileExists(atPath: drop.path) && !fm.fileExists(atPath: junk.path))
+    }
+    test("install writes through a symlinked settings file") {
+        let box = Sandbox(); defer { box.cleanup() }
+        let real = box.write("dotfiles/settings.json", #"{"model":"opus"}"#)
+        try FileManager.default.createSymbolicLink(at: PendingRequests.settingsURL, withDestinationURL: real)
+        try PendingRequests.install()
+        let attrs = try FileManager.default.attributesOfItem(atPath: PendingRequests.settingsURL.path)
+        expectEqual(attrs[.type] as? FileAttributeType, .typeSymbolicLink)
+        expect(try String(contentsOf: real, encoding: .utf8).contains("PermissionRequest"))
+    }
     test("loads the newest request per session and prunes old files") {
         let box = Sandbox(); defer { box.cleanup() }
         expect(PendingRequests.load().isEmpty, "no folder yet")
@@ -159,6 +198,18 @@ func pendingTests() {
         var threw = false
         do { try PendingRequests.install() } catch { threw = true }
         expect(threw, "a settings file that isn't a JSON object is left alone")
+    }
+}
+
+func purgeTests() {
+    test("purges old staged images") {
+        let box = Sandbox(); defer { box.cleanup() }
+        AttachmentStore.purge() // no folder yet
+        let old = box.write("attachments/old.png", "x"), fresh = box.write("attachments/new.png", "x")
+        try FileManager.default.setAttributes([.modificationDate: Date().addingTimeInterval(-2 * 86400)], ofItemAtPath: old.path)
+        AttachmentStore.purge()
+        expect(!FileManager.default.fileExists(atPath: old.path))
+        expect(FileManager.default.fileExists(atPath: fresh.path))
     }
 }
 
