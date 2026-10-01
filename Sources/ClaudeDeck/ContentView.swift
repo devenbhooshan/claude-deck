@@ -28,7 +28,9 @@ struct ContentView: View {
 
     private var sidebar: some View {
         @Bindable var store = store
-        return List(selection: $store.selectedId) {
+        // Selection is drawn by Deck, not the system list: the system highlight switches from the
+        // accent colour to grey when focus moves to the message box, which made the row flicker.
+        return List {
             // One fixed list: a session keeps its place and number (⌘1–9) whatever its status.
             // Sessions waiting on you stay put and show Allow / Deny in place.
             Section {
@@ -43,7 +45,7 @@ struct ContentView: View {
                             SessionRow(session: s, number: i + 1)
                         }
                     }
-                    .tag(s.id)
+                    .modifier(SelectableRow(id: s.id))
                     .contextMenu { rowMenu(s) }
                 }
             } header: {
@@ -61,7 +63,7 @@ struct ContentView: View {
             if !store.recent.isEmpty {
                 Section {
                     ForEach(store.recent) { s in
-                        SessionRow(session: s).tag(s.id).contextMenu { rowMenu(s) }
+                        SessionRow(session: s).modifier(SelectableRow(id: s.id)).contextMenu { rowMenu(s) }
                     }
                 } header: {
                     SectionHeader(title: "Recent", count: nil, tint: nil)
@@ -384,14 +386,8 @@ struct SessionRow<Accessory: View>: View {
     }
 
     private var subtitle: String {
-        if session.status == .waiting, let tool = session.pendingTool {
-            let what = tool.summary.split(separator: "\n").first.map(String.init) ?? tool.summary
-            return "\(session.projectName) · \(what.replacingOccurrences(of: session.cwd + "/", with: ""))"
-        }
-        if session.status == .waiting, let w = session.waitingFor {
-            return "\(session.projectName) · \(w.prefix(1).uppercased() + w.dropFirst())"
-        }
-        return session.projectName
+        // Just the project: the orange hand and ✓ / ✕ already say it's waiting (hover ✓ for the request).
+        session.projectName
     }
 }
 
@@ -446,5 +442,24 @@ extension SessionRow where Accessory == EmptyView {
         self.session = session
         self.number = number
         self.accessory = nil
+    }
+}
+
+/// Deck's own selection: click to open, and one steady highlight for the open session.
+struct SelectableRow: ViewModifier {
+    @Environment(SessionStore.self) private var store
+    let id: String
+
+    func body(content: Content) -> some View {
+        let selected = store.selectedId == id
+        content
+            .contentShape(Rectangle())
+            .onTapGesture { store.selectedId = id }
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
+                    .fill(selected ? Theme.accent.opacity(0.16) : Color.clear)
+                    .padding(.horizontal, 10)
+            )
+            .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
     }
 }
