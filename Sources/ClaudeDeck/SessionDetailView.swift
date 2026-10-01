@@ -42,10 +42,34 @@ final class TranscriptModel {
 
     func markdown(title: String) -> String { TranscriptExport.markdown(title: title, blocks: blocks) }
 
-    func addOutgoing(text: String, images: [NSImage]) -> UUID {
+    /// True from the moment you send until Claude reports it's working on it (or 15s pass).
+    /// Kept separately from `outgoing`, which clears as soon as the message lands in the transcript,
+    /// a moment before Claude Code marks the session busy; that gap made the working row flicker.
+    private(set) var awaitingPickup = false
+    /// When the current turn started: your send, else when Claude started. One timer for the whole turn.
+    private(set) var turnStart: Date?
+
+    /// `whileBusy`: Claude is already working, so the message just queues; the current turn goes on.
+    func addOutgoing(text: String, images: [NSImage], whileBusy: Bool = false) -> UUID {
         let o = OutgoingMessage(text: text, images: images)
         outgoing.append(o)
+        if whileBusy { return o.id }
+        awaitingPickup = true
+        if turnStart == nil { turnStart = o.sentAt }
+        let sentAt = o.sentAt
+        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
+            // Never picked up (e.g. the send failed silently): stop showing activity.
+            if self?.awaitingPickup == true, self?.turnStart == sentAt { self?.awaitingPickup = false }
+        }
         return o.id
+    }
+
+    /// Follows the session's status: working → picked up; idle or waiting → the turn is over.
+    func statusChanged(_ status: SessionStatus) {
+        switch status {
+        case .busy: awaitingPickup = false
+        case .idle, .waiting, .ended: if !awaitingPickup { turnStart = nil }
+        }
     }
 
     func markDelivered(_ id: UUID) {
@@ -53,6 +77,8 @@ final class TranscriptModel {
     }
 
     func removeOutgoing(_ id: UUID) {
+        awaitingPickup = false
+        turnStart = nil
         outgoing.removeAll { $0.id == id }
     }
 
@@ -108,6 +134,7 @@ struct SessionDetailView: View {
             }
         }
         .animation(.snappy, value: session.status)
+        .onChange(of: session.status) { model.statusChanged(session.status) }
         .background(Color(nsColor: .textBackgroundColor))
         .overlay {
             if dropTargeted && session.isLive {

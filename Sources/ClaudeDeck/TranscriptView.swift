@@ -20,12 +20,10 @@ struct TranscriptView: View {
     }
 
     /// A message you just sent that Claude hasn't picked up yet: show activity right away,
-    /// instead of waiting for Claude Code to report the session as busy.
-    private var sendingSince: Date? {
-        status == .busy || status == .waiting ? nil : model.outgoing.map(\.sentAt).min()
-    }
+    /// and keep it on continuously until Claude reports it's working (no gap, no flicker).
+    private var sending: Bool { status != .busy && status != .waiting && model.awaitingPickup }
 
-    private var active: Bool { status == .busy || sendingSince != nil }
+    private var active: Bool { status == .busy || sending }
 
     var body: some View {
         TranscriptTextView(content: TranscriptContent(
@@ -38,8 +36,8 @@ struct TranscriptView: View {
                 // The row's space is always reserved, so the transcript never jumps when it appears;
                 // its contents fade in and out. Lined up with the reading column, under the last message.
                 HStack(spacing: 8) {
-                    WorkingRow(tool: status == .busy ? openTool : nil, since: status == .busy ? statusSince : sendingSince,
-                               sending: status != .busy)
+                    WorkingRow(tool: status == .busy ? openTool : nil, since: model.turnStart ?? statusSince,
+                               sending: sending)
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .background(Capsule().fill(Color.primary.opacity(0.05)))
                     if let onStop {

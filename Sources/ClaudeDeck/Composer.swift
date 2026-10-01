@@ -187,7 +187,7 @@ struct Composer: View {
         }
         // Show the message immediately; the terminal round trip happens in the background.
         let thumbs = staged.compactMap { (try? Data(contentsOf: $0.url)).flatMap { TranscriptParser.thumbnail($0) } }
-        let outgoingId = model.addOutgoing(text: text, images: thumbs)
+        let outgoingId = model.addOutgoing(text: text, images: thumbs, whileBusy: session.status == .busy)
         draft = ""
         attachments = []
         Task {
