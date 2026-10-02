@@ -284,7 +284,7 @@ final class SessionStore {
         // Identify the exact prompt, so a stale banner can't answer a newer one.
         content.userInfo = ["sessionId": s.sessionId, "since": s.statusStamp ?? 0]
         if text.isApproval && PromptGuard.canAnswerHere(s) { content.categoryIdentifier = Notifications.approvalCategory }
-        DebugLog.write("notify \(s.displayTitle) approval=\(text.isApproval)")
+        DebugLog.write("notify \(s.displayTitle) approval=\(text.isApproval) buttons=\(content.categoryIdentifier == Notifications.approvalCategory) tool=\(s.pendingTool?.name ?? "unknown")")
         UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: s.sessionId + "-\(Date().timeIntervalSince1970)", content: content, trigger: nil)) { err in
             if let err { DebugLog.write("notify add error=\(err)") }
         }
