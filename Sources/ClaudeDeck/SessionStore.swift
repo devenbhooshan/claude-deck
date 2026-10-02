@@ -182,7 +182,17 @@ final class SessionStore {
 
     func start() {
         AttachmentStore.purge()
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            DebugLog.write("notifications granted=\(granted) error=\(String(describing: error))")
+            if CommandLine.arguments.contains("--test-notification") {
+                let c = UNMutableNotificationContent()
+                c.title = "Claude Deck test"
+                c.body = "If you see this, notifications work."
+                UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "test", content: c, trigger: nil)) { err in
+                    DebugLog.write("test notification add error=\(String(describing: err))")
+                }
+            }
+        }
         refresh()
         // The directory changes when sessions start or exit.
         watcher = FileWatcher(url: ClaudePaths.sessions, events: [.write]) { [weak self] in
@@ -274,7 +284,21 @@ final class SessionStore {
         // Identify the exact prompt, so a stale banner can't answer a newer one.
         content.userInfo = ["sessionId": s.sessionId, "since": s.statusStamp ?? 0]
         if text.isApproval && PromptGuard.canAnswerHere(s) { content.categoryIdentifier = Notifications.approvalCategory }
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: s.sessionId + "-\(Date().timeIntervalSince1970)", content: content, trigger: nil))
+        DebugLog.write("notify \(s.displayTitle) approval=\(text.isApproval)")
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: s.sessionId + "-\(Date().timeIntervalSince1970)", content: content, trigger: nil)) { err in
+            if let err { DebugLog.write("notify add error=\(err)") }
+        }
     }
 
+}
+
+/// A small diagnostic log at ~/Library/Caches/com.devenbhooshan.claudedeck/debug.log (last 200 lines).
+enum DebugLog {
+    static func write(_ message: String) {
+        let url = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("com.devenbhooshan.claudedeck/debug.log")
+        let old = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        let lines = (old.split(separator: "\n").suffix(199).map(String.init)) + ["\(Date()) \(message)"]
+        try? lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
+    }
 }
