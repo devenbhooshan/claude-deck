@@ -81,9 +81,17 @@ enum Ghostty {
     static func press(key: String, on session: Session, expectedSince: Double?) async throws {
         let record = session.pid.flatMap(SessionLoader.record(pid:))
         guard PromptGuard.canAnswer(record, expectedSince: expectedSince) else { throw Failure.promptChanged }
-        try await act(on: session, """
-              send key (item 4 of argv) to t
-            """, args: [key, ""])
+        // Ghostty's `send key` has no name for digit keys, so option numbers ("2" = Always Allow)
+        // are typed instead; Enter and Escape are sent as keys.
+        if key.count == 1, key.first!.isNumber {
+            try await act(on: session, """
+                  perform action ("text:" & (item 4 of argv)) on t
+                """, args: [key, ""])
+        } else {
+            try await act(on: session, """
+                  send key (item 4 of argv) to t
+                """, args: [key, ""])
+        }
     }
 
     /// Stops Claude's current step (Esc), only if it's still working.
