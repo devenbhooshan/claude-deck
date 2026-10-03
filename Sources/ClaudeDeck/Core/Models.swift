@@ -81,6 +81,8 @@ struct TranscriptItem: Identifiable {
         case notice(String)
         /// Output of a slash command that ran in the terminal (e.g. /cost, /context).
         case commandOutput(String)
+        /// Claude Code's "※ recap" of where a session stands, shown when you come back to it.
+        case recap(String)
         /// A background task finished (from a <task-notification>).
         case taskEvent(String, ok: Bool)
     }

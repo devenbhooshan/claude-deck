@@ -112,6 +112,15 @@ func parserTests() {
             ["type": "attachment", "attachment": ["type": "queued_command", "origin": ["kind": "human"], "prompt": "third"]],
             ["type": "attachment", "attachment": ["type": "queued_command", "origin": ["kind": "system"], "prompt": "ignored"]],
             ["type": "attachment", "attachment": ["type": "other"]],
+            ["type": "system", "subtype": "local_command", "content": "<command-name>/cost</command-name><command-args></command-args>"],
+            ["type": "system", "subtype": "local_command", "content": "<local-command-stdout>Total cost: $1</local-command-stdout>"],
+            ["type": "system", "subtype": "away_summary", "content": "We fixed the bug. (disable recaps in /config)"],
+            ["type": "system", "subtype": "away_summary", "content": " (disable recaps in /config)"],
+            ["type": "system", "subtype": "informational", "content": "Unknown command: /mco", "timestamp": "2026-10-01T03:13:03.971Z"],
+            ["type": "system", "subtype": "compact_boundary", "content": "Conversation compacted"],
+            ["type": "system", "subtype": "turn_duration"],
+            ["type": "system", "subtype": "turn_duration", "content": "12s"],
+            ["type": "system", "subtype": "informational", "content": "sub", "isSidechain": true],
             ["type": "custom-title", "customTitle": "Mine"],
             ["type": "ai-title", "aiTitle": "Auto again"],
             ["type": "custom-title", "title": "Legacy"],
@@ -137,6 +146,7 @@ func parserTests() {
             case .tool(let c): kinds.append("tool:\(c.name):\(c.summary)")
             case .notice(let t): kinds.append("notice:\(t)")
             case .commandOutput(let t): kinds.append("out:\(t)")
+            case .recap(let t): kinds.append("recap:\(t)")
             case let .taskEvent(t, ok): kinds.append("task:\(t):\(ok)")
             }
         }
@@ -146,6 +156,7 @@ func parserTests() {
             "user:look at this:1",
             "user:blocks only text:0", "asst:plain reply", "asst:Let me look.", "tool:Bash:ls -la", "tool:Read:/x",
             "tool:Custom:{\"a\":1}", "tool:NoInput:", "tool:tool:", "user:third:0",
+            "cmd:/cost", "out:Total cost: $1", "recap:We fixed the bug.", "notice:Unknown command: /mco", "notice:Conversation compacted",
         ])
         expect(p.items[0].timestamp != nil)
         expectEqual(p.results["t1"]?.text, "out")

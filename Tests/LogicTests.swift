@@ -288,13 +288,13 @@ func exportTests() {
         item(.user("hello", images: [])), item(.user("look", images: [image()])), item(.user("two", images: [image(), image()])),
         item(.command("rename x")), item(.command("/clear")), item(.assistant("Hi **there**")),
         item(.tool(ToolCall(id: "t", name: "Bash", summary: "ls\n-la"))), item(.notice("Interrupted")),
-        item(.commandOutput("Total cost: $1")),
+        item(.commandOutput("Total cost: $1")), item(.recap("Where we are")),
         item(.taskEvent("done", ok: true)),
     ])
     test("markdown export") {
         let md = TranscriptExport.markdown(title: "S", blocks: blocks)
         for piece in ["# S", "**You:** hello", "**You:** _(1 image)_ look", "_(2 images)_", "`/rename x`", "`/clear`",
-                      "**Claude:** Hi **there**", "- `Bash`: `ls -la`", "_Interrupted_", "_done_", "```\nTotal cost: $1\n```"] {
+                      "**Claude:** Hi **there**", "- `Bash`: `ls -la`", "_Interrupted_", "_done_", "```\nTotal cost: $1\n```", "> ※ Recap: Where we are"] {
             expect(md.contains(piece), "missing \(piece)")
         }
         // A stray tool item inside an .item block is skipped.

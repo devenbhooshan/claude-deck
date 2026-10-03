@@ -131,6 +131,10 @@ final class TranscriptParser: @unchecked Sendable {
                 break
             }
             return
+        case "system":
+            // Things Claude Code shows in the terminal but writes as system records.
+            ingestSystem(obj)
+            return
         case "user", "assistant", "attachment":
             break
         default:
@@ -183,6 +187,28 @@ final class TranscriptParser: @unchecked Sendable {
                 continue
             }
         }
+    }
+
+    private func ingestSystem(_ obj: [String: Any]) {
+        guard obj["isSidechain"] as? Bool != true, let content = obj["content"] as? String else { return }
+        let ts = (obj["timestamp"] as? String).flatMap { Self.iso.date(from: $0) }
+        let uuid = obj["uuid"] as? String ?? UUID().uuidString
+        let kind: TranscriptItem.Kind?
+        switch obj["subtype"] as? String {
+        case "local_command":
+            // A slash command typed in the terminal (the command, then its output).
+            kind = Self.userKind(content)
+        case "away_summary":
+            let text = content.replacingOccurrences(of: #"\s*\(disable recaps in /config\)\s*$"#, with: "", options: .regularExpression)
+            kind = text.isEmpty ? nil : .recap(text)
+        case "informational", "compact_boundary", "bridge_status":
+            kind = .notice(Safety.stripANSI(content))
+        default:
+            kind = nil // turn timing and other bookkeeping
+        }
+        guard let kind else { return }
+        counter += 1
+        items.append(TranscriptItem(id: "\(uuid)-\(counter)", kind: kind, timestamp: ts))
     }
 
     /// A user prompt is either a string or blocks of text and images.

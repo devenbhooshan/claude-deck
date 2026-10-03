@@ -266,6 +266,7 @@ struct TranscriptRenderer {
                 case .assistant(let text): out.append(assistant(text))
                 case .notice(let text): out.append(notice(text, symbol: nil, color: .secondaryLabelColor))
                 case .commandOutput(let text): out.append(codeBlock(text, spacingBefore: 12))
+                case .recap(let text): out.append(recap(text))
                 case let .taskEvent(text, ok):
                     out.append(notice(text, symbol: ok ? "✓" : "✗", color: ok ? Palette.success : Palette.danger))
                 case .tool: break
@@ -368,6 +369,26 @@ struct TranscriptRenderer {
         }
         out.append(NSAttributedString(string: text + "\n", attributes: [
             .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style,
+        ]))
+        return out
+    }
+
+    /// Claude Code's "※ recap": a muted paragraph, indented like Claude's replies.
+    private func recap(_ text: String) -> NSAttributedString {
+        let style = paragraph { s in
+            s.headIndent = indent
+            s.firstLineHeadIndent = 0
+            s.tabStops = [NSTextTab(textAlignment: .left, location: indent)]
+            s.paragraphSpacingBefore = 16
+        }
+        let out = NSMutableAttributedString(string: "※\t", attributes: [
+            .font: NSFont.systemFont(ofSize: 13, weight: .bold), .foregroundColor: NSColor.tertiaryLabelColor, .paragraphStyle: style,
+        ])
+        out.append(NSAttributedString(string: "Recap  ", attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style,
+        ]))
+        out.append(NSAttributedString(string: text + "\n", attributes: [
+            .font: NSFont.systemFont(ofSize: 12.5), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style,
         ]))
         return out
     }
