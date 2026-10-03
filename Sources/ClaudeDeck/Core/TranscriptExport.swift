@@ -33,12 +33,25 @@ enum TranscriptExport {
                           now: Date = Date(), timeout: TimeInterval = 20) -> [OutgoingMessage] {
         guard !outgoing.isEmpty else { return outgoing }
         var seen = queued
+        var imageMessages: [(count: Int, at: Date?)] = []
         for block in blocks.suffix(30) {
-            if case .item(let item) = block, case let .user(text, _) = item.kind { seen.append(text) }
+            if case .item(let item) = block, case let .user(text, images) = item.kind {
+                seen.append(text)
+                if !images.isEmpty { imageMessages.append((images.count, item.timestamp)) }
+            }
         }
         return outgoing.filter { o in
             let needle = o.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let arrived = !needle.isEmpty && seen.contains { $0.contains(needle) }
+            let arrived: Bool
+            if !needle.isEmpty {
+                arrived = seen.contains { $0.contains(needle) }
+            } else {
+                // Image-only: there's no text to match, so look for a message of yours with the same
+                // number of images that landed after this was sent (a little slack for clock rounding).
+                arrived = imageMessages.contains { m in
+                    m.count == o.images.count && (m.at.map { $0 >= o.sentAt.addingTimeInterval(-5) } ?? true)
+                }
+            }
             return !arrived && now.timeIntervalSince(o.sentAt) <= timeout
         }
     }

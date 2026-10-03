@@ -307,7 +307,18 @@ func exportTests() {
         var stale = OutgoingMessage(text: "lost", images: []); stale.sentAt = now.addingTimeInterval(-60)
         var imageOnly = OutgoingMessage(text: "  ", images: [image()]); imageOnly.sentAt = now
         let left = TranscriptExport.reconcile([sent, queuedMsg, stale, imageOnly], queued: ["later please"], blocks: blocks, now: now)
-        expectEqual(left.map(\.text), ["  "])
+        // The image-only one clears too: the transcript has a 1-image message from you (no timestamp).
+        expect(left.isEmpty, "\(left.map(\.text))")
+        // Image-only messages are matched by image count, once one lands after they were sent.
+        let img = image()
+        var oneImage = OutgoingMessage(text: "", images: [img], sentAt: now)
+        let twoImages = OutgoingMessage(text: "", images: [img, img], sentAt: now)
+        let landed = [TranscriptBlock.item(TranscriptItem(id: "u", kind: .user("", images: [img]), timestamp: now.addingTimeInterval(2))),
+                      .item(TranscriptItem(id: "v", kind: .user("old", images: [img, img]), timestamp: now.addingTimeInterval(-60))),
+                      .item(TranscriptItem(id: "w", kind: .user("no time", images: [img, img, img]), timestamp: nil))]
+        expectEqual(TranscriptExport.reconcile([oneImage, twoImages], queued: [], blocks: landed, now: now).count, 1)
+        oneImage = OutgoingMessage(text: "", images: [img, img, img], sentAt: now)
+        expect(TranscriptExport.reconcile([oneImage], queued: [], blocks: landed, now: now).isEmpty, "no timestamp: counts as arrived")
         expect(TranscriptExport.reconcile([], queued: [], blocks: []).isEmpty)
         expectEqual(TranscriptExport.reconcile([sent], queued: [], blocks: []).count, 1)
     }
