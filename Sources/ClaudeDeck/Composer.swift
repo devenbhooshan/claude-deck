@@ -43,7 +43,7 @@ struct Composer: View {
         .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            Text("↩ send · ⇧↩ or ⌘↩ new line · / commands · paste or drop images")
+            Text("↩ send · ⇧↩ or ⌘↩ new line · / commands · paste or drop images and files")
                 .font(.caption2).foregroundStyle(.tertiary)
                 .padding(.bottom, 8)
         }
@@ -90,7 +90,7 @@ struct Composer: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
-                .help("Attach images (you can also paste or drop them)")
+                .help("Attach images or files (you can also paste or drop them)")
 
                 TextField(placeholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -189,14 +189,17 @@ struct Composer: View {
             store.showUsage = true
             return
         }
+        // Images are pasted as attachments; other files are named by path for Claude to read.
+        let images = staged.filter(\.isImage)
+        let message = AttachmentStore.message(text, files: staged.filter { !$0.isImage })
         // Show the message immediately; the terminal round trip happens in the background.
-        let thumbs = staged.compactMap { (try? Data(contentsOf: $0.url)).flatMap { TranscriptParser.thumbnail($0) } }
-        let outgoingId = model.addOutgoing(text: text, images: thumbs, whileBusy: session.status == .busy)
+        let thumbs = images.compactMap { (try? Data(contentsOf: $0.url)).flatMap { TranscriptParser.thumbnail($0) } }
+        let outgoingId = model.addOutgoing(text: message, images: thumbs, whileBusy: session.status == .busy)
         draft = ""
         attachments = []
         Task {
             do {
-                try await Ghostty.send(text: text, images: staged.map(\.url), to: session)
+                try await Ghostty.send(text: message, images: images.map(\.url), to: session)
                 model.markDelivered(outgoingId)
                 // Commands like /model or /mcp open a menu in the terminal: bring it forward.
                 if kind == .terminal {
@@ -219,8 +222,7 @@ private struct Thumbnail: View {
     @State private var hovering = false
 
     var body: some View {
-        Image(nsImage: attachment.thumbnail)
-            .resizable().aspectRatio(contentMode: .fill)
+        preview
             .frame(width: 64, height: 64)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).strokeBorder(.separator))
@@ -236,6 +238,28 @@ private struct Thumbnail: View {
                 .opacity(hovering ? 1 : 0.85)
             }
             .onHover { hovering = $0 }
+            .help(attachment.name)
+    }
+
+    @ViewBuilder private var preview: some View {
+        if let image = attachment.thumbnail {
+            Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
+        } else {
+            // A file: its Finder icon and name.
+            VStack(spacing: 3) {
+                Image(nsImage: NSWorkspace.shared.icon(forFile: attachment.url.path))
+                    .resizable().frame(width: 30, height: 30)
+                Text(attachment.name)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .truncationMode(.middle)
+                    .multilineTextAlignment(.center)
+            }
+            .padding(.horizontal, 4)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color.primary.opacity(0.04))
+        }
     }
 }
 

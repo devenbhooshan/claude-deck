@@ -228,21 +228,40 @@ func purgeTests() {
 }
 
 func attachmentTests() {
-    test("files: copied images, converted formats, rejects non-images") {
+    test("files: copied images, converted formats, other files kept by name") {
         let box = Sandbox(); defer { box.cleanup() }
         let png = box.root.appendingPathComponent("shot one.png"); try pngData().write(to: png)
         let a = AttachmentStore.from(fileURL: png)
         expectEqual(a?.url.deletingLastPathComponent().standardizedFileURL.path, AttachmentStore.dir.standardizedFileURL.path)
         expect(!a!.url.path.contains(" "), "saved under a space-free name")
+        expect(a!.isImage)
         let tiffURL = box.root.appendingPathComponent("x.tiff"); try image().tiffRepresentation!.write(to: tiffURL)
         expectEqual(AttachmentStore.from(fileURL: tiffURL)?.url.pathExtension, "png")
-        let text = box.write("notes.txt", "hello")
-        expect(AttachmentStore.from(fileURL: text) == nil)
+
+        let csv = box.write("sales data.csv", "a,b\n1,2")
+        let f = AttachmentStore.from(fileURL: csv)!
+        expect(!f.isImage)
+        expectEqual(f.name, "sales data.csv")
+        expectEqual(try String(contentsOf: f.url, encoding: .utf8), "a,b\n1,2")
+        expect(f.url.path.hasPrefix(AttachmentStore.dir.path))
+
         let fakePng = box.write("fake.png", "not an image")
-        let before = (try? FileManager.default.contentsOfDirectory(atPath: AttachmentStore.dir.path).count) ?? 0
-        expect(AttachmentStore.from(fileURL: fakePng) == nil)
-        expectEqual(try FileManager.default.contentsOfDirectory(atPath: AttachmentStore.dir.path).count, before)
+        let fake = AttachmentStore.from(fileURL: fakePng)
+        expect(fake?.isImage == false && fake?.name == "fake.png", "a broken image is sent as a file")
+        let broken = box.write("broken.tiff", "nope")
+        expect(AttachmentStore.from(fileURL: broken)?.isImage == false)
+
         expect(AttachmentStore.from(fileURL: box.root.appendingPathComponent("missing.png")) == nil)
+        expect(AttachmentStore.from(fileURL: box.root) == nil, "folders aren't attached")
+        AttachmentStore.dir = box.write("a-file", "x").appendingPathComponent("sub")
+        expect(AttachmentStore.from(fileURL: csv) == nil, "unwritable cache")
+    }
+    test("message: files listed after the text") {
+        let a = Attachment(url: URL(fileURLWithPath: "/c/a.csv"), thumbnail: nil)
+        let b = Attachment(url: URL(fileURLWithPath: "/c/b.pdf"), thumbnail: nil)
+        expectEqual(AttachmentStore.message("hi", files: []), "hi")
+        expectEqual(AttachmentStore.message("", files: [a]), "Attached file: /c/a.csv")
+        expectEqual(AttachmentStore.message("look", files: [a, b]), "look\n\nAttached file: /c/a.csv\nAttached file: /c/b.pdf")
     }
     test("images: unrenderable or unwritable") {
         let box = Sandbox(); defer { box.cleanup() }
@@ -258,7 +277,7 @@ func attachmentTests() {
 
         pb.clearContents(); pb.writeObjects([png as NSURL])
         expectEqual(AttachmentStore.from(pasteboard: pb).count, 1)
-        expect(AttachmentStore.hasImage(pb) && AttachmentStore.shouldAttach(from: pb))
+        expect(AttachmentStore.shouldAttach(from: pb))
 
         pb.clearContents(); pb.writeObjects([image()])
         expectEqual(AttachmentStore.from(pasteboard: pb).count, 1)
@@ -269,8 +288,8 @@ func attachmentTests() {
 
         let txt = box.write("t.txt", "x")
         pb.clearContents(); pb.writeObjects([txt as NSURL])
-        expect(AttachmentStore.from(pasteboard: pb).isEmpty)
-        expect(!AttachmentStore.hasImage(pb))
+        expectEqual(AttachmentStore.from(pasteboard: pb).first?.isImage, false)
+        expect(AttachmentStore.shouldAttach(from: pb), "any copied file attaches")
 
         expect(AttachmentStore.objects(nil, as: URL.self).isEmpty, "a failed read yields nothing")
         expectEqual(AttachmentStore.objects([1, "a", 2], as: Int.self), [1, 2])

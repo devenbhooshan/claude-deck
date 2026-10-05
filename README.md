@@ -48,7 +48,7 @@ lets you read each transcript live, send messages, and jump to the session's ter
   Yes / Always / No; everything else is answered in the terminal.
 - Transcript links open only http(s) and mailto. Session ids are validated and folders quoted
   before anything reaches a shell. Captured requests are deleted once their prompt is gone, and
-  staged images after a day.
+  staged images and files after a day.
 
 ## Keyboard shortcuts
 

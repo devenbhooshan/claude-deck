@@ -141,7 +141,7 @@ struct SessionDetailView: View {
                 RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
                     .strokeBorder(Theme.accent, style: StrokeStyle(lineWidth: 2, dash: [8, 5]))
                     .background(Theme.accent.opacity(0.06))
-                    .overlay(Label("Drop images to attach", systemImage: "photo.badge.plus")
+                    .overlay(Label("Drop images or files to attach", systemImage: "paperclip")
                         .font(.title3.weight(.medium)).foregroundStyle(Theme.accent))
                     .padding(8)
                     .allowsHitTesting(false)
