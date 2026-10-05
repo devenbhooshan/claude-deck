@@ -83,4 +83,32 @@ enum SessionNav {
         }
         return (live, recent, pending)
     }
+
+    /// The session that came back from a restart: the same id under a new process, or (if Claude
+    /// gave it a new id) a new session in the same folder that started after the restart.
+    static func restarted(_ t: RestartTicket, in live: [Session]) -> Session? {
+        live.first { $0.sessionId == t.session.sessionId && $0.pid != t.session.pid }
+            ?? live.first {
+                $0.sessionId != t.session.sessionId && $0.cwd == t.session.cwd
+                    && ($0.startedAt ?? .distantPast) >= t.at.addingTimeInterval(-2)
+            }
+    }
+
+    /// Keeps restarted sessions in their numbered place: remembered start times win, and a session
+    /// mid-restart holds its slot until it's back.
+    static func keepSlots(live: [Session], slots: [String: Date], restarting: RestartTicket?) -> [Session] {
+        var out = live.map { s in
+            var s = s
+            if let d = slots[s.sessionId] { s.startedAt = d }
+            return s
+        }
+        if let t = restarting, !out.contains(where: { $0.sessionId == t.session.sessionId }) { out.append(t.session) }
+        return out.sorted(by: SessionLoader.startOrder)
+    }
+}
+
+/// A session being restarted (quit, then resumed in the same terminal), as it was before.
+struct RestartTicket: Equatable {
+    let session: Session
+    let at: Date
 }

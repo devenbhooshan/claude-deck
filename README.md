@@ -64,6 +64,7 @@ All of these are also listed in the **Sessions** menu.
 | ⌘1 – ⌘9 | Go to running session 1–9 (the number shown next to it; numbers never change while it runs) |
 | ⌥⌘↑ / ⌥⌘↓ | Previous / next session |
 | ⌘R | Rename the selected session |
+| ⌥⌘R | Restart the selected session (quits and resumes Claude in the same terminal, so new skills, MCP servers and settings load; it keeps its number) |
 | ⇧⌘T | Open the selected session's terminal |
 | ⌘. | Stop Claude's current step (also the Stop button on the "Working…" pill) |
 | ↩ | Send message |

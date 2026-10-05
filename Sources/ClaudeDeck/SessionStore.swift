@@ -15,6 +15,9 @@ final class SessionStore {
     var showUsage = false
     /// A session we just started: select it as soon as it appears.
     private var starting: (folder: String, at: Date)?
+    /// A session being restarted, and the start times that keep restarted sessions in their slot.
+    private(set) var restarting: RestartTicket?
+    private var slots: [String: Date] = [:]
     /// Text to drop into the message box (e.g. a skill's command), consumed by the composer.
     var composerInsert: String?
     var lastError: String?
@@ -146,6 +149,26 @@ final class SessionStore {
         }
     }
 
+    /// Quits and resumes the session in its terminal so new skills and MCP servers load. It keeps
+    /// its place in the list (and its ⌘ number) throughout.
+    func restart(_ s: Session) {
+        guard restarting == nil else {
+            lastError = "Another session is restarting. Try again in a moment."
+            return
+        }
+        restarting = RestartTicket(session: s, at: Date())
+        HUD.show("Restarting", detail: s.displayTitle, symbol: "arrow.clockwise.circle.fill", tint: Theme.accent)
+        Task {
+            do {
+                try await Ghostty.restart(s)
+            } catch {
+                restarting = nil
+                lastError = error.localizedDescription
+                refresh()
+            }
+        }
+    }
+
     func openTerminal(_ s: Session) {
         Task {
             do { try await Ghostty.focus(s) } catch { lastError = error.localizedDescription }
@@ -235,7 +258,17 @@ final class SessionStore {
         // Keep an optimistic rename until the transcript reports it.
         let named = SessionNav.applyPendingNames(live: newLive, recent: newRecent ?? recent, pending: pendingNames)
         pendingNames = named.pending
-        let newLive = named.live
+        if let t = restarting {
+            if let back = SessionNav.restarted(t, in: named.live) {
+                slots[back.sessionId] = t.session.startedAt
+                if selectedId == t.session.id { selectedId = back.id }
+                restarting = nil
+            } else if Date().timeIntervalSince(t.at) > 60 {
+                restarting = nil
+            }
+        }
+        slots = slots.filter { id, _ in named.live.contains { $0.sessionId == id } }
+        let newLive = SessionNav.keepSlots(live: named.live, slots: slots, restarting: restarting)
         if newLive != live { live = newLive }
         // Select a session we just started once Claude Code registers it.
         if let start = starting {

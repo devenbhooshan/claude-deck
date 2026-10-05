@@ -165,6 +165,8 @@ extension ContentView {
         Button("Rename…") { store.renameTarget = s }
         if s.isLive {
             Button("Open Terminal") { store.openTerminal(s) }
+            Button("Restart Session") { store.restart(s) }
+                .disabled(s.status != .idle || store.restarting != nil)
         }
         Divider()
         Button("Copy Session ID") {

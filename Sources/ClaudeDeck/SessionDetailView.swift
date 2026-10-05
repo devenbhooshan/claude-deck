@@ -168,7 +168,8 @@ struct SessionDetailView: View {
     }
 
     private var subtitle: String {
-        let status = session.status == .waiting ? "Waiting for \(session.waitingFor ?? "you")" : session.status.label
+        let status = store.restarting?.session.id == session.id ? "Restarting…"
+            : session.status == .waiting ? "Waiting for \(session.waitingFor ?? "you")" : session.status.label
         return "\(status) · \(Theme.shortPath(session.cwd))"
     }
 
@@ -188,6 +189,11 @@ struct SessionDetailView: View {
             }
             Menu {
                 Button("Rename…") { store.renameTarget = session }
+                if session.isLive {
+                    Button("Restart Session") { store.restart(session) }
+                        .disabled(session.status != .idle || store.restarting != nil)
+                        .help("Quit and resume Claude here so new skills, MCP servers and settings load")
+                }
                 Divider()
                 Button("Copy Transcript") { copy(model.markdown(title: session.displayTitle)) }
                 Button("Copy Session ID") { copy(session.sessionId) }

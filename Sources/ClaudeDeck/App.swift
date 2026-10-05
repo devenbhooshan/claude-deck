@@ -90,6 +90,11 @@ struct SessionCommands: Commands {
             }
             .keyboardShortcut("r", modifiers: .command)
             .disabled(store.selectedId == nil)
+            Button("Restart Session") {
+                if let s = store.session(store.selectedId), s.isLive, s.status == .idle { store.restart(s) }
+            }
+            .keyboardShortcut("r", modifiers: [.command, .option])
+            .disabled(store.session(store.selectedId).map { !$0.isLive || $0.status != .idle } ?? true || store.restarting != nil)
             Button("Stop Current Step") {
                 if let s = store.session(store.selectedId), s.isLive, s.status == .busy { store.interrupt(s) }
             }

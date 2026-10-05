@@ -29,6 +29,32 @@ enum Safety {
     /// Encodes a message for Ghostty's `text:` action, which types it rather than pasting it, so
     /// Claude Code treats it as typed input. The action takes a Zig string literal: backslashes are
     /// escaped, and each newline is sent as Ctrl+J (`\n`), Claude Code's "new line without sending".
+    /// The command that brings a session back after a restart: `claude --resume <id>`, keeping
+    /// only well-known launch flags from how it was started (values limited to plain words), so
+    /// nothing from the old command line can inject shell syntax.
+    static func resumeCommand(sessionId: String, originalArgs: [String]) -> String? {
+        guard isSessionId(sessionId) else { return nil }
+        let switches: Set<String> = ["--dangerously-skip-permissions", "--allow-dangerously-skip-permissions",
+                                     "--verbose", "--chrome", "--ide"]
+        let valued: Set<String> = ["--model", "--permission-mode"]
+        let word = #"^[A-Za-z0-9._:\[\]-]+$"#
+        var kept: [String] = []
+        var i = 0
+        while i < originalArgs.count {
+            let arg = originalArgs[i]
+            let parts = arg.split(separator: "=", maxSplits: 1).map(String.init)
+            if switches.contains(arg) {
+                kept.append(arg)
+            } else if valued.contains(parts[0]) {
+                let value = parts.count == 2 ? parts[1] : (i + 1 < originalArgs.count ? originalArgs[i + 1] : "")
+                if parts.count == 1 { i += 1 }
+                if value.range(of: word, options: .regularExpression) != nil { kept += [parts[0], shellQuote(value)] }
+            }
+            i += 1
+        }
+        return (["claude", "--resume", sessionId] + kept).joined(separator: " ")
+    }
+
     static func typedTextAction(_ message: String) -> String {
         let clean = stripControls(message).replacingOccurrences(of: "\t", with: "    ")
         let escaped = clean.replacingOccurrences(of: "\\", with: "\\\\")
@@ -44,6 +70,11 @@ enum PromptGuard {
     static func canType(_ record: SessionRecord?) -> Bool {
         guard let record else { return false }
         return record.status != "waiting"
+    }
+
+    /// Restarting quits Claude, so only between steps: never mid-work or with a dialog open.
+    static func canRestart(_ record: SessionRecord?) -> Bool {
+        record?.status == "idle"
     }
 
     /// Esc stops Claude only while it's working; at the prompt it would clear what's typed there.

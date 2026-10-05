@@ -18,6 +18,8 @@ enum Ghostty {
         case promptChanged
         case invalidSession
         case notWorking
+        case notIdle
+        case stillRunning
 
         var errorDescription: String? {
             switch self {
@@ -27,6 +29,8 @@ enum Ghostty {
             case .promptChanged: "That prompt was already answered or has changed. Nothing was sent."
             case .invalidSession: "This doesn't look like a Claude Code session id, so it wasn't resumed."
             case .notWorking: "Claude had already finished that step, so nothing was stopped."
+            case .notIdle: "Claude is working or showing a prompt. Restart once it's idle."
+            case .stillRunning: "Claude didn't quit, so it wasn't restarted. Check the terminal."
             }
         }
     }
@@ -100,6 +104,51 @@ enum Ghostty {
         try await act(on: session, """
               send key "escape" to t
             """, args: ["", ""])
+    }
+
+    /// Restarts Claude in the session's own terminal so it picks up new skills, MCP servers and
+    /// settings: types /exit, waits for the process to quit, then runs `claude --resume <id>` in
+    /// the same shell (keeping its well-known launch flags).
+    static func restart(_ session: Session) async throws {
+        guard let pid = session.pid, PromptGuard.canRestart(SessionLoader.record(pid: pid)) else { throw Failure.notIdle }
+        guard let command = Safety.resumeCommand(sessionId: session.sessionId, originalArgs: arguments(of: pid))
+        else { throw Failure.invalidSession }
+        try await send(text: "/exit", to: session)
+        let id = try await terminalId(for: session)
+        let deadline = Date().addingTimeInterval(15)
+        while SessionLoader.isAlive(pid) {
+            if Date() > deadline { throw Failure.stillRunning }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        // Let the shell print its prompt before typing.
+        try await Task.sleep(for: .milliseconds(400))
+        let result = try await run("""
+            on run argv
+              tell application "Ghostty"
+                set t to terminal id (item 1 of argv)
+                if (working directory of t) is not (item 2 of argv) then return "mismatch"
+                perform action (item 3 of argv) on t
+                delay 0.25
+                send key "enter" to t
+              end tell
+              return "ok"
+            end run
+            """, args: [id, session.cwd, Safety.typedTextAction(command)])
+        if result.trimmingCharacters(in: .whitespacesAndNewlines) != "ok" { throw Failure.notFound }
+    }
+
+    /// A process's command line, split on spaces (enough for the plain flags a restart keeps).
+    private static func arguments(of pid: Int32) -> [String] {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/ps")
+        p.arguments = ["-o", "args=", "-p", String(pid)]
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = FileHandle.nullDevice
+        guard (try? p.run()) != nil else { return [] }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        return (String(data: data, encoding: .utf8) ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
     }
 
     static func focus(_ session: Session) async throws {

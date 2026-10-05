@@ -46,10 +46,11 @@ enum SessionLoader {
         }
         // A stable order: by start time (oldest first), never by status or activity, so a session
         // doesn't move when it starts or stops working. New sessions join at the end.
-        let sorted = sessions.values.sorted {
-            ($0.startedAt ?? .distantFuture, $0.sessionId) < ($1.startedAt ?? .distantFuture, $1.sessionId)
-        }
-        return (sorted, updates)
+        return (sessions.values.sorted(by: startOrder), updates)
+    }
+
+    static func startOrder(_ a: Session, _ b: Session) -> Bool {
+        (a.startedAt ?? .distantFuture, a.sessionId) < (b.startedAt ?? .distantFuture, b.sessionId)
     }
 
     static func loadRecent(excluding: Set<String>, cache: [String: TitleInfo], now: Date = Date()) -> [Session] {
