@@ -60,6 +60,7 @@ All of these are also listed in the **Sessions** menu.
 | ⇧⌘Space | Bring Deck forward with the switcher open, from any app |
 | ⌥⌘↩ | Allow the next permission prompt, from any app (selected session first, else the longest-waiting) |
 | ⌥⌘⌫ | Deny the next permission prompt, from any app |
+| ⇧⌘D | Show / hide the floating dock: an always-on-top pill (over any app, even full-screen video) with one-click Allow / Deny for waiting prompts; expand it for every session |
 | ⌘J | Next session that needs you |
 | ⌘1 – ⌘9 | Go to running session 1–9 (the number shown next to it; numbers never change while it runs) |
 | ⌥⌘↑ / ⌥⌘↓ | Previous / next session |

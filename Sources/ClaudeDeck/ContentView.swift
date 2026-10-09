@@ -196,50 +196,13 @@ private struct HookSetupCard: View {
 
 /// A waiting session in the sidebar, answerable without opening it.
 struct ApprovalRow: View {
-    @Environment(SessionStore.self) private var store
     let session: Session
     var number: Int? = nil
 
     /// A waiting session, the same size as any other row: the request in the subtitle and
     /// small Allow / Deny buttons where the time usually is.
     var body: some View {
-        SessionRow(session: session, number: number) {
-            if store.isAnswered(session) {
-                Image(systemName: "checkmark").font(.caption).foregroundStyle(.secondary).help("Sent")
-            } else if PromptGuard.canAnswerHere(session) {
-                HStack(spacing: 4) {
-                    iconButton("checkmark", tint: Theme.accent, filled: true, help: "Allow: \(request)") {
-                        store.respond(session, key: "enter")
-                    }
-                    iconButton("xmark", tint: .secondary, filled: false, help: "Deny") {
-                        store.respond(session, key: "escape")
-                    }
-                }
-            } else {
-                Button("Answer") { store.openTerminal(session) }
-                    .buttonStyle(.deck(.secondary, size: .mini))
-                    .help("This prompt is answered in the terminal")
-            }
-        }
-    }
-
-    private var request: String {
-        session.pendingTool.map { "\(ToolStyle.displayName($0.name)): \($0.summary)" } ?? "the open prompt"
-    }
-
-    private func iconButton(_ symbol: String, tint: Color, filled: Bool, help: String,
-                            action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: symbol)
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(filled ? .white : tint)
-                .frame(width: 22, height: 20)
-                .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                    .fill(filled ? tint : Color.primary.opacity(0.07)))
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .help(help)
+        SessionRow(session: session, number: number) { QuickApproval(session: session) }
     }
 }
 

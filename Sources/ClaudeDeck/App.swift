@@ -21,10 +21,11 @@ struct ClaudeDeckApp: App {
                     delegate.store = store
                     store.start()
                     usage.start()
+                    FloatingDock.shared.restore(store: store, usage: usage)
                 }
         }
         .defaultSize(width: 1200, height: 780)
-        .commands { SessionCommands(store: store) }
+        .commands { SessionCommands(store: store, usage: usage) }
 
         MenuBarExtra {
             MenuBarContent().environment(store).environment(usage)
@@ -57,6 +58,7 @@ private struct MainWindow: View {
 
 struct SessionCommands: Commands {
     let store: SessionStore
+    let usage: UsageModel
 
     var body: some Commands {
         CommandMenu("Sessions") {
@@ -64,6 +66,8 @@ struct SessionCommands: Commands {
                 .keyboardShortcut("n", modifiers: .command)
             Button("Plan Usage…") { store.showUsage = true }
                 .keyboardShortcut("u", modifiers: [.command, .shift])
+            Button("Show / Hide Floating Dock") { FloatingDock.shared.toggle(store: store, usage: usage) }
+                .keyboardShortcut("d", modifiers: [.command, .shift])
             Button("Jump to Session…") { store.showSwitcher.toggle() }
                 .keyboardShortcut("k", modifiers: .command)
             Button("Next Session Needing You") { store.selectNextWaiting() }
@@ -165,6 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 /// The menu bar panel, built from the same components as the main window.
 struct MenuBarContent: View {
     @Environment(SessionStore.self) private var store
+    @Environment(UsageModel.self) private var usage
 
     var body: some View {
         let waiting = store.live.filter { $0.status == .waiting }
@@ -227,6 +232,8 @@ struct MenuBarContent: View {
             Divider().padding(.top, 6)
             HStack {
                 Button("Plan Usage…") { store.showUsage = true; store.bringToFront() }
+                Button("Floating Dock") { FloatingDock.shared.toggle(store: store, usage: usage) }
+                    .help("An always-on-top panel to Allow / Deny from any app (⇧⌘D)")
         Button("Open Claude Deck") { store.bringToFront() }
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
