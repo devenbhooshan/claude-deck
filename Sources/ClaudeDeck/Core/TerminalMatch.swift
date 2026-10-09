@@ -39,16 +39,20 @@ enum TerminalMatch {
         return (0x2800...0x28FF).contains(v)
     }
 
-    /// A Claude terminal in the session's folder: the one with its title if that's unique,
-    /// otherwise the only Claude terminal in the folder. Titles alone are never trusted (any
-    /// program can set one), and anything ambiguous returns nil.
-    static func find(for session: Session, in all: [GhosttyTerminal]) -> GhosttyTerminal? {
+    /// A Claude terminal in the session's folder. In order: the terminal Deck opened for this
+    /// session (`preferred`), the one with its title, the only Claude terminal in the folder, or
+    /// the only one no other session has claimed. Titles alone are never trusted (any program can
+    /// set one), and anything ambiguous returns nil.
+    static func find(for session: Session, in all: [GhosttyTerminal], claimed: Set<String> = [],
+                     preferred: String? = nil) -> GhosttyTerminal? {
         let inDir = all.filter { isClaudeTitle($0.name) && $0.workingDirectory == session.cwd }
-        if let title = session.title, !title.isEmpty {
-            let titled = inDir.filter { strippedTitle($0.name) == title }
-            if titled.count == 1 { return titled[0] }
-        }
-        return inDir.count == 1 ? inDir[0] : nil
+        if let preferred, let t = inDir.first(where: { $0.id == preferred }) { return t }
+        let free = inDir.filter { !claimed.contains($0.id) }
+        let names = [session.title, session.name].compactMap { $0 }.filter { !$0.isEmpty }
+        let titled = free.filter { names.contains(strippedTitle($0.name)) }
+        if titled.count == 1 { return titled[0] }
+        if inDir.count == 1 { return inDir[0] }
+        return free.count == 1 ? free[0] : nil
     }
 
     /// Whether a terminal still looks like this session's (checked right before every action).

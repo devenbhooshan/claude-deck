@@ -43,9 +43,22 @@ enum Ghostty {
             get { lock.withLock { ids[key] } }
             set { lock.withLock { ids[key] = newValue } }
         }
+
+        func values(except key: String) -> Set<String> {
+            lock.withLock { Set(ids.filter { $0.key != key }.values) }
+        }
     }
 
+    /// Terminal ids by session (and process), once found.
     private static let cache = IdCache()
+    /// Terminals Deck opened for a session, by session id: the way to tell apart two Claude
+    /// sessions in the same folder before the new one has a title. Survives restarts.
+    private static let opened = IdCache()
+
+    /// Remembers that `terminalId` (from `newSession`) is running this session.
+    static func adopt(_ terminalId: String, for sessionId: String) {
+        opened[sessionId] = terminalId
+    }
 
     private static func cacheKey(_ s: Session) -> String { "\(s.sessionId):\(s.pid ?? 0)" }
 
@@ -115,6 +128,8 @@ enum Ghostty {
         else { throw Failure.invalidSession }
         try await send(text: "/exit", to: session)
         let id = try await terminalId(for: session)
+        // The resumed session keeps its id but gets a new process: point it at this terminal.
+        adopt(id, for: session.sessionId)
         let deadline = Date().addingTimeInterval(15)
         while SessionLoader.isAlive(pid) {
             if Date() > deadline { throw Failure.stillRunning }
@@ -162,28 +177,32 @@ enum Ghostty {
     static func resume(_ session: Session) async throws {
         // The id is typed into a shell, so it must be exactly a session id.
         guard Safety.isSessionId(session.sessionId) else { throw Failure.invalidSession }
-        try await openWindow(in: session.cwd, typing: "claude --resume \(session.sessionId)")
+        let id = try await openWindow(in: session.cwd, typing: "claude --resume \(session.sessionId)")
+        adopt(id, for: session.sessionId)
     }
 
-    /// Opens a new Ghostty window in `folder` and starts Claude Code there.
-    static func newSession(in folder: String) async throws {
+    /// Opens a new Ghostty window in `folder` and starts Claude Code there. Returns the new
+    /// terminal's id, to `adopt` once the session appears.
+    static func newSession(in folder: String) async throws -> String {
         try await openWindow(in: folder, typing: "claude")
     }
 
     /// The folder is passed as Ghostty's working directory (never through the shell); `command`
     /// is a fixed string we built, typed into the new shell.
-    private static func openWindow(in folder: String, typing command: String) async throws {
-        _ = try await run("""
+    private static func openWindow(in folder: String, typing command: String) async throws -> String {
+        let id = try await run("""
             on run argv
               tell application "Ghostty"
                 set cfg to new surface configuration
                 set initial working directory of cfg to (item 1 of argv)
                 set initial input of cfg to ((item 2 of argv) & linefeed)
-                new window with configuration cfg
+                set w to new window with configuration cfg
                 activate
+                return id of focused terminal of selected tab of w
               end tell
             end run
             """, args: [folder, command])
+        return id.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Terminal lookup
@@ -226,7 +245,9 @@ enum Ghostty {
     private static func terminalId(for session: Session) async throws -> String {
         let key = cacheKey(session)
         if let id = cache[key] { return id }
-        let id = try await findTerminal(for: session).id
+        let found = TerminalMatch.find(for: session, in: try await terminals(),
+                                       claimed: cache.values(except: key), preferred: opened[session.sessionId])
+        guard let id = found?.id else { throw Failure.notFound }
         cache[key] = id
         return id
     }
@@ -255,11 +276,6 @@ enum Ghostty {
             end run
             """)
         return TerminalMatch.parse(out)
-    }
-
-    static func findTerminal(for session: Session) async throws -> GhosttyTerminal {
-        guard let t = TerminalMatch.find(for: session, in: try await terminals()) else { throw Failure.notFound }
-        return t
     }
 
     private static func run(_ script: String, args: [String] = []) async throws -> String {

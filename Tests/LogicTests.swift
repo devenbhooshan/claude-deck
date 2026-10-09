@@ -195,6 +195,19 @@ func terminalTests() {
         expectEqual(TerminalMatch.find(for: session("s", cwd: "/p/other", title: ""), in: terms)?.id, "T4")
         expect(TerminalMatch.find(for: session("s", cwd: "/p/star"), in: terms) == nil)
     }
+    test("a second session in the same folder: the terminal Deck opened, its name, or the unclaimed one") {
+        let fresh = session("new", cwd: "/p/app", title: nil)
+        expect(TerminalMatch.find(for: fresh, in: terms) == nil, "untitled, two Claude terminals")
+        expectEqual(TerminalMatch.find(for: fresh, in: terms, preferred: "T2")?.id, "T2")
+        expect(TerminalMatch.find(for: fresh, in: terms, preferred: "T3") == nil, "a shell is never preferred")
+        expect(TerminalMatch.find(for: fresh, in: terms, preferred: "T4") == nil, "nor a terminal elsewhere")
+        expectEqual(TerminalMatch.find(for: fresh, in: terms, claimed: ["T1"])?.id, "T2")
+        expect(TerminalMatch.find(for: fresh, in: terms, claimed: ["T1", "T2"]) == nil)
+        // The terminal shows the session's name (from /rename) rather than its title.
+        expectEqual(TerminalMatch.find(for: session("s", cwd: "/p/app", title: "Long title", name: "Other"), in: terms)?.id, "T2")
+        // A title shared with a claimed terminal doesn't win.
+        expectEqual(TerminalMatch.find(for: session("s", cwd: "/p/dup", title: "Fix bug"), in: terms, claimed: ["T5"])?.id, "T6")
+    }
     test("still matches") {
         let s = session("s", cwd: "/p/app")
         expect(TerminalMatch.stillMatches(terms[0], session: s))

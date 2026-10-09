@@ -13,8 +13,8 @@ final class SessionStore {
     var showSwitcher = false
     var showNewSession = false
     var showUsage = false
-    /// A session we just started: select it as soon as it appears.
-    private var starting: (folder: String, at: Date)?
+    /// A session we just started (and the terminal it's in): select it as soon as it appears.
+    private var starting: (folder: String, at: Date, terminal: String?)?
     /// A session being restarted, and the start times that keep restarted sessions in their slot.
     private(set) var restarting: RestartTicket?
     private var slots: [String: Date] = [:]
@@ -125,10 +125,12 @@ final class SessionStore {
     }
 
     func startSession(in folder: String) {
-        starting = (folder, Date())
+        starting = (folder, Date(), nil)
         Task {
             do {
-                try await Ghostty.newSession(in: folder)
+                let terminal = try await Ghostty.newSession(in: folder)
+                starting?.terminal = terminal
+                refresh()
                 HUD.show("Starting Claude", detail: Theme.shortPath(folder), symbol: "plus.circle.fill", tint: Theme.accent)
             } catch {
                 starting = nil
@@ -271,8 +273,11 @@ final class SessionStore {
         let newLive = SessionNav.keepSlots(live: named.live, slots: slots, restarting: restarting)
         if newLive != live { live = newLive }
         // Select a session we just started once Claude Code registers it.
-        if let start = starting {
-            if let s = newLive.first(where: { $0.cwd == start.folder && $0.updatedAt >= start.at.addingTimeInterval(-2) }) {
+        // Wait for Ghostty to report the new terminal, so the session is bound to it.
+        if let start = starting, let terminal = start.terminal {
+            // By start time, not activity: another session in the same folder may be busy.
+            if let s = newLive.first(where: { $0.cwd == start.folder && ($0.startedAt ?? .distantPast) >= start.at.addingTimeInterval(-2) }) {
+                Ghostty.adopt(terminal, for: s.sessionId)
                 selectedId = s.id
                 starting = nil
             } else if Date().timeIntervalSince(start.at) > 60 {
