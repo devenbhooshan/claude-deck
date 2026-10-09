@@ -23,7 +23,8 @@ final class FloatingDock {
     }
 
     func show(store: SessionStore, usage: UsageModel) {
-        if panel == nil { panel = makePanel(store: store, usage: usage) }
+        if panel == nil { makePanel(store: store, usage: usage) }
+        if let host = panel?.contentView { fit(host.fittingSize) }
         panel?.orderFrontRegardless()
         UserDefaults.standard.set(true, forKey: Self.shownKey)
     }
@@ -35,21 +36,16 @@ final class FloatingDock {
 
     /// Fits the panel to its content, keeping the top-left corner where you put it.
     fileprivate func fit(_ size: CGSize) {
-        guard let panel, size.width > 0, size.height > 0 else { return }
+        guard let panel, size.width > 0, size.height > 0, size != panel.frame.size else { return }
         let top = panel.frame.maxY
         panel.setFrame(NSRect(x: panel.frame.minX, y: top - size.height, width: size.width, height: size.height),
                        display: true)
     }
 
-    private func makePanel(store: SessionStore, usage: UsageModel) -> DockPanel {
+    private func makePanel(store: SessionStore, usage: UsageModel) {
         let panel = DockPanel()
-        let root = DockView { [weak self] in self?.hide() }
-            .environment(store)
-            .environment(usage)
-        let host = FirstClickHostingView(rootView: AnyView(root))
-        host.sizingOptions = []
-        panel.contentView = host
-
+        // Set first: the content reports its size as soon as it's attached.
+        self.panel = panel
         // Where you left it, or the top-right corner of the main screen.
         let screen = NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
         var topLeft = NSPoint(x: screen.maxX - 360, y: screen.maxY - 12)
@@ -60,11 +56,17 @@ final class FloatingDock {
         }
         panel.setFrame(NSRect(x: topLeft.x, y: topLeft.y - 44, width: 300, height: 44), display: false)
 
+        let root = DockView { [weak self] in self?.hide() }
+            .environment(store)
+            .environment(usage)
+        let host = FirstClickHostingView(rootView: AnyView(root))
+        host.sizingOptions = []
+        panel.contentView = host
+
         NotificationCenter.default.addObserver(forName: NSWindow.didMoveNotification, object: panel, queue: .main) { note in
             guard let w = note.object as? NSWindow else { return }
             UserDefaults.standard.set([Double(w.frame.minX), Double(w.frame.maxY)], forKey: Self.originKey)
         }
-        return panel
     }
 }
 
@@ -98,6 +100,7 @@ struct DockView: View {
     @Environment(SessionStore.self) private var store
     @Environment(UsageModel.self) private var usage
     @AppStorage("dockExpanded") private var expanded = false
+    @State private var hovering = false
     let close: () -> Void
 
     private var waiting: [Session] { store.live.filter { $0.status == .waiting } }
@@ -129,37 +132,43 @@ struct DockView: View {
     /// Just the pill: nothing waiting and not expanded.
     private var compact: Bool { waiting.isEmpty && !expanded }
 
-    /// The pill: one numbered dot per running session, plan usage, expand and close.
+    /// The pill: a spinner per session that's working (idle ones stay out of the way). Expand
+    /// and hide appear on hover, or always while expanded.
     private var bar: some View {
-        HStack(spacing: 8) {
+        let working = store.live.filter { $0.status == .busy }
+        return HStack(spacing: 6) {
             Image(systemName: "sparkles")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Theme.accent)
-            if store.live.isEmpty {
-                Text("No sessions").font(.caption).foregroundStyle(.secondary)
-            } else {
-                HStack(spacing: 4) {
-                    ForEach(Array(store.live.enumerated()), id: \.element.id) { i, s in
-                        Button { open(s) } label: { dot(i + 1, s.status) }
-                            .buttonStyle(.plain)
-                            .help("\(i + 1). \(s.displayTitle): \(s.status.label)")
-                    }
+            ForEach(working) { s in
+                Button { open(s) } label: {
+                    ProgressView().controlSize(.small).scaleEffect(0.8)
+                        .frame(width: 18, height: 18)
+                        .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .help(number(of: s).map { "\($0). \(s.displayTitle)" } ?? s.displayTitle)
             }
-            if let pct = usage.usage?.session?.percent {
-                Text("\(pct)%")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-                    .help("Current session plan usage")
+            if expanded {
+                if let pct = usage.usage?.session?.percent {
+                    Text("Plan \(pct)%")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                        .help("Current session plan usage")
+                }
+                Spacer(minLength: 0)
             }
-            Spacer(minLength: 0)
-            barButton(expanded ? "chevron.up" : "chevron.down", help: expanded ? "Collapse" : "Show all sessions") {
-                expanded.toggle()
+            if hovering || expanded {
+                barButton(expanded ? "chevron.up" : "chevron.down", help: expanded ? "Collapse" : "Show all sessions") {
+                    expanded.toggle()
+                }
+                barButton("xmark", help: "Hide the dock (⇧⌘D)", action: close)
             }
-            barButton("xmark", help: "Hide the dock (⇧⌘D)", action: close)
         }
         .padding(.horizontal, 10)
-        .frame(height: 34)
+        .frame(height: 30)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
     }
 
     private var sessionList: some View {
@@ -181,14 +190,6 @@ struct DockView: View {
             .padding(.horizontal, 10).padding(.vertical, 8)
         }
         .padding(.top, 4)
-    }
-
-    private func dot(_ n: Int, _ status: SessionStatus) -> some View {
-        Text("\(n)")
-            .font(.system(size: 10, weight: .bold).monospacedDigit())
-            .foregroundStyle(status == .idle ? Color.primary.opacity(0.7) : .white)
-            .frame(width: 18, height: 18)
-            .background(Circle().fill(status == .idle ? Color.primary.opacity(0.1) : Theme.color(status)))
     }
 
     private func barButton(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
