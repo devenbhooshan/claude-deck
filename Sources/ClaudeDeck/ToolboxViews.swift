@@ -46,7 +46,7 @@ struct ToolboxSections: View {
                     } label: {
                         Image(systemName: "arrow.clockwise")
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.deckBorderless)
                     .help(toolbox.mcpState?.checkedAt.map { "Checked \(Theme.ago($0)) ago. Check again" } ?? "Check servers")
                 }
             }
@@ -94,7 +94,7 @@ private struct SkillRow: View {
             .padding(.vertical, 2)
             .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.deckPlain)
         .help(skill.description.isEmpty ? skill.command : skill.description)
         .contextMenu {
             Button("Copy \(skill.command)") {

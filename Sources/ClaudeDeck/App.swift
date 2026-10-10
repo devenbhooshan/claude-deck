@@ -184,7 +184,7 @@ struct MenuBarContent: View {
                 } label: {
                     Label("Jump to Session", systemImage: "magnifyingglass")
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.deckBorderless)
                 .labelStyle(.iconOnly)
                 .help("Jump to a session (⇧⌘Space)")
             }
@@ -238,7 +238,7 @@ struct MenuBarContent: View {
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.deckBorderless)
             .padding(.horizontal, 14).padding(.vertical, 10)
         }
         .frame(width: 360)
@@ -278,5 +278,6 @@ private struct MenuRowStyle: ButtonStyle {
             .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
                 .fill(Color.primary.opacity(configuration.isPressed ? 0.1 : hovering ? 0.06 : 0)))
             .onHover { hovering = $0 }
+            .pointingHand()
     }
 }

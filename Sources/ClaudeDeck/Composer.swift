@@ -88,7 +88,7 @@ struct Composer: View {
                         .frame(width: 28, height: 28)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.deckPlain)
                 .foregroundStyle(.secondary)
                 .help("Attach images or files (you can also paste or drop them)")
 
@@ -109,8 +109,9 @@ struct Composer: View {
                     }
                     .frame(width: 28, height: 28)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.deckPlain)
                 .disabled(!canSend)
+                .help(promptOpen ? "Answer the prompt first" : "Send (↩)")
             }
             .padding(.horizontal, 8).padding(.vertical, 6)
         }
@@ -233,7 +234,8 @@ private struct Thumbnail: View {
                         .foregroundStyle(.white, .black.opacity(0.65))
                         .font(.system(size: 16))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.deckPlain)
+                .help("Remove")
                 .padding(3)
                 .opacity(hovering ? 1 : 0.85)
             }
@@ -303,7 +305,7 @@ struct SlashMenu: View {
                                 .fill(i == selected ? Theme.accent.opacity(0.16) : .clear))
                             .contentShape(Rectangle())
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(.deckPlain)
                         .id(item.id)
                     }
                 }

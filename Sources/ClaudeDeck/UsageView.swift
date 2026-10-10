@@ -61,7 +61,7 @@ struct UsageSheet: View {
                     ProgressView().controlSize(.small)
                 } else {
                     Button { model.refresh(force: true) } label: { Image(systemName: "arrow.clockwise") }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.deckBorderless)
                         .help(model.fetchedAt.map { "Updated \(Theme.ago($0)) ago. Refresh" } ?? "Refresh")
                 }
             }
@@ -151,7 +151,7 @@ struct UsageStrip: View {
                 .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(Color.primary.opacity(0.04)))
                 .contentShape(Rectangle())
             }
-            .buttonStyle(.plain)
+            .buttonStyle(.deckPlain)
             .help("Plan usage (⇧⌘U)")
         }
     }

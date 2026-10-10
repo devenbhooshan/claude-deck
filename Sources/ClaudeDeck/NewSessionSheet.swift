@@ -19,6 +19,9 @@ struct NewSessionSheet: View {
                     Text(Theme.shortPath(folder)).font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+                .pointingHand()
                 .tag(folder)
                 .onTapGesture(count: 2) { start(folder) }
             }

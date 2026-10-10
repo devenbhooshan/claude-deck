@@ -136,7 +136,7 @@ struct CopyButton: View {
                     .contentShape(Rectangle())
             }
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(.deckBorderless)
         .font(.caption)
         .foregroundStyle(copied ? Theme.success : Color.secondary)
         .help("Copy")
@@ -177,9 +177,20 @@ struct DeckButtonStyle: ButtonStyle {
     enum Kind { case primary, secondary, link }
     var kind: Kind = .secondary
     var size: ControlSize = .regular
-    @Environment(\.isEnabled) private var isEnabled
 
     func makeBody(configuration: Configuration) -> some View {
+        DeckButtonBody(configuration: configuration, kind: kind, size: size)
+    }
+}
+
+private struct DeckButtonBody: View {
+    let configuration: ButtonStyleConfiguration
+    let kind: DeckButtonStyle.Kind
+    let size: ControlSize
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var hovering = false
+
+    var body: some View {
         let small = size == .small || size == .mini
         let large = size == .large
         configuration.label
@@ -191,22 +202,97 @@ struct DeckButtonStyle: ButtonStyle {
             .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous).fill(background))
             .opacity(configuration.isPressed ? 0.7 : (isEnabled ? 1 : 0.45))
             .contentShape(Rectangle())
+            .onHover { hovering = $0 }
+            .pointingHand(isEnabled)
+            .animation(.easeOut(duration: 0.12), value: hovering)
     }
 
     private var foreground: Color {
         switch kind {
         case .primary: .white
         case .secondary: .primary
-        case .link: Theme.accent
+        case .link: hovering && isEnabled ? Theme.accent.opacity(0.75) : Theme.accent
         }
     }
 
     private var background: Color {
+        let hover = hovering && isEnabled
         switch kind {
-        case .primary: Theme.accent
-        case .secondary: Color.primary.opacity(0.07)
-        case .link: .clear
+        case .primary: return hover ? Theme.accent.opacity(0.88) : Theme.accent
+        case .secondary: return Color.primary.opacity(hover ? 0.11 : 0.07)
+        case .link: return .clear
         }
+    }
+}
+
+/// For custom-drawn buttons (icons, chips, rows): no look of its own, plus the pointing hand,
+/// a press dim and the disabled fade.
+struct DeckPlainButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        DeckPlainBody(configuration: configuration)
+    }
+}
+
+private struct DeckPlainBody: View {
+    let configuration: ButtonStyleConfiguration
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.6 : (isEnabled ? 1 : 0.45))
+            .pointingHand(isEnabled)
+    }
+}
+
+/// The native borderless look (menu bar panel, small icon buttons) with the pointing hand.
+struct DeckBorderlessButtonStyle: PrimitiveButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        DeckBorderlessBody(configuration: configuration)
+    }
+}
+
+private struct DeckBorderlessBody: View {
+    let configuration: PrimitiveButtonStyleConfiguration
+    @Environment(\.isEnabled) private var isEnabled
+
+    var body: some View {
+        Button(configuration).buttonStyle(.borderless).pointingHand(isEnabled)
+    }
+}
+
+extension ButtonStyle where Self == DeckPlainButtonStyle {
+    static var deckPlain: DeckPlainButtonStyle { DeckPlainButtonStyle() }
+}
+
+extension PrimitiveButtonStyle where Self == DeckBorderlessButtonStyle {
+    static var deckBorderless: DeckBorderlessButtonStyle { DeckBorderlessButtonStyle() }
+}
+
+/// Shows the pointing-hand cursor while the pointer is over something clickable. (SwiftUI's
+/// pointerStyle needs macOS 15.)
+struct PointingHandCursor: ViewModifier {
+    var enabled = true
+    @State private var inside = false
+
+    func body(content: Content) -> some View {
+        content
+            .onContinuousHover { phase in
+                switch phase {
+                case .active:
+                    inside = true
+                    if enabled { NSCursor.pointingHand.set() }
+                case .ended:
+                    if inside { NSCursor.arrow.set() }
+                    inside = false
+                }
+            }
+            .onDisappear { if inside { NSCursor.arrow.set() } }
+    }
+}
+
+extension View {
+    func pointingHand(_ enabled: Bool = true) -> some View {
+        modifier(PointingHandCursor(enabled: enabled))
     }
 }
 
@@ -256,7 +342,7 @@ struct QuickApproval: View {
                     .fill(filled ? tint : Color.primary.opacity(0.07)))
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.deckPlain)
         .help(help)
     }
 }

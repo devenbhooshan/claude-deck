@@ -146,7 +146,7 @@ struct DockView: View {
                         .frame(width: 18, height: 18)
                         .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.deckPlain)
                 .help(number(of: s).map { "\($0). \(s.displayTitle)" } ?? s.displayTitle)
             }
             if expanded {
@@ -185,7 +185,7 @@ struct DockView: View {
                 Button("Open Claude Deck") { store.bringToFront() }
                 Spacer()
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(.deckBorderless)
             .font(.caption)
             .padding(.horizontal, 10).padding(.vertical, 8)
         }
@@ -200,7 +200,7 @@ struct DockView: View {
                 .frame(width: 20, height: 20)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.deckPlain)
         .help(help)
     }
 
@@ -256,5 +256,6 @@ private struct DockRowStyle: ButtonStyle {
                 .fill(Color.primary.opacity(configuration.isPressed ? 0.1 : hovering ? 0.06 : 0))
                 .padding(.horizontal, 4))
             .onHover { hovering = $0 }
+            .pointingHand()
     }
 }

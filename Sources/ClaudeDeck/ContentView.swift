@@ -256,6 +256,8 @@ struct SessionSwitcher: View {
                         .background(RoundedRectangle(cornerRadius: Theme.Radius.medium).fill(i == highlighted ? Theme.accent.opacity(0.18) : .clear))
                         .contentShape(Rectangle())
                         .onTapGesture { highlighted = i; open() }
+                        .onHover { if $0 { highlighted = i } }
+                        .pointingHand()
                     }
                     if matches.isEmpty {
                         Text("No matching sessions").foregroundStyle(.tertiary).padding(20)
@@ -414,15 +416,18 @@ extension SessionRow where Accessory == EmptyView {
 struct SelectableRow: ViewModifier {
     @Environment(SessionStore.self) private var store
     let id: String
+    @State private var hovering = false
 
     func body(content: Content) -> some View {
         let selected = store.selectedId == id
         content
             .contentShape(Rectangle())
             .onTapGesture { store.selectedId = id }
+            .onHover { hovering = $0 }
+            .pointingHand()
             .listRowBackground(
                 RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                    .fill(selected ? Theme.accent.opacity(0.16) : Color.clear)
+                    .fill(selected ? Theme.accent.opacity(0.16) : hovering ? Color.primary.opacity(0.05) : Color.clear)
                     .padding(.horizontal, 10)
             )
             .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
