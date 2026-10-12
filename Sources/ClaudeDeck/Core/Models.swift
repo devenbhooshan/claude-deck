@@ -8,12 +8,20 @@ struct SessionRecord: Decodable {
     let cwd: String
     let startedAt: Double?
     let kind: String?
+    /// "cli" for a terminal session; "sdk-cli" for headless runs (`claude -p`, the Agent SDK).
+    var entrypoint: String? = nil
     let name: String?
     let status: String?
     let waitingFor: String?
     let updatedAt: Double?
     let statusUpdatedAt: Double?
     let detail: String?
+}
+
+extension SessionRecord {
+    /// Headless runs (Deck's own `claude -p /usage` checks, scripts, the Agent SDK) have no
+    /// terminal to type into, so they aren't shown as sessions.
+    var isHeadless: Bool { entrypoint == "sdk-cli" }
 }
 
 enum SessionStatus: String {

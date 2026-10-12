@@ -29,6 +29,9 @@ func loaderTests() {
         box.write("claude/sessions/7.json", record(7, "dup", updatedAt: 9))
         box.write("claude/sessions/8.json", record(8, "dup", updatedAt: 1))
         box.write("claude/sessions/9.json", record(9, "old", status: "waiting", waitingFor: "permission prompt", statusUpdatedAt: now))
+        // A headless run (like Deck's own `claude -p /usage` check) isn't a session you can use.
+        box.write("claude/sessions/10.json", #"{"pid":10,"sessionId":"headless","cwd":"/tmp","kind":"interactive","entrypoint":"sdk-cli","status":"busy"}"#)
+        box.write("claude/sessions/11.json", #"{"pid":11,"sessionId":"term","cwd":"/p/app","startedAt":2000000,"entrypoint":"cli"}"#)
         box.jsonl("claude/projects/-p-app/w.jsonl", [["type": "ai-title", "aiTitle": "Waiting one"]])
         box.write("pending/req.a", #"{"session_id":"w","tool_name":"Bash","tool_input":{"command":"rm -rf x"}}"#)
         let old = box.write("pending/req.b", #"{"session_id":"old","tool_name":"Bash","tool_input":{}}"#)
@@ -36,7 +39,7 @@ func loaderTests() {
 
         let (live, updates) = SessionLoader.loadLive(cache: [:], alive: { $0 != 4 })
         // Stable order: by start time, then id; status and activity don't move a session.
-        expectEqual(live.map(\.id), ["b", "dup", "i", "old", "w"])
+        expectEqual(live.map(\.id), ["b", "dup", "i", "old", "w", "term"])
         let w = live.first { $0.id == "w" }!
         expectEqual(w.title, "Waiting one")
         expectEqual(w.pendingTool?.summary, "rm -rf x")

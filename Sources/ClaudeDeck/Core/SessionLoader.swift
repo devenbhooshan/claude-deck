@@ -19,7 +19,7 @@ enum SessionLoader {
             let url = ClaudePaths.sessions.appendingPathComponent(file)
             guard let data = try? Data(contentsOf: url),
                   let rec = try? JSONDecoder().decode(SessionRecord.self, from: data),
-                  alive(rec.pid) else { continue }
+                  !rec.isHeadless, alive(rec.pid) else { continue }
             let transcript = ClaudePaths.transcript(for: rec.sessionId, cwd: rec.cwd)
             let (title, update) = title(for: transcript, cache: cache)
             if let transcript, let update { updates[transcript.path] = update }
