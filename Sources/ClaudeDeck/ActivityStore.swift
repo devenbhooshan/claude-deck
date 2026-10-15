@@ -77,7 +77,8 @@ final class ActivityStore {
                 self.prInfo = extras.prs
                 self.summaries = extras.summaries
                 self.recaps = extras.recaps
-                self.tasks = extras.tasks ?? [:]
+                self.taskEvents = extras.taskEvents ?? [:]
+                self.taskAsk = extras.taskAsk ?? [:]
                 self.rebuild()
                 self.loaded = true
                 self.refresh()
@@ -111,10 +112,11 @@ final class ActivityStore {
     }
 
     private func rebuild() {
-        all = ActivityIndex.browse(index.values.flatMap(\.events))
+        let tasks = taskEvents.values.flatMap { $0 }
+        all = ActivityIndex.browse(index.values.flatMap(\.events) + tasks)
         let sessions = Array(index.values)
         Task.detached(priority: .utility) {
-            let built = SearchIndex(docs: SearchIndex.documents(from: sessions))
+            let built = SearchIndex(docs: SearchIndex.documents(from: sessions, extra: tasks))
             await MainActor.run { self.searchIndex = built }
         }
     }
@@ -193,7 +195,7 @@ final class ActivityStore {
     // MARK: - Lookups
 
     func events(for sessionId: String) -> [ActivityEvent] {
-        ActivityIndex.browse(index[sessionId]?.events ?? [])
+        ActivityIndex.browse((index[sessionId]?.events ?? []) + (taskEvents[sessionId] ?? []))
     }
 
     func current(for sessionId: String) -> CurrentWork? {
@@ -203,31 +205,43 @@ final class ActivityStore {
 
     // MARK: - The task a session is on
 
-    struct NamedTask: Codable { var name: String; var lastAsk: String }
-    private(set) var tasks: [String: NamedTask] = [:]
+    /// Tasks each session moved through, named from your messages: "Started task" entries.
+    private(set) var taskEvents: [String: [ActivityEvent]] = [:]
+    /// The message each session's task was last named for.
+    private var taskAsk: [String: String] = [:]
     private var naming: Set<String> = []
 
-    /// The task named from your latest messages, if it's been named for them.
-    func task(for sessionId: String) -> String? { tasks[sessionId]?.name }
+    /// The task a session is on now.
+    func task(for sessionId: String) -> String? { taskEvents[sessionId]?.last?.title }
 
-    /// Names what the session is on now, once per new message of yours (Claude Haiku, a few words).
+    /// Names what the session is on, once per new message of yours (Claude Haiku, a few words). A
+    /// new task adds a timeline entry at that message; the same task just gets the better name.
     func nameTask(_ sessionId: String) {
         guard aiSummaries, let asks = index[sessionId]?.extractor.asks, let last = asks.last,
-              tasks[sessionId]?.lastAsk != last.id, !naming.contains(sessionId),
+              taskAsk[sessionId] != last.id, !naming.contains(sessionId),
               Self.callsToday() < Self.dailyCallLimit else { return }
         naming.insert(sessionId)
         Self.countCall()
-        let prompt = ActivitySummarizer.taskPrompt(asks)
+        let previous = task(for: sessionId)
+        let prompt = ActivitySummarizer.taskPrompt(asks, previous: previous)
         Task.detached(priority: .utility) {
-            let out = (try? ClaudeRunner.run(ActivitySummarizer.arguments(prompt: prompt, schema: ActivitySummarizer.textSchema),
+            let out = (try? ClaudeRunner.run(ActivitySummarizer.arguments(prompt: prompt, schema: ActivitySummarizer.taskSchema),
                                              in: NSHomeDirectory(), timeout: 60).get()) ?? ""
-            let name = ActivitySummarizer.parseTask(out)
+            let named = ActivitySummarizer.parseTask(out)
             await MainActor.run {
                 self.naming.remove(sessionId)
-                if let name {
-                    self.tasks[sessionId] = NamedTask(name: name, lastAsk: last.id)
-                    self.saveExtras()
+                guard let named else { return }
+                self.taskAsk[sessionId] = last.id
+                var list = self.taskEvents[sessionId] ?? []
+                if named.isNew || list.isEmpty {
+                    list.append(ActivityEvent(id: "\(sessionId):task\(list.count + 1)", sessionId: sessionId, kind: .startedTask,
+                                              at: last.at ?? Date(), title: named.name, offset: last.offset))
+                } else {
+                    list[list.count - 1].title = named.name
                 }
+                self.taskEvents[sessionId] = list
+                self.rebuild()
+                self.saveExtras()
             }
         }
     }
@@ -398,7 +412,8 @@ final class ActivityStore {
         var prs: [String: PRInfo] = [:]
         var summaries: [String: String] = [:]
         var recaps: [String: Recap] = [:]
-        var tasks: [String: NamedTask]? = nil
+        var taskEvents: [String: [ActivityEvent]]? = nil
+        var taskAsk: [String: String]? = nil
     }
 
     private nonisolated static func loadExtras() -> Extras {
@@ -408,7 +423,7 @@ final class ActivityStore {
     }
 
     private func saveExtras() {
-        let extras = Extras(prs: prInfo, summaries: summaries, recaps: recaps, tasks: tasks)
+        let extras = Extras(prs: prInfo, summaries: summaries, recaps: recaps, taskEvents: taskEvents, taskAsk: taskAsk)
         let url = Self.storeDir.appendingPathComponent("activity-extras.json")
         Task.detached(priority: .utility) {
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

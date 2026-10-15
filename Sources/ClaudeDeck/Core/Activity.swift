@@ -8,6 +8,8 @@ struct ActivityEvent: Codable, Equatable, Identifiable {
         case createdTicket, updatedTicket, commentedTicket, viewedTicket, mentionedTicket
         case screenshot
         case pushed, createdBranch
+        /// A new task, named from your messages (added by Deck, not found in the transcript).
+        case startedTask
     }
 
     var id: String
@@ -62,6 +64,7 @@ struct ActivityEvent: Codable, Equatable, Identifiable {
         case .screenshot: count > 1 ? "Reviewed \(count) screenshots" : "Reviewed a screenshot"
         case .pushed: detail == "Tag" ? "Pushed tag" : commits > 1 ? "Pushed \(commits) commits" : commits == 1 ? "Pushed a commit" : count > 1 ? "Pushed \(count)×" : "Pushed"
         case .createdBranch: "Started branch"
+        case .startedTask: "Started task"
         }
     }
 

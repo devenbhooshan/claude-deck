@@ -19,6 +19,7 @@ extension ActivityEvent.Kind {
         case .screenshot: "photo"
         case .pushed: "arrow.up.circle"
         case .createdBranch: "arrow.branch"
+        case .startedTask: "sparkles"
         }
     }
 
@@ -31,6 +32,7 @@ extension ActivityEvent.Kind {
         case .screenshot: Theme.accent
         case .pushed: Theme.busy
         case .createdBranch: Theme.success
+        case .startedTask: Theme.accent
         case .commentedPR, .viewedPR, .linkedPR: .secondary
         }
     }

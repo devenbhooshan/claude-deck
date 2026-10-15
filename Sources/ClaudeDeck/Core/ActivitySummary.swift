@@ -115,23 +115,28 @@ enum ActivitySummarizer {
         }.joined(separator: "\n")
     }
 
-    /// What the developer is working on now, from their latest messages.
-    static func taskPrompt(_ asks: [ActivityAsk]) -> String {
+    static let taskSchema = #"{"type":"object","properties":{"task":{"type":"string"},"new_task":{"type":"boolean"}},"required":["task","new_task"]}"#
+
+    /// What the developer is working on now, from their latest messages, and whether it's a new
+    /// task or the previous one going on (so renaming it doesn't add a timeline entry).
+    static func taskPrompt(_ asks: [ActivityAsk], previous: String?) -> String {
         let recent = asks.suffix(5).map { "- " + String($0.text.prefix(300)) }.joined(separator: "\n")
         return """
             From a developer's latest messages to their coding agent (oldest first), name the task they \
             are working on now in 2 to 6 words, like a ticket title (e.g. "AppSumo integration design"). \
             Go by the most recent messages. No quotes, no trailing period.
+            \(previous.map { "The task before was: \($0). new_task is false if they're still on it (even if your name is better), true if they moved to something else." } ?? "new_task is true.")
 
             \(recent)
             """
     }
 
-    /// A short task name, or nil when the reply isn't one.
-    static func parseTask(_ output: String) -> String? {
-        guard let t = parseText(output)?.trimmingCharacters(in: CharacterSet(charactersIn: "\"“”.")), !t.isEmpty,
+    /// The task name, and whether it's new; nil when the reply isn't usable.
+    static func parseTask(_ output: String) -> (name: String, isNew: Bool)? {
+        guard let obj = structured(output),
+              let t = (obj["task"] as? String)?.trimmingCharacters(in: CharacterSet(charactersIn: "\"“”. \n")), !t.isEmpty,
               t.count <= 60, !t.contains("\n") else { return nil }
-        return t
+        return (t, obj["new_task"] as? Bool ?? true)
     }
 
     static func parseText(_ output: String) -> String? {

@@ -50,8 +50,12 @@ final class SearchIndex: @unchecked Sendable {
     }
 
     /// Everything searchable in these sessions.
-    static func documents(from sessions: [SessionActivity]) -> [SearchDoc] {
-        sessions.flatMap { s -> [SearchDoc] in
+    static func documents(from sessions: [SessionActivity], extra: [ActivityEvent] = []) -> [SearchDoc] {
+        let added = extra.map { e in
+            SearchDoc(id: e.id, sessionId: e.sessionId, kind: .event(e.kind), at: e.at,
+                      text: [e.label, e.title].compactMap { $0 }.joined(separator: " · "), offset: e.offset)
+        }
+        return added + sessions.flatMap { s -> [SearchDoc] in
             let x = s.extractor
             var out = x.asks.map { SearchDoc(id: $0.id, sessionId: s.sessionId, kind: .message, at: $0.at, text: $0.text, offset: $0.offset) }
             for e in ActivityIndex.browse(x.events) {
