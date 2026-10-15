@@ -94,15 +94,11 @@ struct SessionWorkBar: View {
                 }
             }
             Spacer(minLength: 8)
-            Picker("", selection: $store.detailTab) {
-                Text("Conversation").tag(DetailTab.conversation)
-                Text(count > 0 ? "Activity · \(count)" : "Activity").tag(DetailTab.activity)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            .pointingHand()
-            .help("Switch between the conversation and what this session did with PRs, tickets and screenshots (⌘⌥A)")
+            DeckTabs(items: [
+                .init(value: DetailTab.conversation, title: "Conversation", help: "The conversation (⌥⌘A)"),
+                .init(value: DetailTab.activity, title: "Activity", count: count,
+                      help: "What this session did with PRs, tickets and screenshots (⌥⌘A)"),
+            ], selection: $store.detailTab)
         }
         .padding(.horizontal, 16)
         .frame(height: 40)
@@ -360,13 +356,10 @@ struct HistoryView: View {
         let results = ActivityIndex.browse(activity.all, filter: filter, query: query, sessionTitle: title)
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                Picker("", selection: $filter) {
-                    ForEach(ActivityIndex.Filter.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .fixedSize()
-                .pointingHand()
+                DeckTabs(items: ActivityIndex.Filter.allCases.map { f in
+                    .init(value: f, title: f.rawValue,
+                          count: f == .all ? nil : ActivityIndex.browse(activity.all, filter: f, query: query, sessionTitle: title).count)
+                }, selection: $filter)
                 Spacer()
                 if activity.indexing || activity.summarizing {
                     ProgressView().controlSize(.small)

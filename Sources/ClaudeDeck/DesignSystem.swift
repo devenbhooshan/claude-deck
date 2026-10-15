@@ -346,3 +346,61 @@ struct QuickApproval: View {
         .help(help)
     }
 }
+
+/// Deck's tabs: the selected one carries the accent tint (like the selected session in the
+/// sidebar); the others highlight on hover. Optional counts sit in small badges.
+struct DeckTabs<Value: Hashable>: View {
+    struct Item {
+        let value: Value
+        let title: String
+        var count: Int? = nil
+        var help: String? = nil
+    }
+
+    let items: [Item]
+    @Binding var selection: Value
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(items, id: \.value) { item in
+                DeckTab(title: item.title, count: item.count, selected: item.value == selection, help: item.help) {
+                    selection = item.value
+                }
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(Color.primary.opacity(0.05)))
+        .animation(.easeOut(duration: 0.12), value: selection)
+    }
+}
+
+private struct DeckTab: View {
+    let title: String
+    let count: Int?
+    let selected: Bool
+    let help: String?
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Text(title).font(.callout.weight(selected ? .semibold : .medium))
+                if let count, count > 0 {
+                    Text("\(count)")
+                        .font(.caption2.weight(.semibold).monospacedDigit())
+                        .padding(.horizontal, 5).padding(.vertical, 1)
+                        .background(Capsule().fill(selected ? Theme.accent.opacity(0.18) : Color.primary.opacity(0.08)))
+                }
+            }
+            .foregroundStyle(selected ? Theme.accent : (hovering ? Color.primary : Color.secondary))
+            .padding(.horizontal, 10).padding(.vertical, 4)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
+                .fill(selected ? Theme.accent.opacity(0.14) : (hovering ? Color.primary.opacity(0.07) : .clear)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.deckPlain)
+        .onHover { hovering = $0 }
+        .help(help ?? title)
+    }
+}
