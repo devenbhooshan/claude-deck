@@ -90,6 +90,8 @@ struct SessionCommands: Commands {
             Divider()
             Button("Activity History…") { openWindow(id: "history") }
                 .keyboardShortcut("h", modifiers: [.command, .shift])
+            Button("Search Sessions…") { openWindow(id: "history") }
+                .keyboardShortcut("f", modifiers: [.command, .shift])
             Button(store.detailTab == .activity ? "Show Conversation" : "Show Activity") {
                 store.detailTab = store.detailTab == .activity ? .conversation : .activity
             }

@@ -125,46 +125,6 @@ enum SkillCatalog {
     }
 }
 
-/// An MCP server as reported by `claude mcp list`.
-struct MCPServer: Identifiable, Equatable {
-    enum Status: Equatable {
-        case connected, needsAuth, failed
-        case other(String)
-    }
-
-    let name: String
-    let target: String
-    let status: Status
-
-    var id: String { name }
-
-    /// Connectors from your claude.ai account are listed as "claude.ai <Name>".
-    var isClaudeAI: Bool { name.hasPrefix("claude.ai ") }
-    var displayName: String { isClaudeAI ? String(name.dropFirst("claude.ai ".count)) : name }
-}
-
-enum MCPCatalog {
-    /// Parses lines like `claude.ai Slack: https://mcp.slack.com/mcp - ✔ Connected`.
-    static func parse(_ output: String) -> [MCPServer] {
-        output.components(separatedBy: "\n").compactMap { line in
-            guard let sep = line.range(of: ": "), let dash = line.range(of: " - ", options: .backwards),
-                  sep.upperBound <= dash.lowerBound else { return nil }
-            let name = String(line[..<sep.lowerBound]).trimmingCharacters(in: .whitespaces)
-            let target = String(line[sep.upperBound..<dash.lowerBound]).trimmingCharacters(in: .whitespaces)
-            let statusText = String(line[dash.upperBound...]).trimmingCharacters(in: .whitespaces)
-            return MCPServer(name: name, target: target, status: status(statusText))
-        }
-    }
-
-    static func status(_ text: String) -> MCPServer.Status {
-        let lower = text.lowercased()
-        if lower.contains("connected") && !lower.contains("not connected") { return .connected }
-        if lower.contains("auth") { return .needsAuth }
-        if lower.contains("fail") || text.contains("✗") { return .failed }
-        return .other(text)
-    }
-}
-
 /// Finds the `claude` command. Apps launched from Finder don't get your shell's PATH.
 enum ClaudeCLI {
     static func locate(candidates: [String] = defaultCandidates,

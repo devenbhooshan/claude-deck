@@ -22,7 +22,7 @@ enum ActivityIndex {
 
     static let chunkSize = 8 << 20
     /// Bump when extraction changes, so saved progress is thrown away and transcripts re-read.
-    static let version = 5
+    static let version = 7
     /// Too weak to list: Claude Code links any PR whose URL shows up, and a look isn't work. They
     /// still help tell what a session is on.
     static let hiddenKinds: Set<ActivityEvent.Kind> = [.linkedPR, .viewedPR]
@@ -47,8 +47,13 @@ enum ActivityIndex {
             // Only complete lines; the rest waits for the next chunk (or the next update).
             guard let lastNewline = buffer.lastIndex(of: 0x0A) else { carry = buffer; continue }
             let complete = buffer[buffer.startIndex...lastNewline]
-            for line in complete.split(separator: 0x0A, omittingEmptySubsequences: true) {
-                state.extractor.ingest(Data(line))
+            var lineStart = complete.startIndex
+            while lineStart < complete.endIndex {
+                let end = complete[lineStart...].firstIndex(of: 0x0A)!
+                if end > lineStart {
+                    state.extractor.ingest(Data(complete[lineStart..<end]), offset: offset + UInt64(lineStart - complete.startIndex))
+                }
+                lineStart = complete.index(after: end)
             }
             offset += UInt64(complete.count)
             buffer = Data(buffer[buffer.index(after: lastNewline)...])

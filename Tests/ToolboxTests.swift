@@ -69,27 +69,7 @@ func skillTests() {
     }
 }
 
-func mcpTests() {
-    test("parses claude mcp list output") {
-        let out = """
-        Checking MCP server health…
-
-        claude.ai Slack: https://mcp.slack.com/mcp - ✔ Connected
-        newrelic: npx -y newrelic-mcp - ✗ Failed to connect
-        linear: https://mcp.linear.app/mcp - ! Needs authentication
-        odd: thing - ? Pending
-        broken line without separator
-        weird - x: y
-        """
-        let servers = MCPCatalog.parse(out)
-        expectEqual(servers.map(\.name), ["claude.ai Slack", "newrelic", "linear", "odd"])
-        expectEqual(servers.map(\.status), [.connected, .failed, .needsAuth, .other("? Pending")])
-        expectEqual(servers[0].target, "https://mcp.slack.com/mcp")
-        expectEqual(servers[0].id, "claude.ai Slack")
-        expect(servers[0].isClaudeAI && servers[0].displayName == "Slack")
-        expect(!servers[1].isClaudeAI && servers[1].displayName == "newrelic")
-        expectEqual(MCPCatalog.status("✗ Not connected"), .failed)
-    }
+func claudeCLITests() {
     test("finds the claude command") {
         expectEqual(ClaudeCLI.locate(candidates: ["/a", "/b"], isExecutable: { $0 == "/b" }), "/b")
         expect(ClaudeCLI.locate(candidates: ["/a"], isExecutable: { _ in false }) == nil)

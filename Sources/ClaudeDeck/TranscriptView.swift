@@ -30,7 +30,7 @@ struct TranscriptView: View {
             blocks: model.blocks, results: model.results, queued: model.queued, outgoing: model.outgoing,
             cwd: cwd, status: status,
             openToolId: status == .busy || status == .waiting ? openTool?.id : nil,
-            loaded: model.loaded))
+            loaded: model.loaded, focus: model.focusText))
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 // The row's space is always reserved, so the transcript never jumps when it appears;

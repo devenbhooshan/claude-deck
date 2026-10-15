@@ -7,8 +7,8 @@ let suites: [(String, () -> Void)] = [
     ("Paths", pathTests), ("Tail reader", tailTests), ("Transcript parser", parserTests),
     ("Session loading", loaderTests), ("Fresh records", recordTests), ("Attachment purge", purgeTests), ("Permission requests", pendingTests), ("Attachments", attachmentTests),
     ("Tool style", toolStyleTests), ("Renderer", rendererTests), ("Text view", textViewTests),
-    ("Skills", skillTests), ("Slash commands", commandTests), ("Command kinds", commandKindTests), ("Plan usage", planUsageTests), ("Diffs", diffTests), ("MCP servers", mcpTests),
-    ("Activity", activityTests), ("Activity index", activityIndexTests), ("Activity summaries", activitySummaryTests),
+    ("Skills", skillTests), ("Slash commands", commandTests), ("Command kinds", commandKindTests), ("Plan usage", planUsageTests), ("Diffs", diffTests), ("claude command", claudeCLITests),
+    ("Activity", activityTests), ("Activity index", activityIndexTests), ("Activity summaries", activitySummaryTests), ("Search", searchTests),
 ]
 for (name, run) in suites {
     print("• \(name)")

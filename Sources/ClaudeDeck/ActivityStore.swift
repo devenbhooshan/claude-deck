@@ -33,6 +33,23 @@ final class ActivityStore {
     }
 
     struct Recap: Codable { var text: String; var at: Date }
+
+    /// Search over your messages and activity; rebuilt when the index changes.
+    private(set) var searchIndex: SearchIndex?
+    private(set) var answer: SearchAnswer?
+    private(set) var asking = false
+
+    /// Claude Haiku's answer to a question, and the sessions it was drawn from.
+    struct SearchAnswer {
+        var question: String
+        var text: String?
+        var picks: [(hit: SearchHit, why: String)] = []
+        var sessions: [SessionHit] = []
+        var order: SessionSearch.Order = .all
+        var failed = false
+        /// The words searched for (typos fixed, related words added), for highlighting.
+        var terms: [String] = []
+    }
     struct Digest { var day: String; var text: String }
 
     private var timer: Timer?
@@ -94,6 +111,82 @@ final class ActivityStore {
 
     private func rebuild() {
         all = ActivityIndex.browse(index.values.flatMap(\.events))
+        let sessions = Array(index.values)
+        Task.detached(priority: .utility) {
+            let built = SearchIndex(docs: SearchIndex.documents(from: sessions))
+            await MainActor.run { self.searchIndex = built }
+        }
+    }
+
+    // MARK: - Search
+
+    /// Results as you type: keyword matches, grouped by session.
+    func quickSearch(_ query: String) -> (sessions: [SessionHit], order: SessionSearch.Order) {
+        guard let searchIndex else { return ([], .all) }
+        let (terms, order) = SessionSearch.plain(query)
+        return (SessionSearch.sessions(searchIndex.search(terms, prefix: true), order: order), order)
+    }
+
+    /// A question in plain words: Haiku turns it into a search (fixing typos, adding related
+    /// words, first vs latest), Deck searches locally, then Haiku answers from the best moments.
+    func ask(_ question: String, title: @escaping (String) -> String) {
+        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty, !asking, let searchIndex else { return }
+        asking = true
+        let local = quickSearch(q)
+        answer = SearchAnswer(question: q, sessions: local.sessions, order: local.order)
+        Self.countCall()
+        Task.detached(priority: .userInitiated) {
+            let intentOut = (try? ClaudeRunner.run(ActivitySummarizer.arguments(prompt: SessionSearch.intentPrompt(q), schema: SessionSearch.intentSchema),
+                                                   in: NSHomeDirectory(), timeout: 60).get()) ?? ""
+            let plain = SessionSearch.plain(q)
+            let intent = SessionSearch.parseIntent(intentOut)
+                ?? SessionSearch.Intent(topic: plain.terms, related: [], order: plain.order, sinceDays: nil)
+            let since = intent.sinceDays.map { Date().addingTimeInterval(-Double($0) * 86400) }
+            let hits = searchIndex.search(intent.related, topic: intent.topic, since: since)
+            let sessions = SessionSearch.sessions(hits, order: intent.order)
+            await MainActor.run {
+                guard self.answer?.question == q else { return }
+                self.answer?.sessions = sessions
+                self.answer?.order = intent.order
+                self.answer?.terms = intent.topic + intent.related
+            }
+            guard !sessions.isEmpty else {
+                await MainActor.run {
+                    self.asking = false
+                    if self.answer?.question == q { self.answer?.text = "Nothing in your sessions matches that." }
+                }
+                return
+            }
+            let top = Array(sessions.prefix(8))
+            let prompt = await MainActor.run { SessionSearch.answerPrompt(q, order: intent.order, sessions: top, title: title) }
+            await MainActor.run { Self.countCall() }
+            let out = (try? ClaudeRunner.run(ActivitySummarizer.arguments(prompt: prompt, schema: SessionSearch.answerSchema),
+                                             in: NSHomeDirectory(), timeout: 90).get()) ?? ""
+            let byId = Dictionary(top.flatMap(\.hits).map { ($0.doc.id, $0) }, uniquingKeysWith: { a, _ in a })
+            let parsed = SessionSearch.parseAnswer(out, ids: Set(byId.keys))
+            await MainActor.run {
+                self.asking = false
+                guard self.answer?.question == q else { return }
+                if let parsed {
+                    self.answer?.text = parsed.answer
+                    self.answer?.picks = parsed.picks.compactMap { p in byId[p.id].map { ($0, p.why) } }
+                } else {
+                    self.answer?.failed = true
+                }
+            }
+        }
+    }
+
+    func clearAnswer() { answer = nil }
+
+    /// A stand-in for a session that's neither running nor in Recent, so it can be opened.
+    func sessionStub(_ sessionId: String) -> Session? {
+        guard let s = index[sessionId], let cwd = s.extractor.cwd else { return nil }
+        let url = URL(fileURLWithPath: s.path)
+        return Session(sessionId: sessionId, pid: nil, cwd: cwd, name: nil, title: s.extractor.title, status: .ended,
+                       waitingFor: nil, updatedAt: s.extractor.lastAt ?? Date(),
+                       transcriptURL: FileManager.default.fileExists(atPath: url.path) ? url : nil)
     }
 
     // MARK: - Lookups

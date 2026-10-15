@@ -20,10 +20,31 @@ final class TranscriptModel {
     private var timer: Timer?
     private var watcher: FileWatcher?
 
-    func start(url: URL?) {
+    /// Showing just the part of the transcript around a message (opened from search).
+    private(set) var isWindow = false
+    /// That message's text, to point it out.
+    private(set) var focusText: String?
+
+    func start(url: URL?, focus: FocusTarget? = nil) {
         guard let url else { loaded = true; return }
         let parser = TranscriptParser(url: url)
         self.parser = parser
+        if let focus, let offset = focus.offset {
+            // A fixed stretch of the file: it doesn't follow new lines (Back to Latest does).
+            isWindow = true
+            focusText = focus.text
+            queue.async { [weak self] in
+                parser.loadWindow(around: offset)
+                let snapshot = (TranscriptBlock.group(parser.items), parser.results)
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.blocks = snapshot.0
+                    self.results = snapshot.1
+                    self.loaded = true
+                }
+            }
+            return
+        }
         poll(force: true)
         // React to appends immediately; the timer is a fallback (e.g. the file was replaced).
         watcher = FileWatcher(url: url, events: [.extend, .write]) { [weak self] in
@@ -119,14 +140,22 @@ struct SessionDetailView: View {
             if store.detailTab == .activity {
                 ActivityPane(session: session)
             } else {
+                if model.isWindow { EarlierPartBar { store.focus = nil } }
                 conversation
             }
+        }
+        // Opened from search at a moment, or back to the latest part.
+        .onChange(of: store.focus) { _, focus in
+            guard focus == nil ? model.isWindow : focus?.sessionId == session.sessionId else { return }
+            model.stop()
+            model = TranscriptModel()
+            model.start(url: session.transcriptURL, focus: focus)
         }
         .navigationTitle(session.displayTitle)
         .navigationSubtitle(subtitle)
         .toolbar { toolbar }
         .onAppear {
-            model.start(url: session.transcriptURL)
+            model.start(url: session.transcriptURL, focus: store.focus?.sessionId == session.sessionId ? store.focus : nil)
             if session.isLive { Task { await Ghostty.prewarm(session) } }
         }
         .onDisappear { model.stop() }
@@ -400,5 +429,25 @@ struct DiffView: View {
         case .removed: Theme.danger.opacity(0.13)
         default: .clear
         }
+    }
+}
+
+/// Above a transcript opened at an older message: says so, and goes back to the live end.
+private struct EarlierPartBar: View {
+    let backToLatest: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "clock.arrow.circlepath").foregroundStyle(Theme.accent)
+            Text("Showing an earlier part of this session").font(.callout)
+            Spacer()
+            Button("Back to Latest", action: backToLatest)
+                .buttonStyle(.deck(.secondary, size: .small))
+                .help("Show the end of the conversation, live")
+        }
+        .padding(.horizontal, 16)
+        .frame(height: 36)
+        .background(Theme.accent.opacity(0.06))
+        .overlay(alignment: .bottom) { Divider() }
     }
 }

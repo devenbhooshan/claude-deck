@@ -357,13 +357,18 @@ struct HistoryView: View {
 
     var body: some View {
         @Bindable var activity = activity
-        let results = ActivityIndex.browse(activity.all, filter: filter, query: query, sessionTitle: title)
+        let searching = !query.trimmingCharacters(in: .whitespaces).isEmpty
+        let results = ActivityIndex.browse(activity.all, filter: filter)
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                DeckTabs(items: ActivityIndex.Filter.allCases.map { f in
-                    .init(value: f, title: f.rawValue,
-                          count: f == .all ? nil : ActivityIndex.browse(activity.all, filter: f, query: query, sessionTitle: title).count)
-                }, selection: $filter)
+                if searching {
+                    Text("Search your sessions").font(.callout.weight(.semibold))
+                } else {
+                    DeckTabs(items: ActivityIndex.Filter.allCases.map { f in
+                        .init(value: f, title: f.rawValue,
+                              count: f == .all ? nil : ActivityIndex.browse(activity.all, filter: f).count)
+                    }, selection: $filter)
+                }
                 Spacer()
                 if activity.indexing || activity.summarizing {
                     ProgressView().controlSize(.small)
@@ -387,6 +392,13 @@ struct HistoryView: View {
             Divider()
             if !activity.loaded {
                 ProgressView("Reading your sessions…").frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if searching {
+                ScrollView {
+                    SearchResultsView(query: query, title: title)
+                        .frame(maxWidth: 860)
+                        .padding(16)
+                        .frame(maxWidth: .infinity)
+                }
             } else if results.isEmpty {
                 VStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").font(.system(size: 28, weight: .light)).foregroundStyle(.tertiary)
@@ -403,9 +415,10 @@ struct HistoryView: View {
             }
         }
         .background(Color(nsColor: .textBackgroundColor))
-        .searchable(text: $query, placement: .toolbar, prompt: "PR, ticket, title or session")
+        .searchable(text: $query, placement: .toolbar, prompt: "Search, or ask: when did I start…")
+        .onSubmit(of: .search) { activity.ask(query, title: title) }
         .navigationTitle("Activity History")
-        .navigationSubtitle("\(results.count) event\(results.count == 1 ? "" : "s")")
+        .navigationSubtitle(searching ? "Search" : "\(results.count) event\(results.count == 1 ? "" : "s")")
         .sheet(isPresented: $showDigest) { DigestSheet(regenerate: makeDigest) }
         .alert("Couldn't finish that", isPresented: Binding(get: { activity.lastError != nil }, set: { if !$0 { activity.lastError = nil } })) {
             Button("OK") { activity.lastError = nil }
@@ -471,5 +484,226 @@ struct DigestSheet: View {
         }
         .padding(20)
         .frame(width: 520)
+    }
+}
+
+// MARK: - Search
+
+/// Results for what's typed in History's search: matches as you type, and an answer from
+/// Claude Haiku when you press Return on a question.
+struct SearchResultsView: View {
+    @Environment(ActivityStore.self) private var activity
+    @Environment(SessionStore.self) private var store
+    let query: String
+    let title: (String) -> String
+
+    var body: some View {
+        let quick = activity.quickSearch(query)
+        let answer = activity.answer?.question == query.trimmingCharacters(in: .whitespacesAndNewlines) ? activity.answer : nil
+        let sessions = answer?.sessions ?? quick.sessions
+        let order = answer?.order ?? quick.order
+        let highlight = answer.map { ([query] + $0.terms).joined(separator: " ") } ?? query
+        VStack(alignment: .leading, spacing: 14) {
+            AskBar(query: query, asking: activity.asking && answer != nil) { activity.ask(query, title: title) }
+            if let answer { AnswerCard(answer: answer, query: highlight, title: title, open: open) }
+            if sessions.isEmpty {
+                Text(activity.searchIndex == nil ? "Reading your sessions…" : "No matches yet. Press ↩ to ask Claude, which also tries other spellings and related words.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .padding(.top, 8)
+            } else {
+                Text(order == .first ? "Sessions, by when it first came up" : order == .latest ? "Sessions, most recent first" : "Sessions")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                ForEach(sessions, id: \.sessionId) { s in
+                    SessionResultCard(hit: s, title: title(s.sessionId), query: highlight, open: open)
+                }
+            }
+        }
+    }
+
+    private func open(_ sessionId: String, _ doc: SearchDoc?) {
+        var text = doc?.text
+        if case .event = doc?.kind { text = activity.all.first { $0.id == doc?.id }?.quote }
+        store.open(FocusTarget(sessionId: sessionId, offset: doc?.offset, text: text), stub: activity.sessionStub(sessionId))
+    }
+}
+
+private struct AskBar: View {
+    let query: String
+    let asking: Bool
+    let ask: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: ask) {
+            HStack(spacing: 8) {
+                if asking {
+                    ProgressView().controlSize(.small)
+                    Text("Claude is reading your sessions…").font(.callout)
+                } else {
+                    Image(systemName: "sparkles").foregroundStyle(Theme.accent)
+                    Text("Ask Claude: ").font(.callout.weight(.semibold)) + Text("“\(query)”").font(.callout)
+                }
+                Spacer()
+                Text("↩").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.primary.opacity(0.2)))
+            }
+            .padding(.horizontal, 12).padding(.vertical, 9)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
+                .fill(Theme.accent.opacity(hovering ? 0.12 : 0.07)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.deckPlain)
+        .disabled(asking)
+        .onHover { hovering = $0 }
+        .help("Claude Haiku turns your question into a search (fixing typos, adding related words) and answers it")
+    }
+}
+
+private struct AnswerCard: View {
+    let answer: ActivityStore.SearchAnswer
+    let query: String
+    let title: (String) -> String
+    let open: (String, SearchDoc?) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let text = answer.text {
+                Text(text).font(.body).textSelection(.enabled)
+            } else if answer.failed {
+                Text("Couldn't get an answer from Claude right now; here's what the search found.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            ForEach(answer.picks, id: \.hit.doc.id) { pick in
+                MomentRow(doc: pick.hit.doc, session: title(pick.hit.doc.sessionId), why: pick.why, query: query) {
+                    open(pick.hit.doc.sessionId, pick.hit.doc)
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).fill(Theme.accent.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).strokeBorder(Theme.accent.opacity(0.15)))
+    }
+}
+
+private struct SessionResultCard: View {
+    let hit: SessionHit
+    let title: String
+    let query: String
+    let open: (String, SearchDoc?) -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Button { open(hit.sessionId, nil) } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "bubble.left.and.bubble.right").foregroundStyle(Theme.accent)
+                    Text(title).font(.callout.weight(.semibold)).lineLimit(1)
+                    if let first = hit.first {
+                        Text(Self.span(first, hit.last)).font(.caption).foregroundStyle(.tertiary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
+                    .fill(Color.primary.opacity(hovering ? 0.06 : 0)))
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.deckPlain)
+            .onHover { hovering = $0 }
+            .help("Open this session")
+            ForEach(hit.hits, id: \.doc.id) { h in
+                MomentRow(doc: h.doc, session: nil, why: nil, query: query) { open(hit.sessionId, h.doc) }
+            }
+        }
+        .padding(6)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
+    }
+
+    private static func span(_ first: Date, _ last: Date?) -> String {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        let a = f.string(from: first), b = last.map(f.string) ?? a
+        return a == b ? a : "\(a) – \(b)"
+    }
+}
+
+/// One matching moment: what you said or what the session did, when; opens the session there.
+private struct MomentRow: View {
+    let doc: SearchDoc
+    let session: String?
+    let why: String?
+    let query: String
+    let open: () -> Void
+    @State private var hovering = false
+
+    private static let time: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d, h:mm a"
+        return f
+    }()
+
+    var body: some View {
+        Button(action: open) {
+            HStack(alignment: .top, spacing: 10) {
+                Image(systemName: symbol)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(tint)
+                    .frame(width: 22, height: 22)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous).fill(tint.opacity(0.12)))
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        if let session { Text(session).font(.caption.weight(.semibold)) }
+                        Text(doc.at.map(Self.time.string) ?? "").font(.caption).foregroundStyle(.tertiary)
+                    }
+                    Text(Highlight.text(doc.text, query: query)).font(.callout).lineLimit(3)
+                    if let why, !why.isEmpty {
+                        Text(why).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 8).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
+                .fill(Color.primary.opacity(hovering ? 0.05 : 0)))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.deckPlain)
+        .onHover { hovering = $0 }
+        .help(doc.offset != nil ? "Open the session at this moment" : "Open this session")
+    }
+
+    private var symbol: String {
+        switch doc.kind {
+        case .message: "person.fill"
+        case .event(let k): k.symbol
+        case .session: "text.bubble"
+        }
+    }
+
+    private var tint: Color {
+        if case .event(let k) = doc.kind { return k.tint }
+        return Theme.accent
+    }
+}
+
+/// Bold, accent-coloured words that match the search.
+enum Highlight {
+    static func text(_ text: String, query: String) -> AttributedString {
+        var out = AttributedString(text)
+        let wanted = Set(SearchIndex.tokens(query))
+        guard !wanted.isEmpty else { return out }
+        let ns = text as NSString
+        let re = try! NSRegularExpression(pattern: #"[\p{L}\p{N}]+"#)
+        for m in re.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            let word = SearchIndex.stem(ns.substring(with: m.range).lowercased())
+            guard wanted.contains(where: { word == $0 || word.hasPrefix($0) }),
+                  let r = Range(m.range, in: text), let ar = Range(r, in: out) else { continue }
+            out[ar].font = .callout.weight(.semibold)
+            out[ar].foregroundColor = Theme.accent
+        }
+        return out
     }
 }

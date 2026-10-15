@@ -12,6 +12,10 @@ final class SessionStore {
     var selectedId: String?
     /// Conversation or Activity, for the open session.
     var detailTab: DetailTab = .conversation
+    /// A place to open a session at (from search): consumed by the session view.
+    var focus: FocusTarget?
+    /// Older sessions opened from search (not running, not in Recent).
+    private(set) var opened: [Session] = []
     /// Opens the Activity History window; set by the window scene.
     var openHistory: (() -> Void)?
     var showSwitcher = false
@@ -197,7 +201,18 @@ final class SessionStore {
 
     func session(_ id: String?) -> Session? {
         guard let id else { return nil }
-        return live.first { $0.id == id } ?? recent.first { $0.id == id }
+        return live.first { $0.id == id } ?? recent.first { $0.id == id } ?? opened.first { $0.id == id }
+    }
+
+    /// Opens a session at a moment (or its latest part when there's no offset), bringing Deck forward.
+    /// `stub` stands in for a session that's neither running nor recent.
+    func open(_ target: FocusTarget, stub: Session?) {
+        if session(target.sessionId) == nil, let stub { opened.append(stub) }
+        guard session(target.sessionId) != nil else { return }
+        focus = target.offset == nil ? nil : target
+        detailTab = .conversation
+        selectedId = target.sessionId
+        bringToFront()
     }
 
     private var titleCache: [String: TitleInfo] = [:]
@@ -343,4 +358,12 @@ enum DebugLog {
         let lines = (old.split(separator: "\n").suffix(199).map(String.init)) + ["\(Date()) \(message)"]
         try? lines.joined(separator: "\n").appending("\n").write(to: url, atomically: true, encoding: .utf8)
     }
+}
+
+/// Where to open a session: the line of a message or event, and its text to point out.
+struct FocusTarget: Equatable {
+    let sessionId: String
+    let offset: UInt64?
+    let text: String?
+    var id = UUID()
 }

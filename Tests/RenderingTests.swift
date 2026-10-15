@@ -34,7 +34,7 @@ func toolStyleTests() {
         expect(a.signature.hasPrefix("0||0|"))
         let call = ToolCall(id: "t", name: "Bash", summary: "ls")
         let b = content([.tools([call, call])], openToolId: "t")
-        expect(b.signature.contains("|2|") && b.signature.hasSuffix("t|true"))
+        expect(b.signature.contains("|2|") && b.signature.hasSuffix("t|true|"))
         expect(content([.item(item(.assistant("x"), "i"))]).signature != a.signature)
     }
 }

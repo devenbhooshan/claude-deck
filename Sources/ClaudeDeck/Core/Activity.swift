@@ -34,6 +34,8 @@ struct ActivityEvent: Codable, Equatable, Identifiable {
     var commits: Int = 0
     /// Claude's own words right after it: the summary until an AI one is written.
     var narration: String?
+    /// Byte offset of its line in the transcript, to open the session right there.
+    var offset: UInt64?
 
     var isPR: Bool { number != nil || [.openedPR, .mergedPR, .reviewedPR, .commentedPR, .viewedPR, .linkedPR].contains(kind) }
     var isTicket: Bool { ticket != nil }
@@ -114,6 +116,31 @@ struct ActivityEvent: Codable, Equatable, Identifiable {
     }
 }
 
+/// Something you asked a session: what search looks through, and where in the transcript it is.
+struct ActivityAsk: Codable, Equatable {
+    var id: String
+    var at: Date?
+    var text: String
+    /// Byte offset of its line in the transcript, to open the session right there.
+    var offset: UInt64
+
+    static let maxLength = 500
+
+    /// Your words, without commands, system notes, paste wrappers or image markers; nil when
+    /// nothing of yours is left.
+    static func clean(_ raw: String) -> String? {
+        let t = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        let skip = ["<command-name>", "<command-message>", "<local-command", "<task-notification", "<system-reminder",
+                    "[Request interrupted", "Caveat:", "<bash-input>", "<bash-stdout>"]
+        if skip.contains(where: { t.hasPrefix($0) || t.contains("<command-name>") }) { return nil }
+        var s = t.replacingOccurrences(of: #"</?pasted_content[^>]*>"#, with: " ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"\[Image #\d+\]"#, with: " ", options: .regularExpression)
+        s = s.replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression).trimmingCharacters(in: .whitespaces)
+        if s.isEmpty { return nil }
+        return s.count > maxLength ? String(s.prefix(maxLength)) + "…" : s
+    }
+}
+
 /// What a session is on right now: the ticket and PR of its branch, or else the latest ones it
 /// touched in its recent activity (work often happens on other branches or in worktrees).
 struct CurrentWork: Equatable {
@@ -154,6 +181,10 @@ struct CurrentWork: Equatable {
 struct ActivityExtractor: Codable {
     let sessionId: String
     private(set) var events: [ActivityEvent] = []
+    /// What you asked, in order (for search).
+    private(set) var asks: [ActivityAsk] = []
+    /// Where the line being read starts (set by the indexer).
+    private var lineOffset: UInt64 = 0
     private(set) var branch: String?
     private(set) var cwd: String?
     /// Where Claude's shell is: it keeps its folder between commands until Claude Code resets it.
@@ -195,7 +226,8 @@ struct ActivityExtractor: Codable {
     private static let userKey = Array("\"type\":\"user\"".utf8)
     private static let shellResetKey = Array("Shell cwd was reset to ".utf8)
 
-    mutating func ingest(_ line: Data) {
+    mutating func ingest(_ line: Data, offset: UInt64 = 0) {
+        lineOffset = offset
         if let b = Bytes.value(after: Self.branchKey, in: line) { branch = b }
         if cwd == nil, let c = Bytes.value(after: Self.cwdKey, in: line) { cwd = c }
         if let reset = Bytes.value(after: Self.shellResetKey, in: line, until: [UInt8(ascii: "\""), UInt8(ascii: "\\")]) {
@@ -203,7 +235,9 @@ struct ActivityExtractor: Codable {
         }
         let wanted = Self.needles.contains { Bytes.contains(line, $0) }
             || ((!pending.isEmpty || !commitCalls.isEmpty) && Bytes.contains(line, Self.toolUseIdKey))
-            || (!narrating.isEmpty && (Bytes.contains(line, Self.assistantKey) || Bytes.contains(line, Self.userKey)))
+            || (!narrating.isEmpty && Bytes.contains(line, Self.assistantKey))
+            // Your messages (not tool results, which are most of the "user" lines and the big ones).
+            || (Bytes.contains(line, Self.userKey) && !Bytes.contains(line, Self.toolUseIdKey))
         guard wanted, let obj = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { return }
         let at = (obj["timestamp"] as? String).flatMap(Rx.date)
         if let at { lastAt = at }
@@ -264,6 +298,9 @@ struct ActivityExtractor: Codable {
     private mutating func humanMessage(text: String, images: Int, at: Date?) {
         turn += 1
         narrating = []
+        if let clean = ActivityAsk.clean(text) {
+            asks.append(ActivityAsk(id: "\(sessionId):m\(asks.count + 1)", at: at, text: clean, offset: lineOffset))
+        }
         for m in Rx.all(#"linear\.app/([\w-]+)/issue/([A-Za-z]+-\d+)"#, in: text) {
             let id = m[2]!.uppercased(), url = "https://linear.app/\(m[1]!)/issue/\(id)"
             if !events.contains(where: { $0.ticket == id }) {
@@ -519,6 +556,7 @@ struct ActivityExtractor: Codable {
                               _ configure: (inout ActivityEvent) -> Void) -> String {
         seq += 1
         var e = ActivityEvent(id: "\(sessionId):\(seq)", sessionId: sessionId, kind: kind, at: at, branch: branch)
+        e.offset = lineOffset
         configure(&e)
         if e.url == nil, let repo = e.repo, let n = e.number { e.url = "https://github.com/\(repo)/pull/\(n)" }
         events.append(e)
@@ -572,7 +610,7 @@ struct ActivityExtractor: Codable {
     // Codable: the tuple-backed property is derived, so only stored state is encoded.
     private enum CodingKeys: String, CodingKey {
         case sessionId, events, branch, cwd, lastAt, customTitle, aiTitle, pending, narrating, turn
-        case lastScreenshotId, lastScreenshotTurn, seq, commitCalls, unpushed
+        case lastScreenshotId, lastScreenshotTurn, seq, commitCalls, unpushed, asks
     }
 }
 

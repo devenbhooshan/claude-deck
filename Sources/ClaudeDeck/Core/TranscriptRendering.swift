@@ -32,11 +32,13 @@ struct TranscriptContent {
     let status: SessionStatus
     let openToolId: String?
     let loaded: Bool
+    /// Text of a message to scroll to and point out once (from search).
+    var focus: String? = nil
 
     /// Cheap fingerprint so the text is only rebuilt when something visible changed.
     var signature: String {
         "\(blocks.count)|\(blocks.last?.id ?? "")|\(lastToolCount)|\(results.count)|\(queued.joined(separator: "\u{1}"))|"
-            + "\(outgoing.map { "\($0.id)\($0.delivered)" }.joined())|\(status)|\(openToolId ?? "")|\(loaded)"
+            + "\(outgoing.map { "\($0.id)\($0.delivered)" }.joined())|\(status)|\(openToolId ?? "")|\(loaded)|\(focus ?? "")"
     }
 
     private var lastToolCount: Int {
@@ -112,6 +114,7 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
     /// True while you're at the bottom; new content keeps you there. Scrolling up turns it off.
     private var pinned = true
     private var outgoingCount = 0
+    private var focused: String?
 
     @objc func userScrolled() {
         pinned = isAtBottom(textView?.enclosingScrollView)
@@ -157,6 +160,31 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
             scroll.contentView.scroll(to: origin)
             scroll.reflectScrolledClipView(scroll.contentView)
         }
+        if let focus = content.focus, focus != focused, let range = Self.range(of: focus, in: text.string) {
+            // Opened from search: show that message and point it out, once.
+            focused = focus
+            pinned = false
+            if let container = tv.textContainer, let layout = tv.layoutManager, let scroll {
+                layout.ensureLayout(for: container)
+                tv.sizeToFit()
+                let glyphs = layout.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+                let rect = layout.boundingRect(forGlyphRange: glyphs, in: container)
+                // A little room above it, so it doesn't sit flush against the top.
+                let y = max(0, min(rect.minY + tv.textContainerInset.height - 60, tv.frame.height - scroll.contentView.bounds.height))
+                scroll.contentView.scroll(to: NSPoint(x: 0, y: y))
+                scroll.reflectScrolledClipView(scroll.contentView)
+            }
+            tv.showFindIndicator(for: range)
+        }
+    }
+
+    /// The text you searched for: where a message starts in the rendered transcript (its first
+    /// words, whatever the line breaks).
+    static func range(of message: String, in text: String) -> NSRange? {
+        let words = message.split { $0.isWhitespace }.prefix(8).map { NSRegularExpression.escapedPattern(for: String($0)) }
+        guard !words.isEmpty, let re = try? NSRegularExpression(pattern: words.joined(separator: "\\s+"), options: [.caseInsensitive]) else { return nil }
+        let r = re.rangeOfFirstMatch(in: text, range: NSRange(location: 0, length: (text as NSString).length))
+        return r.location == NSNotFound ? nil : r
     }
 
     private func isAtBottom(_ scroll: NSScrollView?) -> Bool {

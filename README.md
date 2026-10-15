@@ -31,8 +31,6 @@ lets you read each transcript live, send messages, and jump to the session's ter
   red/green line diff, and edit permission prompts show the diff you're approving.
 - Plan usage at a glance: session % in the menu bar, and session / week bars in the sidebar and
   menu bar panel (refreshed every 5 minutes; click for details).
-- The sidebar lists the **skills** (project, global, claude.ai and plugin) and **MCP servers**
-  (from `claude mcp list`, checked in the background) for the selected session's project.
   Clicking a skill puts its `/command` in the message box.
 - Typing `/` lists every command (custom, skills, built-ins). Built-ins are handled by kind: most
   are sent as typed (their output appears in the transcript); ones that open a menu (`/model`,
@@ -56,6 +54,16 @@ Digest** (a standup note).
   session recaps and the digest are written by Claude Haiku through your own `claude` login, as
   headless, tool-less, unsaved runs, in batches, only when you're not typing, at most 150 small
   calls a day. Off, the summary is Claude's own sentence from right after the action.
+
+## Search
+
+Search across every session from **Activity History** (⇧⌘F or ⇧⌘H). Typing searches your own
+messages, PR and ticket titles, commits, branches and session names instantly (on your Mac,
+typo-tolerant). Press **↩** to ask a question in plain words, e.g. *"on which session did I start
+the AppSumo integration?"*: Claude Haiku turns it into a search (fixing typos, adding related words,
+first vs latest time), Deck searches locally, and Haiku answers with the session and moment. Click
+any moment to open the session right there, even in a long or old transcript ("Back to Latest"
+returns to the live end).
 
 ## Safety
 
@@ -88,6 +96,7 @@ All of these are also listed in the **Sessions** menu.
 | ⇧⌘T | Open the selected session's terminal |
 | ⌥⌘A | Switch the open session between Conversation and Activity |
 | ⇧⌘H | Activity History: every PR, ticket and screenshot across sessions |
+| ⇧⌘F | Search your sessions (↩ to ask a question in plain words) |
 | ⌘. | Stop Claude's current step (also the Stop button on the "Working…" pill) |
 | ↩ | Send message |
 | ⇧↩ / ⌘↩ | New line in the message |

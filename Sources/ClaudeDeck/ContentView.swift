@@ -23,7 +23,7 @@ struct ContentView: View {
         .overlay(alignment: .top) { switcherOverlay }
         .animation(.easeOut(duration: 0.12), value: store.showSwitcher)
         .modifier(Dialogs(newName: $newName))
-        // The sidebar's skills and MCP servers follow the selected session's project.
+        // The "/" menu's commands and skills follow the selected session's project.
         .onChange(of: store.selectedId, initial: true) { toolbox.focus(cwd: store.session(store.selectedId)?.cwd) }
     }
 
@@ -70,7 +70,6 @@ struct ContentView: View {
                     SectionHeader(title: "Recent", count: nil, tint: nil)
                 }
             }
-            ToolboxSections()
         }
         .listStyle(.sidebar)
         .toolbar {

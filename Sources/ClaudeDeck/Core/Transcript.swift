@@ -52,6 +52,23 @@ enum TailReader {
     }
 }
 
+extension TailReader {
+    /// The complete lines in a stretch of the file around `offset`: `before` bytes ahead of it and
+    /// `after` past it (for opening a long session at an older message).
+    static func window(_ url: URL, around offset: UInt64, before: UInt64 = 200_000, after: UInt64 = 1_500_000) -> [Data] {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
+        defer { try? handle.close() }
+        let start = offset > before ? offset - before : 0
+        // From the byte before `start`, so a line cut at the start can be told apart and dropped.
+        try? handle.seek(toOffset: start > 0 ? start - 1 : 0)
+        let data = (try? handle.read(upToCount: Int(before + after + 1))) ?? Data()
+        var lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false).map { Data($0) }
+        if start > 0, !lines.isEmpty { lines.removeFirst() }
+        if data.last != UInt8(ascii: "\n") { _ = lines.popLast() }
+        return lines.filter { !$0.isEmpty }
+    }
+}
+
 /// Incrementally parses a session transcript into display items.
 /// Only touched from TranscriptModel's serial queue.
 final class TranscriptParser: @unchecked Sendable {
@@ -72,6 +89,11 @@ final class TranscriptParser: @unchecked Sendable {
     static let maxItems = 600
 
     init(url: URL) { self.url = url }
+
+    /// Reads just the part of the transcript around `offset` (it doesn't follow new lines).
+    func loadWindow(around offset: UInt64) {
+        for line in TailReader.window(url, around: offset) { ingest(line) }
+    }
 
     /// Returns true if anything new was read.
     @discardableResult
