@@ -124,8 +124,8 @@ final class ActivityStore {
     /// Results as you type: keyword matches, grouped by session.
     func quickSearch(_ query: String) -> (sessions: [SessionHit], order: SessionSearch.Order) {
         guard let searchIndex else { return ([], .all) }
-        let (terms, order) = SessionSearch.plain(query)
-        return (SessionSearch.sessions(searchIndex.search(terms, prefix: true), order: order), order)
+        let (terms, order, since) = SessionSearch.plain(query)
+        return (SessionSearch.sessions(searchIndex.search(terms, prefix: true, since: since), order: order), order)
     }
 
     /// A question in plain words: Haiku turns it into a search (fixing typos, adding related

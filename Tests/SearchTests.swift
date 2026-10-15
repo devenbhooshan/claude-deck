@@ -58,6 +58,8 @@ func searchTests() {
         expectEqual(si.search(["appsu"], prefix: true).count, 3)
         expectEqual(si.search(["appsumo integration"]).first?.doc.id, "b")
         expectEqual(si.search(["lifetime deal"]).first?.doc.id, "e")
+        let log = SearchIndex(docs: [doc("m", "s", "Merged PR #4"), doc("p", "s", "Pushed main"), doc("x", "s", "lunch")])
+        expectEqual(log.search(["what shipped"]).map(\.doc.id).sorted(), ["m", "p"])
         expectEqual(si.search(["appsumo"], since: Date(timeIntervalSince1970: 55)).map(\.doc.id).sorted(), ["c", "e"])
         expect(SearchIndex(docs: [doc("u", "s", "appsumo")]).search(["appsumo"], since: Date(timeIntervalSince1970: 1)).isEmpty)
         let topical = si.search(["integration", "plan"], topic: ["appsumo"])
@@ -79,7 +81,7 @@ func searchTests() {
             doc("d", "later", "appsumo integration follow up", at: 90),
             doc("e", "undated", "appsumo integration", at: nil),
         ])
-        let (terms, order) = SessionSearch.plain("on which session I started working on apppsumo integration")
+        let (terms, order, _) = SessionSearch.plain("on which session I started working on apppsumo integration")
         expectEqual(order, .first)
         let first = SessionSearch.sessions(si.search(terms), order: order)
         expectEqual(first.map(\.sessionId), ["new", "later", "undated"])     // the rails one only half-matches
@@ -91,6 +93,17 @@ func searchTests() {
         expectEqual(latest.first?.sessionId, "later")
         expectEqual(latest.first?.hits.first?.doc.id, "d")
         expectEqual(SessionSearch.plain("appsumo").order, .all)
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC")!
+        let noon = Date(timeIntervalSince1970: 86_400 * 10 + 43_200)
+        let shipped = SessionSearch.plain("what shipped today", now: noon, calendar: utc)
+        expectEqual(shipped.since, Date(timeIntervalSince1970: 86_400 * 10))
+        expect(!shipped.terms[0].contains("today") && shipped.terms[0].contains("shipped"))
+        expectEqual(shipped.order, .all)
+        let week = SessionSearch.plain("PRs merged last week or yesterday", now: noon, calendar: utc)
+        expectEqual(week.since, Date(timeIntervalSince1970: 86_400 * 3))
+        expectEqual(week.order, .all)                                  // "last week" is a time, not "the latest"
+        expectEqual(SessionSearch.plain("the last appsumo change").order, .latest)
         let all = SessionSearch.sessions(si.search(["appsumo integration"]), order: .all)
         expectEqual(Set(all.map(\.sessionId)), ["new", "later", "undated"])
         expect(SessionSearch.sessions([], order: .all).isEmpty)

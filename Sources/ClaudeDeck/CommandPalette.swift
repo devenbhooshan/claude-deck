@@ -52,8 +52,12 @@ struct CommandPalette: View {
 
     private var recent: [ActivityEvent] { trimmed.isEmpty ? Array(activity.all.prefix(6)) : [] }
 
+    /// Claude is working on this question: nothing else is shown meanwhile.
+    private var asking: Bool { activity.asking && answer != nil && !answered }
+
     private var rows: [Row] {
-        sessions.map(Row.session) + (trimmed.isEmpty || answered ? [] : [.ask]) + moments.map { .moment($0.doc, why: $0.why) } + recent.map(Row.event)
+        if asking { return [] }
+        return sessions.map(Row.session) + (trimmed.isEmpty || answered ? [] : [.ask]) + moments.map { .moment($0.doc, why: $0.why) } + recent.map(Row.event)
     }
 
     private func title(_ id: String) -> String {
@@ -78,14 +82,15 @@ struct CommandPalette: View {
                         if press.modifiers.contains(.command) { ask() } else { activate(rows) }
                         return .handled
                     }
-                if activity.asking { ProgressView().controlSize(.small).help("Claude is reading your sessions…") }
             }
             .padding(14)
             Divider()
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 2) {
-                        if let answer, answer.text != nil || answer.failed {
+                        if asking {
+                            AskingBlock(terms: answer?.terms ?? [])
+                        } else if let answer, answer.text != nil || answer.failed {
                             AnswerBlock(answer: answer)
                         }
                         section("Sessions", visible: !sessions.isEmpty)
@@ -106,7 +111,7 @@ struct CommandPalette: View {
                                 .pointingHand()
                                 .id(row.id)
                         }
-                        if rows.isEmpty {
+                        if rows.isEmpty && !asking {
                             Text("No sessions yet").foregroundStyle(.tertiary).padding(20)
                         } else if !trimmed.isEmpty && moments.isEmpty && !activity.asking && answer == nil {
                             Text("Nothing found by keyword. Ask Claude (⌘↩) to try other spellings and related words.")
@@ -226,6 +231,26 @@ struct CommandPalette: View {
     }
 
     private func close() { store.showSwitcher = false }
+}
+
+/// While Claude works on a question: what it's doing, and the words it's searching for once known.
+private struct AskingBlock: View {
+    let terms: [String]
+
+    var body: some View {
+        HStack(spacing: 12) {
+            ProgressView().controlSize(.regular)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Claude is reading your sessions…").font(.body.weight(.medium))
+                Text(terms.isEmpty ? "Working out what to search for. Usually 5 to 10 seconds." : "Searching for: " + terms.joined(separator: ", "))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(2)
+            }
+            Spacer()
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(Theme.accent.opacity(0.08)))
+    }
 }
 
 /// Claude's answer to the question, at the top of the palette.

@@ -99,6 +99,13 @@ final class SearchIndex: @unchecked Sendable {
 
     // MARK: - Words
 
+    /// Stemmed word → stemmed words that mean the same in a coding log.
+    static let synonyms: [String: [String]] = {
+        let ship = ["merg", "merge", "push", "deploy", "releas", "release", "launch"]
+        return ["ship": ship, "shipp": ship, "shipped": ship, "deliver": ship, "deliv": ship,
+                "fix": ["bug", "bugfix", "hotfix"], "bug": ["fix"], "pr": ["pull"], "ticket": ["issue"], "issue": ["ticket"]]
+    }()
+
     static let stopwords: Set<String> = [
         "a", "an", "the", "on", "in", "of", "to", "for", "and", "or", "is", "was", "were", "be", "it", "its", "that",
         "this", "with", "about", "at", "by", "from", "as", "i", "we", "my", "me", "you", "your", "our", "us",
@@ -143,6 +150,8 @@ final class SearchIndex: @unchecked Sendable {
         for (qi, w) in words.enumerated() {
             var variants: [(String, Double)] = postings[w] != nil ? [(w, 1)] : []
             if postings[w] == nil { variants += nearby(w).map { ($0, 0.8) } }
+            // Words that mean the same thing in a coding log ("shipped" → merged, pushed, deployed).
+            variants += (Self.synonyms[w] ?? []).filter { postings[$0] != nil }.map { ($0, 0.8) }
             if prefix, qi == words.count - 1 {
                 variants += postings.keys.filter { $0.hasPrefix(w) && $0 != w }.sorted().prefix(30).map { ($0, 0.6) }
             }
@@ -175,12 +184,25 @@ enum SessionSearch {
     enum Order: String, Codable { case first, latest, all }
 
     /// What the words alone say: the search terms, and whether you want the first or latest time.
-    static func plain(_ question: String) -> (terms: [String], order: Order) {
+    /// Time words become a date filter rather than words to match ("what shipped today" searches
+    /// "shipped" in today's activity).
+    static func plain(_ question: String, now: Date = Date(), calendar: Calendar = .current) -> (terms: [String], order: Order, since: Date?) {
         let q = question.lowercased()
         let words = Set(q.split { !$0.isLetter }.map(String.init))
+        let today = calendar.startOfDay(for: now)
+        let windows: [(phrase: String, since: Date)] = [
+            ("last week", today.addingTimeInterval(-7 * 86400)), ("this week", today.addingTimeInterval(-7 * 86400)),
+            ("this month", today.addingTimeInterval(-30 * 86400)), ("last month", today.addingTimeInterval(-30 * 86400)),
+            ("yesterday", today.addingTimeInterval(-86400)), ("today", today), ("tonight", today),
+        ]
+        var rest = q, since: Date?
+        for w in windows where rest.contains(w.phrase) {
+            since = min(since ?? w.since, w.since)
+            rest = rest.replacingOccurrences(of: w.phrase, with: " ")
+        }
         let order: Order = !words.isDisjoint(with: ["start", "started", "begin", "began", "first", "initially", "kicked"]) ? .first
-            : !words.isDisjoint(with: ["last", "latest", "recent", "recently", "lately"]) ? .latest : .all
-        return ([question], order)
+            : !words.isDisjoint(with: ["latest", "recent", "recently", "lately"]) || (words.contains("last") && since == nil) ? .latest : .all
+        return ([rest], order, since)
     }
 
     /// Sessions ranked for the question: the earliest (or latest) time it came up, or by how well
