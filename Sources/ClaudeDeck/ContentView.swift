@@ -117,7 +117,7 @@ struct ContentView: View {
         } message: {
             Text("Deck adds a small PermissionRequest hook that saves each request (tool and command) to a file Deck reads. It never answers prompts itself. Your current settings are backed up to settings.json.claudedeck-backup first, and running sessions pick it up without a restart.")
         }
-        .navigationSplitViewColumnWidth(min: 250, ideal: 300, max: 420)
+        .navigationSplitViewColumnWidth(min: 260, ideal: 360, max: 480)
     }
 
     @ViewBuilder
