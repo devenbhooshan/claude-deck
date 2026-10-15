@@ -152,11 +152,22 @@ struct CurrentWork: Equatable {
     static let trunkBranches: Set<String> = ["main", "master", "dev", "develop", "staging", "production", "HEAD", ""]
     static let prKinds: Set<ActivityEvent.Kind> = [.openedPR, .mergedPR, .reviewedPR, .commentedPR]
 
-    static func of(events: [ActivityEvent], branch: String?, window: TimeInterval = 12 * 3600) -> CurrentWork? {
+    /// How many of your latest messages count as "now": work touched before them is a past task.
+    static let recentTurns = 3
+
+    static func of(events: [ActivityEvent], branch: String?, asks: [ActivityAsk] = [], window: TimeInterval = 12 * 3600) -> CurrentWork? {
         let onBranch = branch.flatMap { trunkBranches.contains($0) ? nil : $0 }
         let latest = events.compactMap(\.at).max() ?? .distantPast
-        let recent = events.filter { ($0.at ?? .distantPast) >= latest.addingTimeInterval(-window) }
-        let ticket = onBranch.flatMap(ticketId) ?? recent.last { $0.ticket ?? $0.branchTicket != nil }.flatMap { $0.ticket ?? $0.branchTicket }
+        // Since the start of your last few messages (you may have moved to another task), and
+        // within the window either way.
+        let since = asks.count >= recentTurns ? asks[asks.count - recentTurns].at : nil
+        let recent = events.filter {
+            let at = $0.at ?? .distantPast
+            return at >= latest.addingTimeInterval(-window) && at >= (since ?? .distantPast)
+        }
+        // A ticket only Claude looked up (often a side question) isn't what the session is on.
+        let ticket = onBranch.flatMap(ticketId)
+            ?? recent.last { ($0.ticket != nil && $0.kind != .viewedTicket) || $0.branchTicket != nil }.flatMap { $0.ticket ?? $0.branchTicket }
         // On its branch, a linked PR counts; otherwise only PRs the session acted on.
         let pr = onBranch.flatMap { b in events.last { ($0.kind == .linkedPR || prKinds.contains($0.kind)) && $0.branch == b && $0.number != nil } }
             ?? recent.last { prKinds.contains($0.kind) && $0.number != nil }

@@ -117,7 +117,7 @@ struct Composer: View {
         }
         .background {
             RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(Theme.panel)
                 .shadow(color: .black.opacity(focused ? 0.1 : 0.05), radius: focused ? 10 : 4, y: 2)
         }
         .overlay {

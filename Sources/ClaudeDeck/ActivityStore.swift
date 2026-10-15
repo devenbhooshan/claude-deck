@@ -77,6 +77,7 @@ final class ActivityStore {
                 self.prInfo = extras.prs
                 self.summaries = extras.summaries
                 self.recaps = extras.recaps
+                self.tasks = extras.tasks ?? [:]
                 self.rebuild()
                 self.loaded = true
                 self.refresh()
@@ -197,8 +198,42 @@ final class ActivityStore {
 
     func current(for sessionId: String) -> CurrentWork? {
         guard let s = index[sessionId] else { return nil }
-        return CurrentWork.of(events: s.events, branch: s.extractor.branch)
+        return CurrentWork.of(events: s.events, branch: s.extractor.branch, asks: s.extractor.asks)
     }
+
+    // MARK: - The task a session is on
+
+    struct NamedTask: Codable { var name: String; var lastAsk: String }
+    private(set) var tasks: [String: NamedTask] = [:]
+    private var naming: Set<String> = []
+
+    /// The task named from your latest messages, if it's been named for them.
+    func task(for sessionId: String) -> String? { tasks[sessionId]?.name }
+
+    /// Names what the session is on now, once per new message of yours (Claude Haiku, a few words).
+    func nameTask(_ sessionId: String) {
+        guard aiSummaries, let asks = index[sessionId]?.extractor.asks, let last = asks.last,
+              tasks[sessionId]?.lastAsk != last.id, !naming.contains(sessionId),
+              Self.callsToday() < Self.dailyCallLimit else { return }
+        naming.insert(sessionId)
+        Self.countCall()
+        let prompt = ActivitySummarizer.taskPrompt(asks)
+        Task.detached(priority: .utility) {
+            let out = (try? ClaudeRunner.run(ActivitySummarizer.arguments(prompt: prompt, schema: ActivitySummarizer.textSchema),
+                                             in: NSHomeDirectory(), timeout: 60).get()) ?? ""
+            let name = ActivitySummarizer.parseTask(out)
+            await MainActor.run {
+                self.naming.remove(sessionId)
+                if let name {
+                    self.tasks[sessionId] = NamedTask(name: name, lastAsk: last.id)
+                    self.saveExtras()
+                }
+            }
+        }
+    }
+
+    /// Your latest message in a session (changes when you send one).
+    func lastAsk(_ sessionId: String) -> String? { index[sessionId]?.extractor.asks.last?.id }
 
     func sessionTitle(_ sessionId: String) -> String? {
         index[sessionId]?.extractor.title
@@ -363,6 +398,7 @@ final class ActivityStore {
         var prs: [String: PRInfo] = [:]
         var summaries: [String: String] = [:]
         var recaps: [String: Recap] = [:]
+        var tasks: [String: NamedTask]? = nil
     }
 
     private nonisolated static func loadExtras() -> Extras {
@@ -372,7 +408,7 @@ final class ActivityStore {
     }
 
     private func saveExtras() {
-        let extras = Extras(prs: prInfo, summaries: summaries, recaps: recaps)
+        let extras = Extras(prs: prInfo, summaries: summaries, recaps: recaps, tasks: tasks)
         let url = Self.storeDir.appendingPathComponent("activity-extras.json")
         Task.detached(priority: .utility) {
             try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)

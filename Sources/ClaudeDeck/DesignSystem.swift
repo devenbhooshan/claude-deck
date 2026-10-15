@@ -4,12 +4,14 @@ import SwiftUI
 // Shared design tokens and components. Every view should use these rather than local values.
 
 enum Theme {
-    static let accent = Color(nsColor: Palette.accent)
-    static let waiting = Color(nsColor: Palette.waiting)
-    static let busy = Color(nsColor: Palette.busy)
-    static let idle = Color(nsColor: Palette.idle)
-    static let success = Color(nsColor: Palette.success)
-    static let danger = Color(nsColor: Palette.danger)
+    static var accent: Color { Color(nsColor: Palette.accent) }
+    static var waiting: Color { Color(nsColor: Palette.waiting) }
+    static var busy: Color { Color(nsColor: Palette.busy) }
+    static var idle: Color { Color(nsColor: Palette.idle) }
+    static var success: Color { Color(nsColor: Palette.success) }
+    static var danger: Color { Color(nsColor: Palette.danger) }
+    static var surface: Color { Color(nsColor: Palette.surface) }
+    static var panel: Color { Color(nsColor: Palette.panel) }
 
     typealias Radius = Palette.Radius
 
@@ -37,7 +39,7 @@ struct StatusIcon: View {
             // A solid base under the tint, so the tile reads the same on any row background
             // (a see-through tint turned muddy on the selection highlight).
             RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
-                .fill(Color(nsColor: .controlBackgroundColor))
+                .fill(Theme.panel)
             RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
                 .fill(Theme.color(status).opacity(status == .ended ? 0.12 : 0.16))
             switch status {
@@ -402,5 +404,16 @@ private struct DeckTab: View {
         .buttonStyle(.deckPlain)
         .onHover { hovering = $0 }
         .help(help ?? title)
+    }
+}
+
+/// The theme's own sidebar colour, when it has one (Classic keeps the system's).
+struct ThemedSidebar: ViewModifier {
+    func body(content: Content) -> some View {
+        if let color = Palette.sidebar {
+            content.scrollContentBackground(.hidden).background(Color(nsColor: color))
+        } else {
+            content
+        }
     }
 }

@@ -188,7 +188,7 @@ struct SessionDetailView: View {
         }
         .animation(.snappy, value: session.status)
         .onChange(of: session.status) { model.statusChanged(session.status) }
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(Theme.surface)
         .overlay {
             if dropTargeted && session.isLive {
                 RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)

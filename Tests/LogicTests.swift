@@ -54,7 +54,21 @@ func formatTests() {
         expectEqual(Format.shortPath("/Users/me/x", home: "/Users/me"), "~/x")
         expectEqual(Format.shortPath(NSHomeDirectory() + "/y"), "~/y")
     }
-    test("palette values exist") {
+    test("palette values exist, for every theme") {
+        defer { Palette.theme = .classic }
+        for theme in DeckTheme.allCases {
+            Palette.theme = theme
+            expect(!theme.name.isEmpty)
+            expectEqual(theme.appearance == nil, theme == .classic)
+            expectEqual(Palette.sidebar == nil, theme == .classic)
+            _ = (Palette.surface, Palette.panel)
+        }
+        Palette.theme = .midnight
+        expectEqual(Palette.hex(0x8B7CFF).redComponent, CGFloat(0x8B) / 255)
+        for c in [Palette.accent, Palette.waiting, Palette.busy, Palette.idle, Palette.success, Palette.danger] {
+            expect(c.alphaComponent > 0)
+        }
+        Palette.theme = .classic
         for c in [Palette.accent, Palette.waiting, Palette.busy, Palette.idle, Palette.success, Palette.danger] {
             expect(c.alphaComponent > 0)
         }

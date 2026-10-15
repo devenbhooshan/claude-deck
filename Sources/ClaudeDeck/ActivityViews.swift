@@ -81,12 +81,24 @@ struct SessionWorkBar: View {
     var body: some View {
         @Bindable var store = store
         let work = activity.current(for: session.sessionId)
+        let task = activity.task(for: session.sessionId)
         let count = activity.events(for: session.sessionId).count
         HStack(spacing: 8) {
-            if let work {
+            if work != nil || task != nil {
                 Text("Working on")
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)
+            }
+            if let task {
+                HStack(spacing: 5) {
+                    Image(systemName: "sparkles").font(.caption.weight(.semibold)).foregroundStyle(Theme.accent)
+                    Text(task).font(.caption.weight(.semibold)).lineLimit(1)
+                }
+                .padding(.horizontal, 8).padding(.vertical, 4)
+                .background(Capsule().fill(Theme.accent.opacity(0.1)))
+                .help("Named by Claude Haiku from your latest messages")
+            }
+            if let work {
                 if let ticket = work.ticket {
                     WorkChip(symbol: "ticket", tint: Theme.waiting, ref: ticket,
                              title: work.ticketTitle ?? ticketTitle(ticket), url: ticketURL(ticket), state: nil)
@@ -107,6 +119,8 @@ struct SessionWorkBar: View {
         .padding(.horizontal, 16)
         .frame(height: 40)
         .background(.bar)
+        // Name the task again whenever you send a new message here.
+        .task(id: activity.lastAsk(session.sessionId)) { activity.nameTask(session.sessionId) }
         .overlay(alignment: .bottom) { Divider() }
     }
 
@@ -180,7 +194,7 @@ struct ActivityList: View {
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 8).padding(.top, 12).padding(.bottom, 4)
-                        .background(Color(nsColor: .textBackgroundColor))
+                        .background(Theme.surface)
                 }
             }
         }
@@ -300,7 +314,7 @@ struct ActivityPane: View {
             .padding(.horizontal, 20).padding(.vertical, 16)
             .frame(maxWidth: .infinity)
         }
-        .background(Color(nsColor: .textBackgroundColor))
+        .background(Theme.surface)
     }
 }
 
@@ -421,7 +435,7 @@ struct HistoryPanel: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).fill(Color(nsColor: .textBackgroundColor))
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).fill(Theme.surface)
             .shadow(color: .black.opacity(0.25), radius: 30, y: 12))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
         .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous))

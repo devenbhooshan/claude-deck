@@ -22,7 +22,22 @@ final class FloatingDock {
         isShown ? hide() : show(store: store, usage: usage)
     }
 
+    private weak var store: SessionStore?
+    private weak var usage: UsageModel?
+
+    /// Rebuilds the dock (if it's showing) so it picks up a new theme.
+    func reload() {
+        guard let panel, panel.isVisible, let store, let usage else { panel?.close(); self.panel = nil; return }
+        let origin = panel.frame.origin
+        panel.close()
+        self.panel = nil
+        show(store: store, usage: usage)
+        self.panel?.setFrameOrigin(origin)
+    }
+
     func show(store: SessionStore, usage: UsageModel) {
+        self.store = store
+        self.usage = usage
         if panel == nil { makePanel(store: store, usage: usage) }
         if let host = panel?.contentView { fit(host.fittingSize) }
         panel?.orderFrontRegardless()

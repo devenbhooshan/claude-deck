@@ -115,6 +115,25 @@ enum ActivitySummarizer {
         }.joined(separator: "\n")
     }
 
+    /// What the developer is working on now, from their latest messages.
+    static func taskPrompt(_ asks: [ActivityAsk]) -> String {
+        let recent = asks.suffix(5).map { "- " + String($0.text.prefix(300)) }.joined(separator: "\n")
+        return """
+            From a developer's latest messages to their coding agent (oldest first), name the task they \
+            are working on now in 2 to 6 words, like a ticket title (e.g. "AppSumo integration design"). \
+            Go by the most recent messages. No quotes, no trailing period.
+
+            \(recent)
+            """
+    }
+
+    /// A short task name, or nil when the reply isn't one.
+    static func parseTask(_ output: String) -> String? {
+        guard let t = parseText(output)?.trimmingCharacters(in: CharacterSet(charactersIn: "\"“”.")), !t.isEmpty,
+              t.count <= 60, !t.contains("\n") else { return nil }
+        return t
+    }
+
     static func parseText(_ output: String) -> String? {
         guard let text = (structured(output)?["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines),
               !text.isEmpty else { return nil }

@@ -329,7 +329,8 @@ func activityTests() {
             ev(.mentionedTicket, ticket: "SUP-1", hoursAgo: 30),
             ev(.linkedPR, 40, branch: "deven/sup-610-x", hoursAgo: 20),
             ev(.openedPR, 41, title: "SUP-610: Approval flow", branch: "other", hoursAgo: 2),
-            ev(.viewedTicket, ticket: "SUP-9", title: "Nine", hoursAgo: 1),
+            ev(.updatedTicket, ticket: "SUP-9", title: "Nine", hoursAgo: 1),
+            ev(.viewedTicket, ticket: "SUP-10", hoursAgo: 0.5),        // only looked up: not "working on"
             ev(.linkedPR, 99, hoursAgo: 0),
         ]
         let onBranch = CurrentWork.of(events: events, branch: "deven/sup-610-x")!
@@ -337,6 +338,11 @@ func activityTests() {
         // found in a PR title
         expectEqual(onBranch.ticketTitle, "SUP-610: Approval flow")
         expectEqual(onBranch.pr?.number, 40)
+        // Work touched before your last few messages is a past task.
+        let asks = (0..<4).map { ActivityAsk(id: "m\($0)", at: Date(timeIntervalSince1970: 100_000 - Double(3 - $0) * 1800), text: "t", offset: 0) }
+        let moved = CurrentWork.of(events: events, branch: "main", asks: asks)
+        expectEqual(moved?.ticket, "SUP-9")    // 1h ago, after the third-to-last message (1h ago)
+        expect(moved?.pr == nil)                // #41 was 2h ago: before them
         let viaBranch = CurrentWork.of(events: [ActivityEvent(id: "x", sessionId: "s", kind: .createdBranch, refName: "sup-77-x")], branch: "main")
         expectEqual(viaBranch?.ticket, "SUP-77")
         let recent = CurrentWork.of(events: events, branch: "main")!
@@ -540,6 +546,12 @@ func activitySummaryTests() {
         expect(digest.contains("Session \"T-s\"") && digest.contains("Session \"T-t\"") && digest.contains("The page looks right now."))
         expectEqual(ActivitySummarizer.parseText(#"{"structured_output":{"text":" Shipped. "}}"#), "Shipped.")
         expect(ActivitySummarizer.parseText(#"{"structured_output":{"text":"  "}}"#) == nil)
+        let tp = ActivitySummarizer.taskPrompt((0..<7).map { ActivityAsk(id: "\($0)", at: nil, text: "message \($0)", offset: 0) })
+        expect(tp.contains("- message 6") && !tp.contains("- message 1"))
+        expectEqual(ActivitySummarizer.parseTask(#"{"structured_output":{"text":"“AppSumo integration design.”"}}"#), "AppSumo integration design")
+        expect(ActivitySummarizer.parseTask(#"{"structured_output":{"text":"a\nb"}}"#) == nil)
+        expect(ActivitySummarizer.parseTask(#"{"structured_output":{"text":"\"\""}}"#) == nil)
+        expect(ActivitySummarizer.parseTask(#"{"structured_output":{"text":"\#(String(repeating: "x", count: 70))"}}"#) == nil)
         let args = ActivitySummarizer.arguments(prompt: "P", schema: "S")
         expect(args.first == "-p" && args.last == "P" && args.contains("haiku") && args.contains("--no-session-persistence"))
         // no tools

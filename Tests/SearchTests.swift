@@ -99,6 +99,11 @@ func searchTests() {
         expectEqual(tie.map(\.sessionId), ["a", "b"])
         let tieAll = SessionSearch.sessions([SearchHit(doc: doc("x", "b", "t"), score: 1), SearchHit(doc: doc("y", "a", "t"), score: 1)], order: .all)
         expectEqual(tieAll.map(\.sessionId), ["a", "b"])
+        for order in [SessionSearch.Order.first, .latest] {
+            let two = [SearchHit(doc: doc("u", "undated", "t"), score: 1), SearchHit(doc: doc("d", "dated", "t", at: 4), score: 1)]
+            expectEqual(SessionSearch.sessions(two, order: order).map(\.sessionId), ["dated", "undated"])
+            expectEqual(SessionSearch.sessions(two.reversed(), order: order).map(\.sessionId), ["dated", "undated"])
+        }
         let mixed = [SearchHit(doc: doc("x", "b", "t"), score: 1), SearchHit(doc: doc("y", "b", "t", at: 3), score: 1),
                      SearchHit(doc: doc("z", "b", "t"), score: 1), SearchHit(doc: doc("w", "b", "t", at: 1), score: 1)]
         let undatedFirst = SessionSearch.sessions(mixed, order: .first)
@@ -168,5 +173,10 @@ func searchTests() {
         let visible = scroll.contentView.bounds
         expect(visible.minY < ctl.textView!.frame.height / 2, "scrolled up to the message")
         ctl.render(force: true)   // pointed out once
+        // Back to Latest: the same view, no focus, goes to the bottom again.
+        c.focus = nil
+        ctl.content = c
+        ctl.render(force: true)
+        expect(scroll.contentView.bounds.maxY >= ctl.textView!.frame.height - 1, "back at the bottom")
     }
 }

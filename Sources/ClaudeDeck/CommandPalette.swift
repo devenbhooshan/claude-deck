@@ -37,19 +37,23 @@ struct CommandPalette: View {
         return Array(store.ordered.filter { "\($0.displayTitle) \($0.projectName) \($0.cwd)".lowercased().contains(q) }.prefix(5))
     }
 
-    /// Claude's picks first (with why), then the other matches, one list.
+    /// Once Claude has answered, just the moments its answer is based on; before that, the matches.
+    private var answered: Bool { answer.map { $0.text != nil || $0.failed } ?? false }
+
     private var moments: [(doc: SearchDoc, why: String?)] {
         guard !trimmed.isEmpty else { return [] }
-        let picks = answer?.picks.map { ($0.hit.doc, Optional($0.why)) } ?? []
-        let found = (answer?.sessions ?? activity.quickSearch(trimmed).sessions).flatMap(\.hits).map(\.doc)
-        let rest = found.filter { d in !picks.contains { $0.0.id == d.id } }.map { ($0, String?.none) }
-        return Array((picks + rest).prefix(12))
+        if let answer, answered {
+            let picks = answer.picks.map { ($0.hit.doc, String?.none) }
+            if !picks.isEmpty { return Array(picks.prefix(12)) }
+            return Array(answer.sessions.flatMap(\.hits).map { ($0.doc, String?.none) }.prefix(12))
+        }
+        return Array(activity.quickSearch(trimmed).sessions.flatMap(\.hits).map { ($0.doc, String?.none) }.prefix(12))
     }
 
     private var recent: [ActivityEvent] { trimmed.isEmpty ? Array(activity.all.prefix(6)) : [] }
 
     private var rows: [Row] {
-        sessions.map(Row.session) + (trimmed.isEmpty ? [] : [.ask]) + moments.map { .moment($0.doc, why: $0.why) } + recent.map(Row.event)
+        sessions.map(Row.session) + (trimmed.isEmpty || answered ? [] : [.ask]) + moments.map { .moment($0.doc, why: $0.why) } + recent.map(Row.event)
     }
 
     private func title(_ id: String) -> String {
@@ -58,7 +62,8 @@ struct CommandPalette: View {
 
     var body: some View {
         let rows = rows
-        let highlight = answer.map { ([trimmed] + $0.terms).joined(separator: " ") } ?? trimmed
+        // Highlight what you typed while searching; an answer's sources speak for themselves.
+        let highlight = answered ? "" : trimmed
         VStack(spacing: 0) {
             HStack(spacing: 10) {
                 Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
@@ -85,8 +90,8 @@ struct CommandPalette: View {
                         }
                         section("Sessions", visible: !sessions.isEmpty)
                         ForEach(Array(rows.enumerated()), id: \.element.id) { i, row in
-                            if case .moment = row, i == sessions.count + 1 {
-                                header(answer?.picks.isEmpty == false ? "Claude's picks and other matches" : "In your sessions")
+                            if case .moment = row, i == sessions.count + (answered ? 0 : 1) {
+                                header(answered ? "Sources" : "In your sessions")
                             }
                             if case .event = row, i == sessions.count {
                                 header("Recent activity")
@@ -152,8 +157,8 @@ struct CommandPalette: View {
                 Spacer()
                 Text("⌘↩").font(.caption).foregroundStyle(.tertiary)
             }
-        case .moment(let doc, let why):
-            MomentLine(doc: doc, session: title(doc.sessionId), why: why, highlight: highlight)
+        case .moment(let doc, _):
+            MomentLine(doc: doc, event: eventFor(doc), session: title(doc.sessionId), highlight: highlight)
         case .event(let e):
             HStack(alignment: .top, spacing: 10) {
                 Image(systemName: e.kind.symbol)
@@ -172,6 +177,11 @@ struct CommandPalette: View {
                 if let at = e.at { Text(Theme.ago(at)).font(.caption).foregroundStyle(.tertiary) }
             }
         }
+    }
+
+    private func eventFor(_ doc: SearchDoc) -> ActivityEvent? {
+        guard case .event = doc.kind else { return nil }
+        return activity.all.first { $0.id == doc.id }
     }
 
     private func section(_ title: String, visible: Bool) -> some View {
@@ -236,11 +246,13 @@ private struct AnswerBlock: View {
     }
 }
 
-/// A matching moment: which session, when, and the words, with the matches highlighted.
+/// A matching moment, as one clean row: what happened ("Merged PR #201 · title") or what you
+/// said, then which session and when.
 private struct MomentLine: View {
+    @Environment(ActivityStore.self) private var activity
     let doc: SearchDoc
+    let event: ActivityEvent?
     let session: String
-    let why: String?
     let highlight: String
 
     private static let time: DateFormatter = {
@@ -251,34 +263,29 @@ private struct MomentLine: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
-            Image(systemName: symbol)
+            Image(systemName: event?.kind.symbol ?? (doc.kind == .session ? "text.bubble" : "person.fill"))
                 .font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
                 .frame(width: 22, height: 22)
                 .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous).fill(tint.opacity(0.12)))
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(session).font(.caption.weight(.semibold)).lineLimit(1)
-                    Text(doc.at.map(Self.time.string) ?? "").font(.caption).foregroundStyle(.tertiary)
+                if let e = event {
+                    HStack(spacing: 5) {
+                        Text(e.label).fontWeight(.semibold)
+                        if let ref = e.ref { Text(ref).foregroundStyle(Theme.accent).lineLimit(1) }
+                        if let title = activity.title(for: e) {
+                            Text("· " + ActivityEvent.trimmed(title, ref: e.isTicket ? e.ref : nil)).foregroundStyle(.secondary).lineLimit(1)
+                        }
+                    }
+                } else {
+                    Text(Highlight.text(doc.text, query: highlight)).lineLimit(2)
                 }
-                Text(Highlight.text(doc.text, query: highlight)).font(.callout).lineLimit(2)
-                if let why, !why.isEmpty {
-                    Text(why).font(.caption).foregroundStyle(.secondary).lineLimit(2)
-                }
+                Text([session, doc.at.map(Self.time.string), event == nil && doc.kind == .message ? "your message" : nil]
+                    .compactMap { $0 }.joined(separator: " · "))
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
         }
     }
 
-    private var symbol: String {
-        switch doc.kind {
-        case .message: "person.fill"
-        case .event(let k): k.symbol
-        case .session: "text.bubble"
-        }
-    }
-
-    private var tint: Color {
-        if case .event(let k) = doc.kind { return k.tint }
-        return Theme.accent
-    }
+    private var tint: Color { event?.kind.tint ?? Theme.accent }
 }

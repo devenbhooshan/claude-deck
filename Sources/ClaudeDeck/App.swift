@@ -10,10 +10,16 @@ struct ClaudeDeckApp: App {
     @State private var toolbox = ToolboxStore()
     @State private var usage = UsageModel()
     @State private var activity = ActivityStore.shared
+    @AppStorage(DeckThemes.key) private var theme = DeckTheme.classic.rawValue
+
+    init() { DeckThemes.load() }
 
     var body: some Scene {
         Window("Claude Deck", id: "main") {
             MainWindow()
+                // A new theme rebuilds the window with its colours.
+                .id(theme)
+                .onChange(of: theme) { DeckThemes.apply(theme) }
                 .environment(store)
                 .environment(toolbox)
                 .environment(usage)
@@ -28,11 +34,18 @@ struct ClaudeDeckApp: App {
                 }
         }
         .defaultSize(width: 1200, height: 780)
-        .commands { SessionCommands(store: store, usage: usage, activity: activity) }
+        .commands {
+            SessionCommands(store: store, usage: usage, activity: activity)
+            CommandGroup(after: .sidebar) {
+                Picker("Theme", selection: $theme) {
+                    ForEach(DeckTheme.allCases, id: \.rawValue) { Text($0.name).tag($0.rawValue) }
+                }
+            }
+        }
 
 
         MenuBarExtra {
-            MenuBarContent().environment(store).environment(usage).environment(activity)
+            MenuBarContent().environment(store).environment(usage).environment(activity).id(theme)
         } label: {
             Image(systemName: store.waitingCount > 0 ? "exclamationmark.bubble.fill" : "bubble.left.and.bubble.right")
             Text(menuBarText)
@@ -139,6 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        DeckThemes.apply(Palette.theme.rawValue)
         UNUserNotificationCenter.current().delegate = self
         Notifications.registerCategories()
         // ⇧⌘Space from anywhere: bring Deck forward with the session switcher open.
@@ -253,6 +267,15 @@ struct MenuBarContent: View {
                 Button("Plan Usage…") { store.showUsage = true; store.bringToFront() }
                 Button("Floating Dock") { FloatingDock.shared.toggle(store: store, usage: usage) }
                     .help("An always-on-top panel to Allow / Deny from any app (⇧⌘D)")
+                Menu("Theme") {
+                    ForEach(DeckTheme.allCases, id: \.rawValue) { t in
+                        Button { UserDefaults.standard.set(t.rawValue, forKey: DeckThemes.key) } label: {
+                            Text(t == Palette.theme ? "✓ \(t.name)" : t.name)
+                        }
+                    }
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
         Button("Open Claude Deck") { store.bringToFront() }
                 Spacer()
                 Button("Quit") { NSApp.terminate(nil) }
@@ -298,5 +321,21 @@ private struct MenuRowStyle: ButtonStyle {
                 .fill(Color.primary.opacity(configuration.isPressed ? 0.1 : hovering ? 0.06 : 0)))
             .onHover { hovering = $0 }
             .pointingHand()
+    }
+}
+
+/// Reading, saving and applying the chosen theme.
+enum DeckThemes {
+    static let key = "theme"
+
+    /// The saved theme, before any view is drawn.
+    static func load() {
+        Palette.theme = UserDefaults.standard.string(forKey: key).flatMap(DeckTheme.init(rawValue:)) ?? .classic
+    }
+
+    @MainActor static func apply(_ raw: String) {
+        Palette.theme = DeckTheme(rawValue: raw) ?? .classic
+        NSApp.appearance = Palette.theme.appearance.flatMap(NSAppearance.init(named:))
+        FloatingDock.shared.reload()
     }
 }

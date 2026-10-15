@@ -38,7 +38,8 @@ lets you read each transcript live, send messages, and jump to the session's ter
 
 ## Activity: PRs, tickets and screenshots
 
-Each session shows what it's **working on** (the ticket and PR, with live status) above the
+Each session shows what it's **working on**: the task, named by Claude Haiku from your latest
+messages (also in the sidebar), and the ticket and PR it's acting on (live status), above the
 conversation, and an **Activity** tab (⌥⌘A) with everything it did: PRs opened, reviewed, merged or
 commented on, Linear tickets created, updated or looked at, and screenshots it reviewed. **Activity
 History** (⇧⌘H) lists the same across every session, searchable, with a one-click **Today's
@@ -64,6 +65,11 @@ typo-tolerant). With nothing typed it shows your sessions and recent activity. *
 integration?"*: Claude Haiku turns it into a search (fixing typos, adding related words, first vs
 latest), Deck searches locally, and Haiku answers with the session and moment. ↩ on any match opens
 the session right there, even in a long or old transcript ("Back to Latest" returns to the live end).
+
+## Themes
+
+**View → Theme** (or the menu bar panel): **Classic** (follows the system, Claude's terracotta) or
+**Midnight** (dark ink, violet accent).
 
 ## Safety
 

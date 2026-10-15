@@ -73,6 +73,7 @@ struct ContentView: View {
             }
         }
         .listStyle(.sidebar)
+        .modifier(ThemedSidebar())
         .toolbar {
             ToolbarItem {
                 Button {
@@ -302,11 +303,17 @@ struct SessionRow<Accessory: View>: View {
             }
         }
         .padding(.vertical, 4)
+        // Running sessions get their task named again when you send them a new message.
+        .task(id: session.isLive ? activity.lastAsk(session.sessionId) : nil) {
+            if session.isLive { activity.nameTask(session.sessionId) }
+        }
     }
 
     private var subtitle: String {
         // What it's on (ticket · PR) when known, then the project. The orange hand and ✓ / ✕
         // already say it's waiting (hover ✓ for the request).
+        // The task it's on (named from your latest messages), else its ticket and PR, then the project.
+        if let task = activity.task(for: session.sessionId) { return "\(task) · \(session.projectName)" }
         guard let work = activity.current(for: session.sessionId) else { return session.projectName }
         let refs = [work.ticket, work.pr?.ref].compactMap { $0 }
         return (refs + [session.projectName]).joined(separator: " · ")

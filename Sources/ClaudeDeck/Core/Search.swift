@@ -215,14 +215,15 @@ enum SessionSearch {
             }
             out[i].hits = Array(out[i].hits.prefix(3))
         }
-        out.sort { a, b in
+        // One sort key per session (undated ones last), ties broken by id so the order never flickers.
+        let keyed = out.map { s -> (key: Double, hit: SessionHit) in
             switch order {
-            case .first: (a.first ?? .distantFuture, a.sessionId) < (b.first ?? .distantFuture, b.sessionId)
-            case .latest: a.last != b.last ? (a.last ?? .distantPast) > (b.last ?? .distantPast) : a.sessionId < b.sessionId
-            case .all: a.score != b.score ? a.score > b.score : a.sessionId < b.sessionId
+            case .first: ((s.first ?? .distantFuture).timeIntervalSince1970, s)
+            case .latest: (-(s.last ?? .distantPast).timeIntervalSince1970, s)
+            case .all: (-s.score, s)
             }
         }
-        return Array(out.prefix(limit))
+        return keyed.sorted { ($0.key, $0.hit.sessionId) < ($1.key, $1.hit.sessionId) }.prefix(limit).map(\.hit)
     }
 
     // MARK: - Asking Claude Haiku
