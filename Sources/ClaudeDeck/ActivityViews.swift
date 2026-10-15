@@ -707,3 +707,28 @@ enum Highlight {
         return out
     }
 }
+
+/// Opens the History window with the cursor in its search box (SwiftUI can only focus a
+/// toolbar search field from macOS 15, so this finds the field and focuses it).
+enum SearchFocus {
+    @MainActor static func open(_ openWindow: () -> Void) {
+        openWindow()
+        for delay in [0.05, 0.25] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                guard let window = NSApp.windows.first(where: { $0.title == "Activity History" }) else { return }
+                window.makeKeyAndOrderFront(nil)
+                NSApp.activate(ignoringOtherApps: true)
+                let field = window.toolbar?.items.lazy.compactMap { ($0 as? NSSearchToolbarItem)?.searchField }.first
+                    ?? findSearchField(in: window.contentView?.superview)
+                if let field, window.firstResponder !== field.currentEditor() { window.makeFirstResponder(field) }
+            }
+        }
+    }
+
+    private static func findSearchField(in view: NSView?) -> NSSearchField? {
+        guard let view else { return nil }
+        if let field = view as? NSSearchField { return field }
+        for sub in view.subviews { if let f = findSearchField(in: sub) { return f } }
+        return nil
+    }
+}

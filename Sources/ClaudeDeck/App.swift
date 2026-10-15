@@ -69,6 +69,7 @@ private struct MainWindow: View {
                 // For checking the UI from the command line.
                 if CommandLine.arguments.contains("--activity-tab") { store.detailTab = .activity }
                 if CommandLine.arguments.contains("--open-history") { openWindow(id: "history") }
+                if CommandLine.arguments.contains("--open-search") { SearchFocus.open { openWindow(id: "history") } }
             }
     }
 }
@@ -90,7 +91,7 @@ struct SessionCommands: Commands {
             Divider()
             Button("Activity History…") { openWindow(id: "history") }
                 .keyboardShortcut("h", modifiers: [.command, .shift])
-            Button("Search Sessions…") { openWindow(id: "history") }
+            Button("Search Sessions…") { SearchFocus.open { openWindow(id: "history") } }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
             Button(store.detailTab == .activity ? "Show Conversation" : "Show Activity") {
                 store.detailTab = store.detailTab == .activity ? .conversation : .activity

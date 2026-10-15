@@ -75,6 +75,14 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem {
                 Button {
+                    SearchFocus.open { openWindow(id: "history") }
+                } label: {
+                    Label("Search Sessions", systemImage: "magnifyingglass")
+                }
+                .help("Search your sessions, or ask a question in plain words (⇧⌘F)")
+            }
+            ToolbarItem {
+                Button {
                     openWindow(id: "history")
                 } label: {
                     Label("Activity History", systemImage: "clock.arrow.circlepath")
