@@ -38,6 +38,25 @@ lets you read each transcript live, send messages, and jump to the session's ter
   are sent as typed (their output appears in the transcript); ones that open a menu (`/model`,
   `/mcp`, `/config`…) bring the terminal forward; `/usage` (or ⇧⌘U) shows your plan limits in Deck.
 
+## Activity: PRs, tickets and screenshots
+
+Each session shows what it's **working on** (the ticket and PR, with live status) above the
+conversation, and an **Activity** tab (⌥⌘A) with everything it did: PRs opened, reviewed, merged or
+commented on, Linear tickets created, updated or looked at, and screenshots it reviewed. **Activity
+History** (⇧⌘H) lists the same across every session, searchable, with a one-click **Today's
+Digest** (a standup note).
+
+- Found in the transcripts Deck already reads: `gh pr …` commands that actually ran (not ones a
+  script merely mentions), `gh api` review posts, Linear tool calls, Claude Code's PR links, your
+  Linear links, and screenshot tools. Labels say exactly what happened ("Looked at", "Reviewed").
+- Indexed in the background and saved in `~/Library/Application Support/ClaudeDeck/activity`, so
+  only new lines are read and history outlives Claude Code's transcript cleanup.
+- PR titles and status (Open, Merged, Closed, Draft) come from `gh pr view`.
+- **AI summaries** (on by default; toggle in History or the Sessions menu): one-line summaries,
+  session recaps and the digest are written by Claude Haiku through your own `claude` login, as
+  headless, tool-less, unsaved runs, in batches, only when you're not typing, at most 150 small
+  calls a day. Off, the summary is Claude's own sentence from right after the action.
+
 ## Safety
 
 - Messages are *typed* (Ghostty's `text:` action), not pasted, so Claude treats them as yours.
@@ -67,6 +86,8 @@ All of these are also listed in the **Sessions** menu.
 | ⌘R | Rename the selected session |
 | ⌥⌘R | Restart the selected session (quits and resumes Claude in the same terminal, so new skills, MCP servers and settings load; it keeps its number) |
 | ⇧⌘T | Open the selected session's terminal |
+| ⌥⌘A | Switch the open session between Conversation and Activity |
+| ⇧⌘H | Activity History: every PR, ticket and screenshot across sessions |
 | ⌘. | Stop Claude's current step (also the Stop button on the "Working…" pill) |
 | ↩ | Send message |
 | ⇧↩ / ⌘↩ | New line in the message |

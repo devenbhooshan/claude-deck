@@ -10,6 +10,10 @@ final class SessionStore {
     private(set) var live: [Session] = []
     private(set) var recent: [Session] = []
     var selectedId: String?
+    /// Conversation or Activity, for the open session.
+    var detailTab: DetailTab = .conversation
+    /// Opens the Activity History window; set by the window scene.
+    var openHistory: (() -> Void)?
     var showSwitcher = false
     var showNewSession = false
     var showUsage = false

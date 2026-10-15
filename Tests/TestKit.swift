@@ -46,6 +46,7 @@ struct Sandbox {
         ClaudePaths.home = root.appendingPathComponent("claude")
         PendingRequests.dir = root.appendingPathComponent("pending")
         AttachmentStore.dir = root.appendingPathComponent("attachments")
+        ActivityIndex.dir = root.appendingPathComponent("activity")
         try! FileManager.default.createDirectory(at: ClaudePaths.sessions, withIntermediateDirectories: true)
         try! FileManager.default.createDirectory(at: ClaudePaths.projects, withIntermediateDirectories: true)
     }

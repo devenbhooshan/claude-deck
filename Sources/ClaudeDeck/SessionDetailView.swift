@@ -115,6 +115,30 @@ struct SessionDetailView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            SessionWorkBar(session: session)
+            if store.detailTab == .activity {
+                ActivityPane(session: session)
+            } else {
+                conversation
+            }
+        }
+        .navigationTitle(session.displayTitle)
+        .navigationSubtitle(subtitle)
+        .toolbar { toolbar }
+        .onAppear {
+            model.start(url: session.transcriptURL)
+            if session.isLive { Task { await Ghostty.prewarm(session) } }
+        }
+        .onDisappear { model.stop() }
+        .alert("Couldn't reach the terminal", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
+            Button("OK") { error = nil }
+        } message: {
+            Text(error ?? "")
+        }
+    }
+
+    private var conversation: some View {
+        VStack(spacing: 0) {
             TranscriptView(model: model, cwd: session.cwd, status: session.status, statusSince: session.statusSince,
                            onStop: session.isLive ? { store.interrupt(session) } : nil)
                 .overlay(alignment: .bottom) {
@@ -151,19 +175,6 @@ struct SessionDetailView: View {
             guard session.isLive else { return false }
             loadDropped(providers)
             return true
-        }
-        .navigationTitle(session.displayTitle)
-        .navigationSubtitle(subtitle)
-        .toolbar { toolbar }
-        .onAppear {
-            model.start(url: session.transcriptURL)
-            if session.isLive { Task { await Ghostty.prewarm(session) } }
-        }
-        .onDisappear { model.stop() }
-        .alert("Couldn't reach the terminal", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
-            Button("OK") { error = nil }
-        } message: {
-            Text(error ?? "")
         }
     }
 

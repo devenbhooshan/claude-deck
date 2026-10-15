@@ -9,6 +9,7 @@ struct ClaudeDeckApp: App {
     @State private var store = SessionStore()
     @State private var toolbox = ToolboxStore()
     @State private var usage = UsageModel()
+    @State private var activity = ActivityStore.shared
 
     var body: some Scene {
         Window("Claude Deck", id: "main") {
@@ -16,19 +17,30 @@ struct ClaudeDeckApp: App {
                 .environment(store)
                 .environment(toolbox)
                 .environment(usage)
+                .environment(activity)
                 .frame(minWidth: 900, minHeight: 560)
                 .onAppear {
                     delegate.store = store
                     store.start()
                     usage.start()
+                    activity.start()
                     FloatingDock.shared.restore(store: store, usage: usage)
                 }
         }
         .defaultSize(width: 1200, height: 780)
-        .commands { SessionCommands(store: store, usage: usage) }
+        .commands { SessionCommands(store: store, usage: usage, activity: activity) }
+
+        Window("Activity History", id: "history") {
+            HistoryView()
+                .environment(store)
+                .environment(activity)
+                .frame(minWidth: 620, minHeight: 420)
+                .onAppear { activity.start() }
+        }
+        .defaultSize(width: 900, height: 720)
 
         MenuBarExtra {
-            MenuBarContent().environment(store).environment(usage)
+            MenuBarContent().environment(store).environment(usage).environment(activity)
         } label: {
             Image(systemName: store.waitingCount > 0 ? "exclamationmark.bubble.fill" : "bubble.left.and.bubble.right")
             Text(menuBarText)
@@ -52,13 +64,20 @@ private struct MainWindow: View {
 
     var body: some View {
         ContentView()
-            .onAppear { store.openMainWindow = { openWindow(id: "main") } }
+            .onAppear {
+                store.openMainWindow = { openWindow(id: "main") }
+                // For checking the UI from the command line.
+                if CommandLine.arguments.contains("--activity-tab") { store.detailTab = .activity }
+                if CommandLine.arguments.contains("--open-history") { openWindow(id: "history") }
+            }
     }
 }
 
 struct SessionCommands: Commands {
     let store: SessionStore
     let usage: UsageModel
+    @Bindable var activity: ActivityStore
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandMenu("Sessions") {
@@ -68,6 +87,15 @@ struct SessionCommands: Commands {
                 .keyboardShortcut("u", modifiers: [.command, .shift])
             Button("Show / Hide Floating Dock") { FloatingDock.shared.toggle(store: store, usage: usage) }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
+            Divider()
+            Button("Activity History…") { openWindow(id: "history") }
+                .keyboardShortcut("h", modifiers: [.command, .shift])
+            Button(store.detailTab == .activity ? "Show Conversation" : "Show Activity") {
+                store.detailTab = store.detailTab == .activity ? .conversation : .activity
+            }
+            .keyboardShortcut("a", modifiers: [.command, .option])
+            .disabled(store.selectedId == nil)
+            Toggle("AI Activity Summaries", isOn: $activity.aiSummaries)
             Button("Jump to Session…") { store.showSwitcher.toggle() }
                 .keyboardShortcut("k", modifiers: .command)
             Button("Next Session Needing You") { store.selectNextWaiting() }

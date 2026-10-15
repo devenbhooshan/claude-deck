@@ -3,6 +3,7 @@ import SwiftUI
 struct ContentView: View {
     @Environment(SessionStore.self) private var store
     @Environment(ToolboxStore.self) private var toolbox
+    @Environment(\.openWindow) private var openWindow
     @State private var newName = ""
     @State private var confirmHook = false
 
@@ -73,6 +74,14 @@ struct ContentView: View {
         }
         .listStyle(.sidebar)
         .toolbar {
+            ToolbarItem {
+                Button {
+                    openWindow(id: "history")
+                } label: {
+                    Label("Activity History", systemImage: "clock.arrow.circlepath")
+                }
+                .help("Every PR, ticket and screenshot your sessions touched (⇧⌘H)")
+            }
             ToolbarItem {
                 Button {
                     store.showNewSession = true
@@ -308,6 +317,7 @@ struct SectionHeader: View {
 }
 
 struct SessionRow<Accessory: View>: View {
+    @Environment(ActivityStore.self) private var activity
     let session: Session
     /// The session's fixed number (⌘1–9 opens it), shown for running sessions.
     var number: Int? = nil
@@ -353,8 +363,11 @@ struct SessionRow<Accessory: View>: View {
     }
 
     private var subtitle: String {
-        // Just the project: the orange hand and ✓ / ✕ already say it's waiting (hover ✓ for the request).
-        session.projectName
+        // What it's on (ticket · PR) when known, then the project. The orange hand and ✓ / ✕
+        // already say it's waiting (hover ✓ for the request).
+        guard let work = activity.current(for: session.sessionId) else { return session.projectName }
+        let refs = [work.ticket, work.pr?.ref].compactMap { $0 }
+        return (refs + [session.projectName]).joined(separator: " · ")
     }
 }
 

@@ -59,6 +59,7 @@ final class FloatingDock {
         let root = DockView { [weak self] in self?.hide() }
             .environment(store)
             .environment(usage)
+            .environment(ActivityStore.shared)
         let host = FirstClickHostingView(rootView: AnyView(root))
         host.sizingOptions = []
         panel.contentView = host

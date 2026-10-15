@@ -6,10 +6,27 @@ enum ClaudeRunner {
 
     static func run(_ args: [String], in dir: String, timeout: TimeInterval = 45) -> Result<String, RunError> {
         guard let claude = ClaudeCLI.locate() else { return .failure(RunError(message: "Couldn't find the claude command")) }
+        return execute(claude, args, in: dir, timeout: timeout)
+    }
+
+    /// Runs GitHub's `gh` (for PR titles and status). Fails when it isn't installed.
+    static func gh(_ args: [String], in dir: String, timeout: TimeInterval = 20) -> Result<String, RunError> {
+        let home = NSHomeDirectory()
+        let candidates = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "\(home)/.local/bin/gh", "/usr/bin/gh"]
+        guard let gh = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else {
+            return .failure(RunError(message: "Couldn't find the gh command"))
+        }
+        return execute(gh, args, in: dir, timeout: timeout)
+    }
+
+    /// Runs a command (in `dir`, or home if that folder is gone) and returns what it printed.
+    private static func execute(_ path: String, _ args: [String], in dir: String, timeout: TimeInterval) -> Result<String, RunError> {
         let p = Process()
-        p.executableURL = URL(fileURLWithPath: claude)
+        p.executableURL = URL(fileURLWithPath: path)
         p.arguments = args
-        p.currentDirectoryURL = URL(fileURLWithPath: dir)
+        var isDir: ObjCBool = false
+        let usable = FileManager.default.fileExists(atPath: dir, isDirectory: &isDir) && isDir.boolValue
+        p.currentDirectoryURL = URL(fileURLWithPath: usable ? dir : NSHomeDirectory())
         // Apps launched from Finder get a minimal PATH; stdio MCP servers often need npx/uvx etc.
         var env = ProcessInfo.processInfo.environment
         let home = NSHomeDirectory()
