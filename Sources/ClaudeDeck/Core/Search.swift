@@ -186,10 +186,10 @@ enum SessionSearch {
     /// Sessions ranked for the question: the earliest (or latest) time it came up, or by how well
     /// they match. Weak matches (under a third of the best) are left out.
     static func sessions(_ hits: [SearchHit], order: Order, limit: Int = 20) -> [SessionHit] {
-        // For the first or latest time, only moments with all the words (or as many as any has)
-        // count, so an older partial match ("rails integration") can't win.
+        // Only moments with the whole topic (or as much of it as any has) count, so a partial
+        // match ("rails integration", or "app" from "app sumo") can't crowd in or win "first".
         let coverage = hits.map(\.matched).max() ?? 0
-        let pool = order == .all ? hits : hits.filter { $0.matched == coverage }
+        let pool = hits.filter { $0.matched == coverage }
         guard let top = pool.map(\.score).max() else { return [] }
         let relevant = pool.filter { $0.score >= top / 3 }
         var bySession: [String: SessionHit] = [:]

@@ -3,7 +3,6 @@ import SwiftUI
 struct ContentView: View {
     @Environment(SessionStore.self) private var store
     @Environment(ToolboxStore.self) private var toolbox
-    @Environment(\.openWindow) private var openWindow
     @State private var newName = ""
     @State private var confirmHook = false
 
@@ -21,7 +20,9 @@ struct ContentView: View {
         }
         .tint(Theme.accent)
         .overlay(alignment: .top) { switcherOverlay }
+        .overlay { historyOverlay }
         .animation(.easeOut(duration: 0.12), value: store.showSwitcher)
+        .animation(.easeOut(duration: 0.15), value: store.showHistory)
         .modifier(Dialogs(newName: $newName))
         // The "/" menu's commands and skills follow the selected session's project.
         .onChange(of: store.selectedId, initial: true) { toolbox.focus(cwd: store.session(store.selectedId)?.cwd) }
@@ -75,15 +76,15 @@ struct ContentView: View {
         .toolbar {
             ToolbarItem {
                 Button {
-                    SearchFocus.open { openWindow(id: "history") }
+                    store.showSwitcher = true
                 } label: {
-                    Label("Search Sessions", systemImage: "magnifyingglass")
+                    Label("Search", systemImage: "magnifyingglass")
                 }
-                .help("Search your sessions, or ask a question in plain words (⇧⌘F)")
+                .help("Jump to a session, search everything, or ask a question (⌘K)")
             }
             ToolbarItem {
                 Button {
-                    openWindow(id: "history")
+                    store.showHistory = true
                 } label: {
                     Label("Activity History", systemImage: "clock.arrow.circlepath")
                 }
@@ -119,12 +120,28 @@ struct ContentView: View {
     }
 
     @ViewBuilder
+    private var historyOverlay: some View {
+        if store.showHistory {
+            GeometryReader { geo in
+                ZStack {
+                    Color.black.opacity(0.18).ignoresSafeArea()
+                        .onTapGesture { store.showHistory = false }
+                    HistoryPanel()
+                        .frame(width: min(980, geo.size.width - 60), height: max(320, geo.size.height - 70))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .transition(.opacity)
+        }
+    }
+
+    @ViewBuilder
     private var switcherOverlay: some View {
         if store.showSwitcher {
             ZStack(alignment: .top) {
                 Color.black.opacity(0.08).ignoresSafeArea()
                     .onTapGesture { store.showSwitcher = false }
-                SessionSwitcher().padding(.top, 70)
+                CommandPalette().padding(.top, 60)
             }
             .transition(.opacity)
         }
@@ -219,88 +236,6 @@ struct ApprovalRow: View {
     /// small Allow / Deny buttons where the time usually is.
     var body: some View {
         SessionRow(session: session, number: number) { QuickApproval(session: session) }
-    }
-}
-
-/// ⌘K palette: type to filter, arrows to move, return to open.
-struct SessionSwitcher: View {
-    @Environment(SessionStore.self) private var store
-    @State private var query = ""
-    @State private var highlighted = 0
-    @FocusState private var focused: Bool
-
-    private var matches: [Session] {
-        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        let all = store.ordered
-        guard !q.isEmpty else { return Array(all.prefix(12)) }
-        return Array(all.filter {
-            "\($0.displayTitle) \($0.projectName) \($0.cwd)".lowercased().contains(q)
-        }.prefix(12))
-    }
-
-    var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                TextField("Jump to a session…", text: $query)
-                    .textFieldStyle(.plain)
-                    .font(.title3)
-                    .focused($focused)
-                    .onSubmit(open)
-                    .onKeyPress(.downArrow) { move(1); return .handled }
-                    .onKeyPress(.upArrow) { move(-1); return .handled }
-                    .onKeyPress(.escape) { store.showSwitcher = false; return .handled }
-            }
-            .padding(14)
-            Divider()
-            ScrollView {
-                VStack(spacing: 2) {
-                    ForEach(Array(matches.enumerated()), id: \.element.id) { i, s in
-                        HStack(spacing: 10) {
-                            StatusIcon(status: s.status)
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(s.displayTitle).lineLimit(1)
-                                Text(s.status == .waiting ? "\(s.projectName) · Needs you" : s.projectName)
-                                    .font(.caption).foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            if let n = store.live.firstIndex(where: { $0.id == s.id }), n < 9 {
-                                Text("⌘\(n + 1)").font(.caption).foregroundStyle(.tertiary)
-                            }
-                        }
-                        .padding(.horizontal, 10).padding(.vertical, 7)
-                        .background(RoundedRectangle(cornerRadius: Theme.Radius.medium).fill(i == highlighted ? Theme.accent.opacity(0.18) : .clear))
-                        .contentShape(Rectangle())
-                        .onTapGesture { highlighted = i; open() }
-                        .onHover { if $0 { highlighted = i } }
-                        .pointingHand()
-                    }
-                    if matches.isEmpty {
-                        Text("No matching sessions").foregroundStyle(.tertiary).padding(20)
-                    }
-                }
-                .padding(6)
-            }
-            .frame(maxHeight: 380)
-        }
-        .frame(width: 520)
-        .background(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).fill(.regularMaterial)
-            .shadow(color: .black.opacity(0.25), radius: 30, y: 12))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
-        .onAppear { focused = true }
-        .onChange(of: query) { highlighted = 0 }
-    }
-
-    private func move(_ d: Int) {
-        guard !matches.isEmpty else { return }
-        highlighted = (highlighted + d + matches.count) % matches.count
-    }
-
-    private func open() {
-        guard matches.indices.contains(highlighted) else { return }
-        store.selectedId = matches[highlighted].id
-        store.showSwitcher = false
-        query = ""
     }
 }
 

@@ -30,14 +30,6 @@ struct ClaudeDeckApp: App {
         .defaultSize(width: 1200, height: 780)
         .commands { SessionCommands(store: store, usage: usage, activity: activity) }
 
-        Window("Activity History", id: "history") {
-            HistoryView()
-                .environment(store)
-                .environment(activity)
-                .frame(minWidth: 620, minHeight: 420)
-                .onAppear { activity.start() }
-        }
-        .defaultSize(width: 900, height: 720)
 
         MenuBarExtra {
             MenuBarContent().environment(store).environment(usage).environment(activity)
@@ -68,8 +60,7 @@ private struct MainWindow: View {
                 store.openMainWindow = { openWindow(id: "main") }
                 // For checking the UI from the command line.
                 if CommandLine.arguments.contains("--activity-tab") { store.detailTab = .activity }
-                if CommandLine.arguments.contains("--open-history") { openWindow(id: "history") }
-                if CommandLine.arguments.contains("--open-search") { SearchFocus.open { openWindow(id: "history") } }
+                if CommandLine.arguments.contains("--open-history") { store.showHistory = true }
             }
     }
 }
@@ -78,7 +69,6 @@ struct SessionCommands: Commands {
     let store: SessionStore
     let usage: UsageModel
     @Bindable var activity: ActivityStore
-    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
         CommandMenu("Sessions") {
@@ -89,17 +79,15 @@ struct SessionCommands: Commands {
             Button("Show / Hide Floating Dock") { FloatingDock.shared.toggle(store: store, usage: usage) }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
             Divider()
-            Button("Activity History…") { openWindow(id: "history") }
+            Button("Activity History…") { store.showHistory = true; store.bringToFront() }
                 .keyboardShortcut("h", modifiers: [.command, .shift])
-            Button("Search Sessions…") { SearchFocus.open { openWindow(id: "history") } }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
             Button(store.detailTab == .activity ? "Show Conversation" : "Show Activity") {
                 store.detailTab = store.detailTab == .activity ? .conversation : .activity
             }
             .keyboardShortcut("a", modifiers: [.command, .option])
             .disabled(store.selectedId == nil)
             Toggle("AI Activity Summaries", isOn: $activity.aiSummaries)
-            Button("Jump to Session…") { store.showSwitcher.toggle() }
+            Button("Search & Jump…") { store.showSwitcher.toggle() }
                 .keyboardShortcut("k", modifiers: .command)
             Button("Next Session Needing You") { store.selectNextWaiting() }
                 .keyboardShortcut("j", modifiers: .command)

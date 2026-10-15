@@ -16,8 +16,8 @@ final class SessionStore {
     var focus: FocusTarget?
     /// Older sessions opened from search (not running, not in Recent).
     private(set) var opened: [Session] = []
-    /// Opens the Activity History window; set by the window scene.
-    var openHistory: (() -> Void)?
+    /// The Activity History & search panel over the main window.
+    var showHistory = false
     var showSwitcher = false
     var showNewSession = false
     var showUsage = false
@@ -211,6 +211,7 @@ final class SessionStore {
         guard session(target.sessionId) != nil else { return }
         focus = target.offset == nil ? nil : target
         detailTab = .conversation
+        showHistory = false
         selectedId = target.sessionId
         bringToFront()
     }

@@ -342,12 +342,13 @@ struct RecapCard: View {
     }
 }
 
-// MARK: - History window
+// MARK: - History & search panel
 
-struct HistoryView: View {
+/// Shown over the main window (⇧⌘H): every PR, ticket, push and screenshot across sessions, with
+/// filters and the daily digest. Searching is ⌘K. Esc or a click outside closes it.
+struct HistoryPanel: View {
     @Environment(ActivityStore.self) private var activity
     @Environment(SessionStore.self) private var store
-    @State private var query = ""
     @State private var filter: ActivityIndex.Filter = .all
     @State private var showDigest = false
 
@@ -357,68 +358,74 @@ struct HistoryView: View {
 
     var body: some View {
         @Bindable var activity = activity
-        let searching = !query.trimmingCharacters(in: .whitespaces).isEmpty
         let results = ActivityIndex.browse(activity.all, filter: filter)
         VStack(spacing: 0) {
-            HStack(spacing: 12) {
-                if searching {
-                    Text("Search your sessions").font(.callout.weight(.semibold))
-                } else {
-                    DeckTabs(items: ActivityIndex.Filter.allCases.map { f in
-                        .init(value: f, title: f.rawValue,
-                              count: f == .all ? nil : ActivityIndex.browse(activity.all, filter: f).count)
-                    }, selection: $filter)
-                }
+            HStack(spacing: 10) {
+                Image(systemName: "clock.arrow.circlepath").foregroundStyle(Theme.accent)
+                Text("Activity").font(.title3.weight(.semibold))
+                Text("\(results.count) events · search with ⌘K").font(.caption).foregroundStyle(.tertiary)
                 Spacer()
                 if activity.indexing || activity.summarizing {
                     ProgressView().controlSize(.small)
                         .help(activity.indexing ? "Reading transcripts…" : "Writing summaries…")
                 }
-                Toggle("AI summaries", isOn: $activity.aiSummaries)
-                    .toggleStyle(.switch).controlSize(.small)
-                    .pointingHand()
-                    .help("One-line summaries by Claude Haiku, using your claude login (at most \(ActivityStore.dailyCallLimit) small calls a day, only while you're idle)")
-                Button {
-                    showDigest = true
-                    makeDigest()
-                } label: {
-                    Label("Today's Digest", systemImage: "text.badge.star")
+                Button(action: close) {
+                    Image(systemName: "xmark").font(.system(size: 11, weight: .bold)).foregroundStyle(.secondary)
+                        .frame(width: 24, height: 24).contentShape(Rectangle())
                 }
-                .buttonStyle(.deck(.secondary, size: .small))
-                .disabled(todays.isEmpty)
-                .help("A short standup note of what your sessions did today")
+                .buttonStyle(.deckPlain)
+                .keyboardShortcut(.cancelAction)
+                .help("Close (Esc)")
             }
-            .padding(.horizontal, 16).padding(.vertical, 10)
+            .padding(.horizontal, 16).padding(.vertical, 12)
             Divider()
-            if !activity.loaded {
-                ProgressView("Reading your sessions…").frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if searching {
-                ScrollView {
-                    SearchResultsView(query: query, title: title)
-                        .frame(maxWidth: 860)
-                        .padding(16)
-                        .frame(maxWidth: .infinity)
+            Group {
+                HStack(spacing: 12) {
+                    DeckTabs(items: ActivityIndex.Filter.allCases.map { f in
+                        .init(value: f, title: f.rawValue,
+                              count: f == .all ? nil : ActivityIndex.browse(activity.all, filter: f).count)
+                    }, selection: $filter)
+                    Spacer()
+                    Toggle("AI summaries", isOn: $activity.aiSummaries)
+                        .toggleStyle(.switch).controlSize(.small)
+                        .pointingHand()
+                        .help("One-line summaries by Claude Haiku, using your claude login (at most \(ActivityStore.dailyCallLimit) small calls a day, only while you're not typing)")
+                    Button {
+                        showDigest = true
+                        makeDigest()
+                    } label: {
+                        Label("Today's Digest", systemImage: "text.badge.star")
+                    }
+                    .buttonStyle(.deck(.secondary, size: .small))
+                    .disabled(todays.isEmpty)
+                    .help("A short standup note of what your sessions did today")
                 }
-            } else if results.isEmpty {
-                VStack(spacing: 6) {
-                    Image(systemName: "magnifyingglass").font(.system(size: 28, weight: .light)).foregroundStyle(.tertiary)
-                    Text(query.isEmpty ? "No activity yet" : "No matches").font(.headline)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    ActivityList(events: results, showsSession: true, sessionTitle: title, openSession: open)
-                        .frame(maxWidth: 860)
-                        .padding(.horizontal, 16).padding(.bottom, 16)
-                        .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16).padding(.vertical, 10)
+                Divider()
+            }
+            Group {
+                if !activity.loaded {
+                    ProgressView("Reading your sessions…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if results.isEmpty {
+                    VStack(spacing: 6) {
+                        Image(systemName: "tray").font(.system(size: 28, weight: .light)).foregroundStyle(.tertiary)
+                        Text("No activity yet").font(.headline)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ScrollView {
+                        ActivityList(events: results, showsSession: true, sessionTitle: title, openSession: open)
+                            .padding(.horizontal, 16).padding(.bottom, 16)
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .background(Color(nsColor: .textBackgroundColor))
-        .searchable(text: $query, placement: .toolbar, prompt: "Search, or ask: when did I start…")
-        .onSubmit(of: .search) { activity.ask(query, title: title) }
-        .navigationTitle("Activity History")
-        .navigationSubtitle(searching ? "Search" : "\(results.count) event\(results.count == 1 ? "" : "s")")
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).fill(Color(nsColor: .textBackgroundColor))
+            .shadow(color: .black.opacity(0.25), radius: 30, y: 12))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
+        .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous))
+        .onExitCommand(perform: close)
         .sheet(isPresented: $showDigest) { DigestSheet(regenerate: makeDigest) }
         .alert("Couldn't finish that", isPresented: Binding(get: { activity.lastError != nil }, set: { if !$0 { activity.lastError = nil } })) {
             Button("OK") { activity.lastError = nil }
@@ -426,6 +433,8 @@ struct HistoryView: View {
             Text(activity.lastError ?? "")
         }
     }
+
+    private func close() { store.showHistory = false }
 
     private var todays: [ActivityEvent] {
         activity.all.filter { $0.at.map { Calendar.current.isDateInToday($0) } ?? false }
@@ -438,10 +447,9 @@ struct HistoryView: View {
     }
 
     private func open(_ e: ActivityEvent) {
-        if store.session(e.sessionId) != nil {
-            store.selectedId = e.sessionId
+        if store.session(e.sessionId) != nil || activity.sessionStub(e.sessionId) != nil {
+            store.open(FocusTarget(sessionId: e.sessionId, offset: nil, text: nil), stub: activity.sessionStub(e.sessionId))
             store.detailTab = .activity
-            store.bringToFront()
         } else if let url = activity.url(for: e) {
             NSWorkspace.shared.open(url)
         }
@@ -487,208 +495,6 @@ struct DigestSheet: View {
     }
 }
 
-// MARK: - Search
-
-/// Results for what's typed in History's search: matches as you type, and an answer from
-/// Claude Haiku when you press Return on a question.
-struct SearchResultsView: View {
-    @Environment(ActivityStore.self) private var activity
-    @Environment(SessionStore.self) private var store
-    let query: String
-    let title: (String) -> String
-
-    var body: some View {
-        let quick = activity.quickSearch(query)
-        let answer = activity.answer?.question == query.trimmingCharacters(in: .whitespacesAndNewlines) ? activity.answer : nil
-        let sessions = answer?.sessions ?? quick.sessions
-        let order = answer?.order ?? quick.order
-        let highlight = answer.map { ([query] + $0.terms).joined(separator: " ") } ?? query
-        VStack(alignment: .leading, spacing: 14) {
-            AskBar(query: query, asking: activity.asking && answer != nil) { activity.ask(query, title: title) }
-            if let answer { AnswerCard(answer: answer, query: highlight, title: title, open: open) }
-            if sessions.isEmpty {
-                Text(activity.searchIndex == nil ? "Reading your sessions…" : "No matches yet. Press ↩ to ask Claude, which also tries other spellings and related words.")
-                    .font(.callout).foregroundStyle(.secondary)
-                    .padding(.top, 8)
-            } else {
-                Text(order == .first ? "Sessions, by when it first came up" : order == .latest ? "Sessions, most recent first" : "Sessions")
-                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                ForEach(sessions, id: \.sessionId) { s in
-                    SessionResultCard(hit: s, title: title(s.sessionId), query: highlight, open: open)
-                }
-            }
-        }
-    }
-
-    private func open(_ sessionId: String, _ doc: SearchDoc?) {
-        var text = doc?.text
-        if case .event = doc?.kind { text = activity.all.first { $0.id == doc?.id }?.quote }
-        store.open(FocusTarget(sessionId: sessionId, offset: doc?.offset, text: text), stub: activity.sessionStub(sessionId))
-    }
-}
-
-private struct AskBar: View {
-    let query: String
-    let asking: Bool
-    let ask: () -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: ask) {
-            HStack(spacing: 8) {
-                if asking {
-                    ProgressView().controlSize(.small)
-                    Text("Claude is reading your sessions…").font(.callout)
-                } else {
-                    Image(systemName: "sparkles").foregroundStyle(Theme.accent)
-                    Text("Ask Claude: ").font(.callout.weight(.semibold)) + Text("“\(query)”").font(.callout)
-                }
-                Spacer()
-                Text("↩").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                    .padding(.horizontal, 6).padding(.vertical, 1)
-                    .background(RoundedRectangle(cornerRadius: 4).strokeBorder(Color.primary.opacity(0.2)))
-            }
-            .padding(.horizontal, 12).padding(.vertical, 9)
-            .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
-                .fill(Theme.accent.opacity(hovering ? 0.12 : 0.07)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.deckPlain)
-        .disabled(asking)
-        .onHover { hovering = $0 }
-        .help("Claude Haiku turns your question into a search (fixing typos, adding related words) and answers it")
-    }
-}
-
-private struct AnswerCard: View {
-    let answer: ActivityStore.SearchAnswer
-    let query: String
-    let title: (String) -> String
-    let open: (String, SearchDoc?) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if let text = answer.text {
-                Text(text).font(.body).textSelection(.enabled)
-            } else if answer.failed {
-                Text("Couldn't get an answer from Claude right now; here's what the search found.")
-                    .font(.callout).foregroundStyle(.secondary)
-            }
-            ForEach(answer.picks, id: \.hit.doc.id) { pick in
-                MomentRow(doc: pick.hit.doc, session: title(pick.hit.doc.sessionId), why: pick.why, query: query) {
-                    open(pick.hit.doc.sessionId, pick.hit.doc)
-                }
-            }
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).fill(Theme.accent.opacity(0.06)))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).strokeBorder(Theme.accent.opacity(0.15)))
-    }
-}
-
-private struct SessionResultCard: View {
-    let hit: SessionHit
-    let title: String
-    let query: String
-    let open: (String, SearchDoc?) -> Void
-    @State private var hovering = false
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Button { open(hit.sessionId, nil) } label: {
-                HStack(spacing: 8) {
-                    Image(systemName: "bubble.left.and.bubble.right").foregroundStyle(Theme.accent)
-                    Text(title).font(.callout.weight(.semibold)).lineLimit(1)
-                    if let first = hit.first {
-                        Text(Self.span(first, hit.last)).font(.caption).foregroundStyle(.tertiary)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
-                }
-                .padding(.horizontal, 8).padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                    .fill(Color.primary.opacity(hovering ? 0.06 : 0)))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.deckPlain)
-            .onHover { hovering = $0 }
-            .help("Open this session")
-            ForEach(hit.hits, id: \.doc.id) { h in
-                MomentRow(doc: h.doc, session: nil, why: nil, query: query) { open(hit.sessionId, h.doc) }
-            }
-        }
-        .padding(6)
-        .background(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
-    }
-
-    private static func span(_ first: Date, _ last: Date?) -> String {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        let a = f.string(from: first), b = last.map(f.string) ?? a
-        return a == b ? a : "\(a) – \(b)"
-    }
-}
-
-/// One matching moment: what you said or what the session did, when; opens the session there.
-private struct MomentRow: View {
-    let doc: SearchDoc
-    let session: String?
-    let why: String?
-    let query: String
-    let open: () -> Void
-    @State private var hovering = false
-
-    private static let time: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d, h:mm a"
-        return f
-    }()
-
-    var body: some View {
-        Button(action: open) {
-            HStack(alignment: .top, spacing: 10) {
-                Image(systemName: symbol)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(tint)
-                    .frame(width: 22, height: 22)
-                    .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous).fill(tint.opacity(0.12)))
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        if let session { Text(session).font(.caption.weight(.semibold)) }
-                        Text(doc.at.map(Self.time.string) ?? "").font(.caption).foregroundStyle(.tertiary)
-                    }
-                    Text(Highlight.text(doc.text, query: query)).font(.callout).lineLimit(3)
-                    if let why, !why.isEmpty {
-                        Text(why).font(.caption).foregroundStyle(.secondary)
-                    }
-                }
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 8).padding(.vertical, 6)
-            .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                .fill(Color.primary.opacity(hovering ? 0.05 : 0)))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.deckPlain)
-        .onHover { hovering = $0 }
-        .help(doc.offset != nil ? "Open the session at this moment" : "Open this session")
-    }
-
-    private var symbol: String {
-        switch doc.kind {
-        case .message: "person.fill"
-        case .event(let k): k.symbol
-        case .session: "text.bubble"
-        }
-    }
-
-    private var tint: Color {
-        if case .event(let k) = doc.kind { return k.tint }
-        return Theme.accent
-    }
-}
-
 /// Bold, accent-coloured words that match the search.
 enum Highlight {
     static func text(_ text: String, query: String) -> AttributedString {
@@ -705,30 +511,5 @@ enum Highlight {
             out[ar].foregroundColor = Theme.accent
         }
         return out
-    }
-}
-
-/// Opens the History window with the cursor in its search box (SwiftUI can only focus a
-/// toolbar search field from macOS 15, so this finds the field and focuses it).
-enum SearchFocus {
-    @MainActor static func open(_ openWindow: () -> Void) {
-        openWindow()
-        for delay in [0.05, 0.25] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                guard let window = NSApp.windows.first(where: { $0.title == "Activity History" }) else { return }
-                window.makeKeyAndOrderFront(nil)
-                NSApp.activate(ignoringOtherApps: true)
-                let field = window.toolbar?.items.lazy.compactMap { ($0 as? NSSearchToolbarItem)?.searchField }.first
-                    ?? findSearchField(in: window.contentView?.superview)
-                if let field, window.firstResponder !== field.currentEditor() { window.makeFirstResponder(field) }
-            }
-        }
-    }
-
-    private static func findSearchField(in view: NSView?) -> NSSearchField? {
-        guard let view else { return nil }
-        if let field = view as? NSSearchField { return field }
-        for sub in view.subviews { if let f = findSearchField(in: sub) { return f } }
-        return nil
     }
 }

@@ -55,15 +55,15 @@ Digest** (a standup note).
   headless, tool-less, unsaved runs, in batches, only when you're not typing, at most 150 small
   calls a day. Off, the summary is Claude's own sentence from right after the action.
 
-## Search
+## Search: ⌘K
 
-Search across every session from **Activity History** (⇧⌘F or ⇧⌘H). Typing searches your own
-messages, PR and ticket titles, commits, branches and session names instantly (on your Mac,
-typo-tolerant). Press **↩** to ask a question in plain words, e.g. *"on which session did I start
-the AppSumo integration?"*: Claude Haiku turns it into a search (fixing typos, adding related words,
-first vs latest time), Deck searches locally, and Haiku answers with the session and moment. Click
-any moment to open the session right there, even in a long or old transcript ("Back to Latest"
-returns to the live end).
+One palette for everything. Type a session's name to jump to it, or anything else to search your
+own messages, PR and ticket titles, commits, branches and session names (instant, on your Mac,
+typo-tolerant). With nothing typed it shows your sessions and recent activity. **⌘↩** (or the
+*Ask Claude* row) asks a question in plain words, e.g. *"on which session did I start the AppSumo
+integration?"*: Claude Haiku turns it into a search (fixing typos, adding related words, first vs
+latest), Deck searches locally, and Haiku answers with the session and moment. ↩ on any match opens
+the session right there, even in a long or old transcript ("Back to Latest" returns to the live end).
 
 ## Safety
 
@@ -83,7 +83,7 @@ All of these are also listed in the **Sessions** menu.
 
 | Shortcut | Action |
 |---|---|
-| ⌘K | Jump to a session (type to filter, ↑/↓, Return) |
+| ⌘K | Jump to a session, search everything, or ask (⌘↩) |
 | ⇧⌘Space | Bring Deck forward with the switcher open, from any app |
 | ⌥⌘↩ | Allow the next permission prompt, from any app (selected session first, else the longest-waiting) |
 | ⌥⌘⌫ | Deny the next permission prompt, from any app |
@@ -95,8 +95,7 @@ All of these are also listed in the **Sessions** menu.
 | ⌥⌘R | Restart the selected session (quits and resumes Claude in the same terminal, so new skills, MCP servers and settings load; it keeps its number) |
 | ⇧⌘T | Open the selected session's terminal |
 | ⌥⌘A | Switch the open session between Conversation and Activity |
-| ⇧⌘H | Activity History: every PR, ticket and screenshot across sessions |
-| ⇧⌘F | Search your sessions (↩ to ask a question in plain words) |
+| ⇧⌘H | Activity History: every PR, ticket, push and screenshot across sessions |
 | ⌘. | Stop Claude's current step (also the Stop button on the "Working…" pill) |
 | ↩ | Send message |
 | ⇧↩ / ⌘↩ | New line in the message |
