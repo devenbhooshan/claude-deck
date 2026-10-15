@@ -116,6 +116,9 @@ func activityTests() {
         ])
         let e = x.events
         expectEqual(e.map(\.kind), [.viewedTicket, .createdTicket, .updatedTicket, .commentedTicket, .mentionedTicket])
+        let absorbed = extract([tool("g", "mcp__claude_ai_Linear__get_issue", ["id": "SUP-5"]), result("g"),
+                                tool("u", "mcp__claude_ai_Linear__save_issue", ["id": "SUP-5"]), result("u")])
+        expectEqual(absorbed.events.map(\.kind), [.updatedTicket])
         expectEqual(e[0].ticket, "SUP-645")
         expectEqual(e[0].title, "Org analytics")
         expectEqual(e[0].url, "https://linear.app/s/issue/SUP-645/org")
@@ -197,6 +200,72 @@ func activityTests() {
         expectEqual(x.title, "Auto")
         expectEqual(x.events.map(\.kind), [.reviewedPR, .screenshot])  // a screenshot tool with no input still counts
     }
+    test("code: pushes with their commits, new branches, tags, nothing to push") {
+        let x = extract([
+            bash("b1", "cd /w/api && git checkout -b deven/sup-610-approvals"),
+            result("b1"),
+            bash("c1", "git add -A && git commit -q -F - <<'EOF'\nAdd approval step\n\nCo-Authored-By: x\nEOF\ngit push -u origin deven/sup-610-approvals"),
+            result("c1", "To github.com:acme/api.git\n * [new branch]      deven/sup-610-approvals -> deven/sup-610-approvals\n"),
+            bash("c2", "git commit -m \"Fix typo\""),
+            result("c2", "[deven/sup-610-approvals 1a2b3c4] Fix typo\n 1 file changed"),
+            bash("c3", "git commit -qm 'Tidy'"),
+            result("c3"),
+            bash("p2", "git push 2>&1 | tail -2"),
+            result("p2", "To https://github.com/acme/api.git\n   1a2b3c4..5d6e7f8  HEAD -> deven/sup-610-approvals\n"),
+            bash("p3", "git push"),
+            result("p3", "Everything up-to-date"),
+            bash("p4", "git push origin v1.2"),
+            result("p4", "To github.com:acme/api.git\n * [new tag]         v1.2 -> v1.2\n"),
+            bash("p5", "git push --tags"),
+            bash("p6", "git push origin --delete old"),
+            bash("w1", "git worktree add ../wt -b sup-7-thing origin/main && git switch -c other"),
+            result("w1"),
+            bash("c4", "git commit -m \"$(cat <<'EOF'\nShip it\nEOF\n)\""),
+            result("c4", "boom", error: true),
+            bash("p7", "git push"),
+            result("p7", "rejected", error: true),
+            bash("c5", "git commit -m \"$(git log -1)\""),
+            result("c5"),
+            bash("p8", "git push 2>&1 | tail -1"),
+            result("p8", "done"),
+        ])
+        let e = x.events
+        expectEqual(e.map(\.kind), [.createdBranch, .pushed, .pushed, .createdBranch, .createdBranch, .pushed])
+        expectEqual(e[0].refName, "deven/sup-610-approvals")
+        expectEqual(e[0].branchTicket, "SUP-610")
+        expectEqual(e[0].ref, "deven/sup-610-approvals")
+        // The first push and the follow-up push of the same branch are one event.
+        expectEqual(e[1].label, "Pushed 3 commits")
+        expectEqual(e[1].title, "Tidy")
+        expectEqual(e[1].count, 2)
+        expectEqual(e[1].repo, "acme/api")
+        expectEqual(e[1].detail, "New branch")
+        expectEqual(e[1].refName, "deven/sup-610-approvals")
+        expectEqual(e[2].label, "Pushed tag")
+        expectEqual(e[2].refName, "v1.2")
+        expectEqual(e[3].refName, "sup-7-thing")
+        expectEqual(e[4].refName, "other")
+        expectEqual(e[5].label, "Pushed")  // a commit whose message isn't readable
+        expectEqual(e[5].refName, "main")   // output cut, ran in the session's folder
+        expect(e.allSatisfy(\.isCode))
+        expectEqual(ActivityExtractor.commitSubject(in: "git commit -m ''"), nil)
+        expect(ActivityExtractor.commitSubject(in: "git status") == nil)
+
+        // A push from the session's own folder whose output was cut keeps the session's branch.
+        let y = extract([bash("p", "git push 2>&1 | tail -1", branch: "feature/x"), result("p", "ok")])
+        expectEqual(y.events[0].refName, "feature/x")
+        let named = extract([bash("p", "cd /w/other && git push origin HEAD:refs/heads/x"), result("p", "   1..2  HEAD -> feature/y\n"),
+                             bash("q", "git commit -m \"One\" && git push"), result("q", "[feature/y 3c4d5e6] One\nTo github.com:a/b\n   2..3  HEAD -> feature/y\n"),
+                             line(["type": "user", "message": ["content": [["type": "tool_result", "content": "screenshot"]]]])])
+        expectEqual(named.events.map(\.refName), ["x"])
+        expectEqual(named.events[0].label, "Pushed a commit")
+        let fromOutput = extract([bash("p", "cd /w/o && git push 2>&1"), result("p", " * [new branch]      HEAD -> feat/z\n")])
+        expectEqual(fromOutput.events[0].refName, "feat/z")
+        let z = extract([bash("p", "git push", branch: "a"), result("p", "ok"), bash("q", "git push", branch: "a"), result("q", "ok"),
+                         bash("r", "git push", branch: "a"), result("r", "Everything up-to-date")])
+        expectEqual(z.events.map(\.count), [2])
+        expectEqual(z.events[0].label, "Pushed 2×")
+    }
     test("a look replaced before its result arrives") {
         let x = extract([
             bash("v", "gh pr view 5"),
@@ -268,6 +337,8 @@ func activityTests() {
         // found in a PR title
         expectEqual(onBranch.ticketTitle, "SUP-610: Approval flow")
         expectEqual(onBranch.pr?.number, 40)
+        let viaBranch = CurrentWork.of(events: [ActivityEvent(id: "x", sessionId: "s", kind: .createdBranch, refName: "sup-77-x")], branch: "main")
+        expectEqual(viaBranch?.ticket, "SUP-77")
         let recent = CurrentWork.of(events: events, branch: "main")!
         expectEqual(recent.ticket, "SUP-9")
         expectEqual(recent.ticketTitle, "Nine")
@@ -396,6 +467,11 @@ func activityIndexTests() {
         expectEqual(ActivityIndex.browse(events, filter: .prs).map(\.id), ["a", "d"])
         expectEqual(ActivityIndex.browse(events, filter: .tickets).map(\.id), ["b"])
         expectEqual(ActivityIndex.browse(events, filter: .screenshots).map(\.id), ["c"])
+        let code = [ActivityEvent(id: "p", sessionId: "s", kind: .pushed), ActivityEvent(id: "l", sessionId: "s", kind: .linkedPR),
+                    ActivityEvent(id: "b", sessionId: "s", kind: .createdBranch, refName: "sup-3-x")]
+        expectEqual(ActivityIndex.browse(code, filter: .code).map(\.id).sorted(), ["b", "p"])
+        expectEqual(ActivityIndex.browse(code, filter: .tickets).map(\.id), ["b"])
+        expect(ActivityIndex.browse(code).allSatisfy { $0.kind != .linkedPR })
         expectEqual(ActivityIndex.browse(events, query: "  login fix ").map(\.id), ["a"])
         expectEqual(ActivityIndex.browse(events, query: "deck", sessionTitle: { $0 == "other" ? "Claude Deck" : nil }).map(\.id), ["c"])
 

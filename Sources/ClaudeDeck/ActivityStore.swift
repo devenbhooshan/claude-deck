@@ -99,7 +99,7 @@ final class ActivityStore {
     // MARK: - Lookups
 
     func events(for sessionId: String) -> [ActivityEvent] {
-        (index[sessionId]?.events ?? []).sorted { ($0.at ?? .distantPast) > ($1.at ?? .distantPast) }
+        ActivityIndex.browse(index[sessionId]?.events ?? [])
     }
 
     func current(for sessionId: String) -> CurrentWork? {
@@ -129,6 +129,11 @@ final class ActivityStore {
     func title(for e: ActivityEvent) -> String? {
         if let t = e.title { return t }
         if let p = pr(for: e) { return p.title }
+        // A new branch for a ticket: "SUP-610 · Approval flow".
+        if let ticket = e.branchTicket, e.kind == .createdBranch {
+            let t = all.first { $0.ticket == ticket && $0.title != nil }?.title ?? prInfo.values.first { $0.title.contains(ticket) }?.title
+            return t.map { "\(ticket) · \(ActivityEvent.trimmed($0, ref: ticket))" } ?? ticket
+        }
         guard let ticket = e.ticket else { return nil }
         return all.first { $0.ticket == ticket && $0.title != nil }?.title
             ?? prInfo.values.first { $0.title.contains(ticket) }?.title

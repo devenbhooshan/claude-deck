@@ -17,6 +17,8 @@ extension ActivityEvent.Kind {
         case .updatedTicket: "square.and.pencil"
         case .viewedTicket, .mentionedTicket: "ticket"
         case .screenshot: "photo"
+        case .pushed: "arrow.up.circle"
+        case .createdBranch: "arrow.branch"
         }
     }
 
@@ -27,6 +29,8 @@ extension ActivityEvent.Kind {
         case .reviewedPR: Theme.busy
         case .createdTicket, .updatedTicket, .viewedTicket, .mentionedTicket, .commentedTicket: Theme.waiting
         case .screenshot: Theme.accent
+        case .pushed: Theme.busy
+        case .createdBranch: Theme.success
         case .commentedPR, .viewedPR, .linkedPR: .secondary
         }
     }
@@ -223,7 +227,7 @@ struct ActivityRow: View {
                 if let title {
                     Text(ActivityEvent.trimmed(title, ref: event.isTicket ? event.ref : nil)).font(.callout).lineLimit(1)
                 }
-                if event.kind == .screenshot, let detail = event.detail {
+                if event.kind == .screenshot || event.isCode, let detail = event.detail {
                     Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                 }
                 if let note {

@@ -7,6 +7,7 @@ struct ActivityEvent: Codable, Equatable, Identifiable {
         case openedPR, mergedPR, reviewedPR, commentedPR, viewedPR, linkedPR
         case createdTicket, updatedTicket, commentedTicket, viewedTicket, mentionedTicket
         case screenshot
+        case pushed, createdBranch
     }
 
     var id: String
@@ -20,6 +21,8 @@ struct ActivityEvent: Codable, Equatable, Identifiable {
     var number: Int?
     /// Tickets: the identifier, e.g. "SUP-610".
     var ticket: String?
+    /// Pushes and new branches: the branch.
+    var refName: String?
     var url: String?
     /// The folder a `gh` command ran in, to look the PR up from (its repo isn't always named).
     var dir: String?
@@ -27,11 +30,16 @@ struct ActivityEvent: Codable, Equatable, Identifiable {
     /// e.g. "Approved", or what a screenshot showed.
     var detail: String?
     var count: Int = 1
+    /// Pushes: how many commits went out (when Deck saw them made).
+    var commits: Int = 0
     /// Claude's own words right after it: the summary until an AI one is written.
     var narration: String?
 
     var isPR: Bool { number != nil || [.openedPR, .mergedPR, .reviewedPR, .commentedPR, .viewedPR, .linkedPR].contains(kind) }
     var isTicket: Bool { ticket != nil }
+    var isCode: Bool { kind == .pushed || kind == .createdBranch }
+    /// The ticket a branch is for ("deven/sup-610-x" → "SUP-610").
+    var branchTicket: String? { refName.flatMap(CurrentWork.ticketId(fromBranch:)) }
 
     /// Identifies the PR across events ("owner/name#12", or "#12" when the repo isn't known).
     var prKey: String? { number.map { "\(repo ?? "")#\($0)" } }
@@ -50,6 +58,8 @@ struct ActivityEvent: Codable, Equatable, Identifiable {
         case .viewedTicket: "Looked at ticket"
         case .mentionedTicket: "Ticket"
         case .screenshot: count > 1 ? "Reviewed \(count) screenshots" : "Reviewed a screenshot"
+        case .pushed: detail == "Tag" ? "Pushed tag" : commits > 1 ? "Pushed \(commits) commits" : commits == 1 ? "Pushed a commit" : count > 1 ? "Pushed \(count)×" : "Pushed"
+        case .createdBranch: "Started branch"
         }
     }
 
@@ -72,6 +82,7 @@ struct ActivityEvent: Codable, Equatable, Identifiable {
 
     /// "#188", "SUP-610", or nothing for screenshots.
     var ref: String? {
+        if let refName { return refName }
         if let ticket { return ticket }
         return number.map { "#\($0)" }
     }
@@ -118,7 +129,7 @@ struct CurrentWork: Equatable {
         let onBranch = branch.flatMap { trunkBranches.contains($0) ? nil : $0 }
         let latest = events.compactMap(\.at).max() ?? .distantPast
         let recent = events.filter { ($0.at ?? .distantPast) >= latest.addingTimeInterval(-window) }
-        let ticket = onBranch.flatMap(ticketId) ?? recent.last(where: \.isTicket)?.ticket
+        let ticket = onBranch.flatMap(ticketId) ?? recent.last { $0.ticket ?? $0.branchTicket != nil }.flatMap { $0.ticket ?? $0.branchTicket }
         // On its branch, a linked PR counts; otherwise only PRs the session acted on.
         let pr = onBranch.flatMap { b in events.last { ($0.kind == .linkedPR || prKinds.contains($0.kind)) && $0.branch == b && $0.number != nil } }
             ?? recent.last { prKinds.contains($0.kind) && $0.number != nil }
@@ -163,6 +174,9 @@ struct ActivityExtractor: Codable {
     private var lastScreenshotId: String?
     private var lastScreenshotTurn = 0
     private var seq = 0
+    /// Calls that ran `git commit`, and the subjects of commits not pushed yet.
+    private var commitCalls: [String: String] = [:]
+    private var unpushed: [String] = []
 
     init(sessionId: String) { self.sessionId = sessionId }
 
@@ -171,7 +185,7 @@ struct ActivityExtractor: Codable {
     static let maxNarration = 700
 
     private static let needles: [[UInt8]] = [
-        "gh pr ", "gh api", "Linear__", "\"pr-link\"", "screenshot", "\"name\":\"Read\"", "linear.app/",
+        "gh pr ", "gh api", "git push", "git commit", "checkout -b", "checkout -B", "switch -c", "switch --create", "worktree add", "Linear__", "\"pr-link\"", "screenshot", "\"name\":\"Read\"", "linear.app/",
         "command-name>/review", "command-name>/code-review", "\"ai-title\"", "\"custom-title\"", "\"type\":\"image\"",
     ].map { Array($0.utf8) }
     private static let branchKey = Array("\"gitBranch\":\"".utf8)
@@ -188,7 +202,7 @@ struct ActivityExtractor: Codable {
             shellDir = reset
         }
         let wanted = Self.needles.contains { Bytes.contains(line, $0) }
-            || (!pending.isEmpty && Bytes.contains(line, Self.toolUseIdKey))
+            || ((!pending.isEmpty || !commitCalls.isEmpty) && Bytes.contains(line, Self.toolUseIdKey))
             || (!narrating.isEmpty && (Bytes.contains(line, Self.assistantKey) || Bytes.contains(line, Self.userKey)))
         guard wanted, let obj = (try? JSONSerialization.jsonObject(with: line)) as? [String: Any] else { return }
         let at = (obj["timestamp"] as? String).flatMap(Rx.date)
@@ -274,6 +288,9 @@ struct ActivityExtractor: Codable {
         let input = block["input"] as? [String: Any] ?? [:]
         var created: [String] = []
         if name == "Bash", let command = input["command"] as? String {
+            if Rx.first(#"(?:^|[\n;&|]\s*)git\s+(?:-C\s+\S+\s+)?commit\b"#, in: command) != nil {
+                commitCalls[id] = Self.commitSubject(in: command) ?? ""
+            }
             created = bash(command, at: at)
         } else if let range = name.range(of: "Linear__") {
             created = linear(String(name[range.upperBound...]), input, at: at)
@@ -284,26 +301,56 @@ struct ActivityExtractor: Codable {
     }
 
     private mutating func toolResult(_ block: [String: Any]) {
-        guard let id = block["tool_use_id"] as? String, let ids = pending.removeValue(forKey: id) else { return }
-        if block["is_error"] as? Bool == true {
-            events.removeAll { ids.contains($0.id) }
-            if let shot = lastScreenshot, ids.contains(shot.id) { lastScreenshot = nil }
-            return
-        }
+        guard let id = block["tool_use_id"] as? String else { return }
         let text = Self.text(of: block["content"])
+        let failed = block["is_error"] as? Bool == true
+        // Commits made by this call wait to be described by the push that sends them.
+        if let subject = commitCalls.removeValue(forKey: id), !failed {
+            // git's "[main 1a2b3c4] Subject" lines, or (for quiet commits) the message in the command.
+            let shown = Rx.all(#"(?m)^\[[^\]\s]+(?: \(root-commit\))? [0-9a-f]{7,}\] (.+)$"#, in: text).map { $0[1]! }
+            unpushed += shown.isEmpty ? (subject.isEmpty ? [] : [subject]) : shown
+        }
+        guard let ids = pending.removeValue(forKey: id) else { return }
         for eid in ids {
             guard let i = events.firstIndex(where: { $0.id == eid }) else { continue }
-            fill(&events[i], from: text)
+            // A failed action isn't news, nor a push with nothing to send. One that was added to an
+            // earlier event (a second screenshot, a repeated push) just gives back its count.
+            if failed || (events[i].kind == .pushed && text.contains("Everything up-to-date")) {
+                if events[i].count > 1 { events[i].count -= 1 } else { events.remove(at: i) }
+                continue
+            }
+            var e = events[i]
+            fill(&e, from: text)
+            events[i] = e
             if !narrating.contains(eid) { narrating.append(eid) }
         }
+        if let shot = lastScreenshot, !events.contains(where: { $0.id == shot.id }) { lastScreenshot = nil }
     }
 
-    /// Details only the result has: a new PR's number, a ticket's title, a screenshot's page.
-    private func fill(_ e: inout ActivityEvent, from text: String) {
+    /// Details only the result has: a new PR's number, a ticket's title, a screenshot's page, what a
+    /// push sent.
+    private mutating func fill(_ e: inout ActivityEvent, from text: String) {
         if e.isTicket, let json = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? [String: Any] {
             if let id = json["identifier"] as? String ?? json["id"] as? String, Rx.first(#"^[A-Z]+-\d+$"#, in: id) != nil { e.ticket = id }
             e.title = json["title"] as? String ?? e.title
             e.url = json["url"] as? String ?? e.url
+        } else if e.kind == .pushed {
+            if let m = Rx.first(#"To \S*?github\.com[:/]([\w.-]+/[\w.-]+?)(?:\.git)?\s"#, in: text) { e.repo = m[1] }
+            // The branch it went to, from git's "abc..def  HEAD -> main" line.
+            if e.refName == nil, let m = Rx.first(#"(?m)^\s*[-+*!= ]?\s*(?:\[new branch\]|[0-9a-f]+\.\.\.?[0-9a-f]+)\s+\S+\s+->\s+(\S+)"#, in: text) {
+                e.refName = m[1]
+            }
+            if text.contains("[new tag]"), Rx.first(#"(?m)(?:\[new branch\]|[0-9a-f]+\.\.\.?[0-9a-f]+)\s+\S+\s+->"#, in: text) == nil {
+                e.detail = "Tag"
+            }
+            if !unpushed.isEmpty {
+                e.commits += unpushed.count
+                e.title = unpushed.last
+                unpushed = []
+            }
+            if text.contains("[new branch]") { e.detail = "New branch" }
+            // Output trimmed away: the session's branch, if the push ran in the session's folder.
+            if e.refName == nil, e.branch != "HEAD", e.dir == cwd { e.refName = e.branch }
         } else if e.kind == .openedPR, let m = Rx.first(#"https://github\.com/([\w.-]+/[\w.-]+)/pull/(\d+)"#, in: text) {
             e.repo = m[1]; e.number = Int(m[2]!); e.url = m[0]
         } else if e.kind == .screenshot, e.detail == nil,
@@ -336,6 +383,7 @@ struct ActivityExtractor: Codable {
         var dir = shellDir
         defer { shellDir = dir }
         var vars: [String: String] = [:]
+        var code: [(kind: ActivityEvent.Kind, ref: String?, dir: String?)] = []
         for segment in Self.withoutHeredocs(command).split(whereSeparator: { "\n;|&".contains($0) }) {
             var t = segment.trimmingCharacters(in: .whitespaces)
             // Simple variables set earlier in the command (R=owner/repo; gh pr merge 1 -R $R).
@@ -371,6 +419,18 @@ struct ActivityExtractor: Codable {
                     detail = args.contains("--approve") ? "Approved" : args.contains("--request-changes") ? "Requested changes" : "Commented"
                 }
                 found.append((kind, repo, number, title, detail, dir))
+            } else if let m = Rx.first(#"^git\s+(?:-C\s+\S+\s+)?push\b(.*)$"#, in: t) {
+                let args = m[1]!
+                guard !args.contains("--delete"), !args.contains(" -d "), !args.contains("--tags") else { continue }
+                let words = args.split(separator: " ").map(String.init).filter { !$0.hasPrefix("-") && !$0.hasPrefix("2>") }
+                let spec = words.count > 1 ? words[1] : nil
+                // The branch from the refspec; else git's output says (HEAD and detached sessions don't name one).
+                let target = spec.map { $0.components(separatedBy: ":").last!.replacingOccurrences(of: "refs/heads/", with: "") }
+                    .flatMap { $0 == "HEAD" ? nil : $0 }
+                code.append((.pushed, target, dir))
+            } else if let m = Rx.first(#"^git\s+(?:-C\s+\S+\s+)?(?:checkout\s+-[bB]|switch\s+-[cC]|switch\s+--create)\s+(\S+)"#, in: t)
+                        ?? Rx.first(#"^git\s+(?:-C\s+\S+\s+)?worktree\s+add\b.*?\s-[bB]\s+(\S+)"#, in: t) {
+                code.append((.createdBranch, m[1], dir))
             } else if let m = Rx.first(#"^gh\s+api\b.*repos/([\w.-]+/[\w.-]+)/pulls/(\d+)/(reviews|comments)"#, in: t),
                       Rx.first(#"(?:-X|--method)\s*POST|\s-[fF]\s|--input\b"#, in: t) != nil {
                 found.append((m[3] == "reviews" ? .reviewedPR : .commentedPR, m[1], Int(m[2]!), nil, nil, dir))
@@ -407,6 +467,17 @@ struct ActivityExtractor: Codable {
                 $0.dir = f.dir ?? sessionDir
             })
         }
+        for c in code {
+            // Pushing the same branch again, with nothing else in between, adds to the last push.
+            // (A push that doesn't name its branch matches one from the same folder.)
+            if c.kind == .pushed, let last = events.last, last.kind == .pushed,
+               c.ref == nil ? last.dir == (c.dir ?? sessionDir) : last.refName == c.ref {
+                events[events.count - 1].count += 1
+                ids.append(last.id)
+                continue
+            }
+            ids.append(add(c.kind, at: at) { $0.refName = c.ref; $0.dir = c.dir ?? sessionDir })
+        }
         return ids
     }
 
@@ -420,6 +491,10 @@ struct ActivityExtractor: Codable {
         default: return []
         }
         if kind == .viewedTicket, let id, events.contains(where: { $0.ticket == id }) { return [] }
+        // Updating or commenting on a ticket replaces having looked at or mentioned it.
+        if kind != .viewedTicket, let id {
+            events.removeAll { ($0.kind == .viewedTicket || $0.kind == .mentionedTicket) && $0.ticket == id }
+        }
         return [add(kind, at: at) {
             $0.ticket = id ?? "Ticket"
             $0.title = input["title"] as? String
@@ -449,6 +524,18 @@ struct ActivityExtractor: Codable {
         events.append(e)
         if narrate { narrating.append(e.id) }
         return e.id
+    }
+
+    /// A commit's subject from its command: `-m "Subject…"` or a `-F - <<EOF` / `-m "$(cat <<EOF` body.
+    static func commitSubject(in command: String) -> String? {
+        if let m = Rx.first(#"git\s+(?:-C\s+\S+\s+)?commit\b[^\n]*?<<-?\s*['"]?\w+['"]?\)?[^\n]*\n\s*([^\n]+)"#, in: command) {
+            return m[1]!.trimmingCharacters(in: .whitespaces)
+        }
+        if let m = Rx.first(#"git\s+(?:-C\s+\S+\s+)?commit\b[^\n]*?\s-[a-zA-Z]*m\s*(?:"([^"\n]*)|'([^'\n]*))"#, in: command) {
+            let subject = (m[1] ?? m[2]!).trimmingCharacters(in: .whitespaces)
+            return subject.isEmpty || subject.hasPrefix("$(") ? nil : subject
+        }
+        return nil
     }
 
     /// The command with heredoc bodies (scripts, PR descriptions) taken out: they're input, not commands.
@@ -485,7 +572,7 @@ struct ActivityExtractor: Codable {
     // Codable: the tuple-backed property is derived, so only stored state is encoded.
     private enum CodingKeys: String, CodingKey {
         case sessionId, events, branch, cwd, lastAt, customTitle, aiTitle, pending, narrating, turn
-        case lastScreenshotId, lastScreenshotTurn, seq
+        case lastScreenshotId, lastScreenshotTurn, seq, commitCalls, unpushed
     }
 }
 

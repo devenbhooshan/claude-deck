@@ -22,7 +22,10 @@ enum ActivityIndex {
 
     static let chunkSize = 8 << 20
     /// Bump when extraction changes, so saved progress is thrown away and transcripts re-read.
-    static let version = 2
+    static let version = 5
+    /// Too weak to list: Claude Code links any PR whose URL shows up, and a look isn't work. They
+    /// still help tell what a session is on.
+    static let hiddenKinds: Set<ActivityEvent.Kind> = [.linkedPR, .viewedPR]
 
     /// Reads whatever was appended since last time. A file that shrank was rewritten, so it's
     /// read again from the start. Returns whether anything new was read.
@@ -107,7 +110,7 @@ enum ActivityIndex {
     // MARK: - Browsing
 
     enum Filter: String, CaseIterable {
-        case all = "All", prs = "PRs", tickets = "Tickets", screenshots = "Screenshots"
+        case all = "All", prs = "PRs", code = "Code", tickets = "Tickets", screenshots = "Screenshots"
     }
 
     /// Newest first, narrowed by kind and by a search over refs, titles, details, narration and
@@ -115,11 +118,12 @@ enum ActivityIndex {
     static func browse(_ events: [ActivityEvent], filter: Filter = .all, query: String = "",
                        sessionTitle: (String) -> String? = { _ in nil }) -> [ActivityEvent] {
         let q = query.trimmingCharacters(in: .whitespaces).lowercased()
-        return events.filter { e in
+        return events.filter { !hiddenKinds.contains($0.kind) }.filter { e in
             switch filter {
             case .all: true
             case .prs: e.isPR
-            case .tickets: e.isTicket
+            case .code: e.isCode
+            case .tickets: e.isTicket || e.branchTicket != nil
             case .screenshots: e.kind == .screenshot
             }
         }.filter { e in
