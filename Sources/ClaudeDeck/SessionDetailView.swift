@@ -217,17 +217,7 @@ struct SessionDetailView: View {
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
-            if session.isLive {
-                OpenTerminalButton(session: session)
-                    .help("Jump to this session's Ghostty terminal (⇧⌘T)")
-                Button {
-                    store.requestEnd(session)
-                } label: {
-                    Label("End Session", systemImage: "stop.circle")
-                }
-                .disabled(store.ending.contains(session.sessionId))
-                .help("End this session: quit Claude and close its terminal (⇧⌘E)")
-            } else {
+            if !session.isLive {
                 Button {
                     act { try await Ghostty.resume(session) }
                 } label: {

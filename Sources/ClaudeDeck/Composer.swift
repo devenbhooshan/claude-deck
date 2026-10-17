@@ -43,9 +43,27 @@ struct Composer: View {
         .padding(.bottom, 4)
         .frame(maxWidth: .infinity)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            Text("↩ send · ⇧↩ or ⌘↩ new line · / commands · paste or drop images and files")
-                .font(.caption2).foregroundStyle(.tertiary)
-                .padding(.bottom, 8)
+            HStack(spacing: 12) {
+                Text("↩ send · ⇧↩ or ⌘↩ new line · / commands · paste or drop images and files")
+                    .font(.caption2).foregroundStyle(.tertiary)
+                    .lineLimit(1)
+                Spacer(minLength: 8)
+                Button { store.openTerminal(session) } label: {
+                    Label("Open Terminal", systemImage: "apple.terminal")
+                }
+                .help("Jump to this session's Ghostty terminal (⇧⌘T)")
+                Button { store.requestEnd(session) } label: {
+                    Label("End Session", systemImage: "stop.circle")
+                }
+                .disabled(store.ending.contains(session.sessionId))
+                .help("Quit Claude and close its terminal; you can resume it later (⇧⌘E)")
+            }
+            .font(.caption)
+            .buttonStyle(.deckBorderless)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: 816)
+            .padding(.horizontal, 24)
+            .padding(.bottom, 8)
         }
         .onAppear {
             focusSoon()
