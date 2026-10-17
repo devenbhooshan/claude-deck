@@ -209,6 +209,7 @@ struct SessionDetailView: View {
 
     private var subtitle: String {
         let status = store.restarting?.session.id == session.id ? "Restarting…"
+            : store.ending.contains(session.sessionId) ? "Ending…"
             : session.status == .waiting ? "Waiting for \(session.waitingFor ?? "you")" : session.status.label
         return "\(status) · \(Theme.shortPath(session.cwd))"
     }
@@ -233,6 +234,9 @@ struct SessionDetailView: View {
                     Button("Restart Session") { store.restart(session) }
                         .disabled(session.status != .idle || store.restarting != nil)
                         .help("Quit and resume Claude here so new skills, MCP servers and settings load")
+                    Button("End Session") { store.requestEnd(session) }
+                        .disabled(store.ending.contains(session.sessionId))
+                        .help("Quit Claude and close its terminal (you can resume it later)")
                 }
                 Divider()
                 Button("Copy Transcript") { copy(model.markdown(title: session.displayTitle)) }

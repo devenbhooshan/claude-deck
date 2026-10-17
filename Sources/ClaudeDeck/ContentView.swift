@@ -171,11 +171,26 @@ private struct Dialogs: ViewModifier {
             .onChange(of: store.renameTarget?.id) {
                 newName = store.renameTarget?.displayTitle ?? ""
             }
+            .alert("End this session?", isPresented: confirmingEnd) {
+                Button("End Session", role: .destructive) {
+                    if let s = store.endTarget { store.end(s) }
+                    store.endTarget = nil
+                }
+                Button("Cancel", role: .cancel) { store.endTarget = nil }
+            } message: {
+                Text(store.endTarget?.status == .waiting
+                     ? "Claude is waiting on a prompt. Ending dismisses it, quits Claude and closes its terminal. You can resume it later."
+                     : "Claude is still working. Ending stops this step, quits Claude and closes its terminal. You can resume it later.")
+            }
             .alert("Couldn't reach the terminal", isPresented: failed) {
                 Button("OK") { store.lastError = nil }
             } message: {
                 Text(store.lastError ?? "")
             }
+    }
+
+    private var confirmingEnd: Binding<Bool> {
+        Binding(get: { store.endTarget != nil }, set: { if !$0 { store.endTarget = nil } })
     }
 
     private var renaming: Binding<Bool> {
@@ -201,6 +216,8 @@ extension ContentView {
             Button("Open Terminal") { store.openTerminal(s) }
             Button("Restart Session") { store.restart(s) }
                 .disabled(s.status != .idle || store.restarting != nil)
+            Button("End Session") { store.requestEnd(s) }
+                .disabled(store.ending.contains(s.sessionId))
         }
         Divider()
         Button("Copy Session ID") {

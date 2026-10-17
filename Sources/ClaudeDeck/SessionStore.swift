@@ -34,6 +34,10 @@ final class SessionStore {
 
     /// Session being renamed (drives the rename sheet).
     var renameTarget: Session?
+    /// Session to end once you confirm (asked only while Claude is mid-step or at a prompt).
+    var endTarget: Session?
+    /// Sessions being ended, by session id.
+    private(set) var ending: Set<String> = []
     /// Names you've just set, shown until the transcript records them.
     private var pendingNames: [String: String] = [:]
     var hookInstalled = PendingRequests.isInstalled
@@ -176,6 +180,28 @@ final class SessionStore {
                 lastError = error.localizedDescription
                 refresh()
             }
+        }
+    }
+
+    /// Ends the session: asks first if Claude is working or waiting on you, since that's cut short.
+    func requestEnd(_ s: Session) {
+        if s.status == .busy || s.status == .waiting { endTarget = s } else { end(s) }
+    }
+
+    /// Quits Claude in its terminal and closes the terminal. The session stays resumable.
+    func end(_ s: Session) {
+        guard s.isLive, !ending.contains(s.sessionId) else { return }
+        ending.insert(s.sessionId)
+        HUD.show("Ending session", detail: s.displayTitle, symbol: "xmark.circle.fill", tint: Theme.accent)
+        Task {
+            defer { ending.remove(s.sessionId) }
+            do {
+                try await Ghostty.end(s)
+                HUD.show("Session ended", detail: s.displayTitle, symbol: "checkmark.circle.fill", tint: Theme.accent)
+            } catch {
+                lastError = error.localizedDescription
+            }
+            refresh()
         }
     }
 

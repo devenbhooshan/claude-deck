@@ -131,6 +131,11 @@ struct SessionCommands: Commands {
             }
             .keyboardShortcut("r", modifiers: [.command, .option])
             .disabled(store.session(store.selectedId).map { !$0.isLive || $0.status != .idle } ?? true || store.restarting != nil)
+            Button("End Session") {
+                if let s = store.session(store.selectedId), s.isLive { store.requestEnd(s) }
+            }
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(store.session(store.selectedId).map { !$0.isLive || store.ending.contains($0.sessionId) } ?? true)
             Button("Stop Current Step") {
                 if let s = store.session(store.selectedId), s.isLive, s.status == .busy { store.interrupt(s) }
             }

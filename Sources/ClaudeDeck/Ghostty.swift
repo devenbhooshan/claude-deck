@@ -20,6 +20,7 @@ enum Ghostty {
         case notWorking
         case notIdle
         case stillRunning
+        case wontStop
 
         var errorDescription: String? {
             switch self {
@@ -31,6 +32,7 @@ enum Ghostty {
             case .notWorking: "Claude had already finished that step, so nothing was stopped."
             case .notIdle: "Claude is working or showing a prompt. Restart once it's idle."
             case .stillRunning: "Claude didn't quit, so it wasn't restarted. Check the terminal."
+            case .wontStop: "Claude didn't stop, so the session was left open. Check the terminal."
             }
         }
     }
@@ -150,6 +152,50 @@ enum Ghostty {
             end run
             """, args: [id, session.cwd, Safety.typedTextAction(command)])
         if result.trimmingCharacters(in: .whitespacesAndNewlines) != "ok" { throw Failure.notFound }
+    }
+
+    /// Ends a session: stops Claude's current step or dismisses its prompt (Esc), quits it with
+    /// /exit, and once it has quit closes its terminal (only if it's still in the session's folder).
+    static func end(_ session: Session) async throws {
+        guard let pid = session.pid, SessionLoader.isAlive(pid) else { return }
+        // Back to Claude's prompt first: /exit can only be typed there.
+        for _ in 0..<3 {
+            guard let status = SessionLoader.record(pid: pid)?.status, status == "busy" || status == "waiting" else { break }
+            try await act(on: session, """
+                  send key "escape" to t
+                """, args: ["", ""])
+            try await waitFor(seconds: 5) {
+                let s = SessionLoader.record(pid: pid)?.status
+                return s != "busy" && s != "waiting"
+            }
+        }
+        guard PromptGuard.canRestart(SessionLoader.record(pid: pid)) else { throw Failure.wontStop }
+        let id = try await terminalId(for: session)
+        try await send(text: "/exit", to: session)
+        guard try await waitFor(seconds: 15, { !SessionLoader.isAlive(pid) }) else { throw Failure.stillRunning }
+        // Let Claude's exit settle so the shell is back at its prompt.
+        try await Task.sleep(for: .milliseconds(300))
+        _ = try await run("""
+            on run argv
+              tell application "Ghostty"
+                set t to terminal id (item 1 of argv)
+                if (working directory of t) is not (item 2 of argv) then return "mismatch"
+                close t
+              end tell
+              return "ok"
+            end run
+            """, args: [id, session.cwd])
+    }
+
+    /// Polls `done` every 250ms; false if it's still not true after `seconds`.
+    @discardableResult
+    private static func waitFor(seconds: Double, _ done: () -> Bool) async throws -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while !done() {
+            if Date() > deadline { return false }
+            try await Task.sleep(for: .milliseconds(250))
+        }
+        return true
     }
 
     /// A process's command line, split on spaces (enough for the plain flags a restart keeps).
