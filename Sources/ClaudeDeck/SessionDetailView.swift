@@ -220,6 +220,13 @@ struct SessionDetailView: View {
             if session.isLive {
                 OpenTerminalButton(session: session)
                     .help("Jump to this session's Ghostty terminal (⇧⌘T)")
+                Button {
+                    store.requestEnd(session)
+                } label: {
+                    Label("End Session", systemImage: "stop.circle")
+                }
+                .disabled(store.ending.contains(session.sessionId))
+                .help("End this session: quit Claude and close its terminal (⇧⌘E)")
             } else {
                 Button {
                     act { try await Ghostty.resume(session) }
