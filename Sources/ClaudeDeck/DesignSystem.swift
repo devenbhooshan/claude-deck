@@ -407,13 +407,15 @@ private struct DeckTab: View {
     }
 }
 
-/// The theme's own sidebar colour, when it has one (Classic keeps the system's).
+/// The theme's own sidebar colour, when it has one (Classic keeps the system's). It reads the
+/// saved theme itself, so a switch repaints the sidebar even if the list view is reused.
 struct ThemedSidebar: ViewModifier {
+    @AppStorage(DeckThemes.key) private var theme = DeckTheme.classic.rawValue
+
     func body(content: Content) -> some View {
-        if let color = Palette.sidebar {
-            content.scrollContentBackground(.hidden).background(Color(nsColor: color))
-        } else {
-            content
-        }
+        let color = Palette.sidebar(for: DeckTheme(rawValue: theme) ?? .classic)
+        content
+            .scrollContentBackground(color == nil ? .automatic : .hidden)
+            .background(color.map { Color(nsColor: $0) } ?? .clear)
     }
 }

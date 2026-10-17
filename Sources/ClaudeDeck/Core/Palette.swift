@@ -39,7 +39,8 @@ enum Palette {
     /// Raised things on it: the message box, cards.
     static var panel: NSColor { theme == .midnight ? hex(0x171B2E) : .controlBackgroundColor }
     /// The sidebar, when the theme draws its own (nil: the system's).
-    static var sidebar: NSColor? { theme == .midnight ? hex(0x12162A) : nil }
+    static var sidebar: NSColor? { sidebar(for: theme) }
+    static func sidebar(for theme: DeckTheme) -> NSColor? { theme == .midnight ? hex(0x12162A) : nil }
 
     /// Three corner sizes for everything: keycaps and inner wells, cards, and large surfaces.
     enum Radius {
