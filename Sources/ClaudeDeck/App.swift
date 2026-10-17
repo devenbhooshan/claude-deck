@@ -11,6 +11,9 @@ struct ClaudeDeckApp: App {
     @State private var usage = UsageModel()
     @State private var activity = ActivityStore.shared
     @AppStorage(DeckThemes.key) private var theme = DeckTheme.classic.rawValue
+    /// The theme the window was last built with. It changes only after the new theme is
+    /// applied, so the rebuild never reads the old theme's colours.
+    @State private var appliedTheme = Palette.theme.rawValue
 
     init() { DeckThemes.load() }
 
@@ -18,8 +21,11 @@ struct ClaudeDeckApp: App {
         Window("Claude Deck", id: "main") {
             MainWindow()
                 // A new theme rebuilds the window with its colours.
-                .id(theme)
-                .onChange(of: theme) { DeckThemes.apply(theme) }
+                .id(appliedTheme)
+                .onChange(of: theme) {
+                    DeckThemes.apply(theme)
+                    appliedTheme = theme
+                }
                 .environment(store)
                 .environment(toolbox)
                 .environment(usage)
