@@ -32,6 +32,74 @@ struct PolicyRule: Codable, Equatable, Identifiable {
     var decision: PolicyDecision
     /// Why: told to Claude on a deny, shown to you on an ask.
     var message: String
+    /// How the rule was described in Deck's editor (your own rules); `pattern` is built from it.
+    var match: PolicyMatch?
+    /// Folders it applies in (and their subfolders); nil or empty means everywhere.
+    var folders: [String]?
+}
+
+/// What a rule looks at: shell commands, the files Claude reads and edits, or any tool call.
+enum PolicyScope: String, Codable, CaseIterable {
+    case commands, files, anyTool
+
+    static let fileTools = ["Read", "Edit", "MultiEdit", "Write", "NotebookEdit"]
+
+    var tools: [String] {
+        switch self {
+        case .commands: ["Bash"]
+        case .files: Self.fileTools
+        case .anyTool: []
+        }
+    }
+
+    init(tools: [String]) {
+        self = tools == ["Bash"] ? .commands : tools == Self.fileTools ? .files : .anyTool
+    }
+}
+
+/// A rule as written in the editor, without regular expressions unless you choose them.
+struct PolicyMatch: Codable, Equatable {
+    enum Kind: String, Codable, CaseIterable {
+        /// The words appear in this order (any spacing, any case): "npm publish".
+        case contains
+        /// A command starts with the words, also after `;`, `&&` or `|`: "git reset --hard".
+        case startsWith
+        /// A file path or name, with * and ** wildcards: "*.pem", "secrets/**".
+        case path
+        /// A regular expression, as is.
+        case regex
+    }
+
+    var kind: Kind
+    var text: String
+    /// Text that, if also present, lets the call through (same kind; empty for none).
+    var except: String = ""
+
+    /// The regular expression for `text` as `kind`; nil if it's empty or doesn't compile.
+    static func pattern(_ kind: Kind, _ text: String) -> String? {
+        let words = text.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard !words.isEmpty else { return nil }
+        let joined = words.map { NSRegularExpression.escapedPattern(for: $0) }.joined(separator: #"\s+"#)
+        let start = words.first!.first!.isWordChar ? #"\b"# : ""
+        let end = words.last!.last!.isWordChar ? #"\b"# : ""
+        let pattern: String
+        switch kind {
+        case .contains: pattern = "(?i)" + start + joined + end
+        case .startsWith: pattern = #"(?i)(?:^|[;&|(]|\$\()\s*"# + joined + end
+        case .path:
+            let glob = NSRegularExpression.escapedPattern(for: text.trimmingCharacters(in: .whitespaces))
+                .replacingOccurrences(of: #"\*\*"#, with: ".*")
+                .replacingOccurrences(of: #"\*"#, with: "[^/]*")
+                .replacingOccurrences(of: #"\?"#, with: "[^/]")
+            pattern = #"(?:^|/)"# + glob + "$"
+        case .regex: pattern = text
+        }
+        return Policies.isValid(pattern) ? pattern : nil
+    }
+}
+
+private extension Character {
+    var isWordChar: Bool { isLetter || isNumber || self == "_" }
 }
 
 /// What you've changed: built-in rules switched on or off, and your own rules.
@@ -73,7 +141,6 @@ enum Policies {
     /// The log is started afresh once it passes this size.
     nonisolated(unsafe) static var logLimit = 2_000_000
 
-    private static let fileTools = ["Read", "Edit", "MultiEdit", "Write", "NotebookEdit"]
     private static let envFile = #"(?:^|[\s<>'"=/])\.env(?:\.[\w-]+)?(?=$|[\s'";|&)>])"#
     private static let envExample = #"\.env\.(?:example|sample|template|dist)\b"#
 
@@ -139,9 +206,28 @@ enum Policies {
         return ""
     }
 
-    static func matches(_ rule: PolicyRule, tool: String, subject: String) -> Bool {
-        guard rule.tools.isEmpty || rule.tools.contains(tool), found(rule.pattern, in: subject) else { return false }
+    static func matches(_ rule: PolicyRule, tool: String, subject: String, cwd: String = "") -> Bool {
+        guard rule.tools.isEmpty || rule.tools.contains(tool), applies(rule, in: cwd),
+              found(rule.pattern, in: subject) else { return false }
         return !(rule.except.map { found($0, in: subject) } ?? false)
+    }
+
+    /// Whether `cwd` is one of the rule's folders or inside one (always, if it has none).
+    static func applies(_ rule: PolicyRule, in cwd: String) -> Bool {
+        guard let folders = rule.folders, !folders.isEmpty else { return true }
+        return folders.contains { cwd == $0 || cwd.hasPrefix($0.hasSuffix("/") ? $0 : $0 + "/") }
+    }
+
+    /// Your own rule from the editor's fields; nil while the match is empty or invalid.
+    static func rule(id: String, name: String, scope: PolicyScope, match: PolicyMatch, decision: PolicyDecision,
+                     message: String, folders: [String]) -> PolicyRule? {
+        guard let pattern = PolicyMatch.pattern(match.kind, match.text) else { return nil }
+        let except = match.except.trimmingCharacters(in: .whitespaces).isEmpty ? nil
+            : PolicyMatch.pattern(match.kind == .startsWith ? .contains : match.kind, match.except)
+        let title = name.trimmingCharacters(in: .whitespaces)
+        return PolicyRule(id: id, name: title.isEmpty ? match.text : title, tools: scope.tools, pattern: pattern,
+                          except: except, decision: decision, message: message.trimmingCharacters(in: .whitespacesAndNewlines),
+                          match: match, folders: folders.isEmpty ? nil : folders)
     }
 
     /// A pattern that doesn't compile matches nothing.
@@ -153,10 +239,10 @@ enum Policies {
     static func isValid(_ pattern: String) -> Bool { (try? NSRegularExpression(pattern: pattern)) != nil }
 
     /// The strongest matching rule (the first of equals), if any.
-    static func evaluate(tool: String, input: [String: Any], settings: PolicySettings) -> PolicyRule? {
+    static func evaluate(tool: String, input: [String: Any], cwd: String = "", settings: PolicySettings) -> PolicyRule? {
         let text = subject(of: input)
         var best: PolicyRule?
-        for rule in active(settings) where matches(rule, tool: tool, subject: text) {
+        for rule in active(settings) where matches(rule, tool: tool, subject: text, cwd: cwd) {
             if best.map({ rule.decision.strength > $0.decision.strength }) ?? true { best = rule }
         }
         return best
@@ -178,8 +264,9 @@ enum Policies {
               (obj["hook_event_name"] as? String ?? "PreToolUse") == "PreToolUse",
               let tool = obj["tool_name"] as? String else { return nil }
         let input = obj["tool_input"] as? [String: Any] ?? [:]
-        guard let rule = evaluate(tool: tool, input: input, settings: load()) else { return nil }
-        log(PolicyEvent(at: Date(), session: obj["session_id"] as? String ?? "", cwd: obj["cwd"] as? String ?? "",
+        let cwd = obj["cwd"] as? String ?? ""
+        guard let rule = evaluate(tool: tool, input: input, cwd: cwd, settings: load()) else { return nil }
+        log(PolicyEvent(at: Date(), session: obj["session_id"] as? String ?? "", cwd: cwd,
                         tool: tool, rule: rule.id, decision: rule.decision, subject: String(subject(of: input).prefix(500))))
         return hookOutput(for: rule)
     }

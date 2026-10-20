@@ -79,6 +79,11 @@ default), `.env` files, destructive SQL, `terraform apply` / `destroy`, `kubectl
 piping a download into a shell. Switch each on or off in the Policies sheet, which also lists
 what was recently caught. Claude can never edit the policy file or its log.
 
+**New Rule** opens an editor: when Claude runs a command, reads or edits a file, or uses any tool;
+what it contains, starts with, or which path it is (`*.pem`, `secrets/**`), or a regex; an
+optional exception (`--dry-run`); block, ask or allow; the reason; and optionally only certain
+folders. **Try it** shows whether a command or path would be caught, for one rule or all of them.
+
 Rules and switches live in `~/Library/Application Support/ClaudeDeck/policies.json`, decisions in
 `policy-log.jsonl` next to it.
 

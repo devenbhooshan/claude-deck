@@ -8,6 +8,9 @@ struct PoliciesSheet: View {
     @State private var events = Policies.recent(limit: 30)
     @State private var confirmInstall = false
     @State private var error: String?
+    /// The rule open in the editor (a new one has an id not in your rules yet).
+    @State private var editing: EditingRule?
+    @State private var trial = ""
 
     /// The checker bundled next to Deck's own executable.
     private var checker: URL { Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/\(Policies.checkerName)") }
@@ -18,6 +21,8 @@ struct PoliciesSheet: View {
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
+                    tester
+                    yourRules
                     rules
                     if !events.isEmpty { recent }
                 }
@@ -48,6 +53,11 @@ struct PoliciesSheet: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Deck adds a PreToolUse hook that runs its small policy checker before each tool call in every Claude Code session. It blocks or asks only when a rule matches, and works even when Deck isn't open. Your settings are backed up to settings.json.claudedeck-backup first, and running sessions pick it up without a restart.")
+        }
+        .sheet(item: $editing) { e in
+            RuleEditor(rule: e.rule, isNew: e.isNew,
+                       onSave: { rule in save(rule) },
+                       onDelete: { delete(e.rule.id) })
         }
         .alert("Couldn't update the policies", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
@@ -82,19 +92,97 @@ struct PoliciesSheet: View {
         }
     }
 
+    /// Type a command or path to see which rule would catch it.
+    private var tester: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            TextField("Try a command or file path, e.g. git push --force", text: $trial)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(.body, design: .monospaced))
+            if !trial.isEmpty {
+                let caught = Policies.evaluate(tool: trial.hasPrefix("/") || trial.hasPrefix("~") ? "Read" : "Bash",
+                                               input: [trial.hasPrefix("/") || trial.hasPrefix("~") ? "file_path" : "command": trial],
+                                               settings: settings)
+                HStack(spacing: 6) {
+                    if let caught {
+                        DecisionBadge(decision: caught.decision)
+                        Text(caught.name).font(.caption.weight(.medium))
+                        Text("· \(caught.message)").font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    } else {
+                        Image(systemName: "checkmark.circle").foregroundStyle(Theme.success)
+                        Text("No rule catches this; Claude goes ahead as usual.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var yourRules: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Your rules").font(.headline)
+                Spacer()
+                Button {
+                    editing = EditingRule(rule: PolicyRule(id: "custom-\(UUID().uuidString.prefix(8).lowercased())", name: "",
+                                                           tools: ["Bash"], pattern: "", except: nil, decision: .deny, message: "",
+                                                           match: PolicyMatch(kind: .contains, text: "")), isNew: true)
+                } label: {
+                    Label("New Rule", systemImage: "plus")
+                }
+                .buttonStyle(.deck(size: .small))
+            }
+            if settings.rules.isEmpty {
+                Text("Add rules for your own risky commands, files or folders. Each one blocks, asks or allows.")
+                    .font(.callout).foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.12), style: StrokeStyle(lineWidth: 1, dash: [4, 3])))
+            } else {
+                card {
+                    ForEach(Array(settings.rules.enumerated()), id: \.element.id) { i, rule in
+                        if i > 0 { Divider().padding(.leading, 12) }
+                        PolicyRow(rule: rule, on: binding(for: rule), locked: false,
+                                  onEdit: { editing = EditingRule(rule: rule, isNew: false) })
+                            .contextMenu {
+                                Button("Edit…") { editing = EditingRule(rule: rule, isNew: false) }
+                                Button("Delete", role: .destructive) { delete(rule.id) }
+                            }
+                    }
+                }
+            }
+        }
+    }
+
+    private func card<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 0) { content() }
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(Theme.panel))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08)))
+    }
+
+    private func save(_ rule: PolicyRule) {
+        var next = settings
+        if let i = next.rules.firstIndex(where: { $0.id == rule.id }) { next.rules[i] = rule } else { next.rules.append(rule) }
+        change { try Policies.save(next); settings = next }
+    }
+
+    private func delete(_ id: String) {
+        var next = settings
+        next.rules.removeAll { $0.id == id }
+        next.overrides[id] = nil
+        change { try Policies.save(next); settings = next }
+    }
+
     private var rules: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Rules").font(.headline)
-            VStack(spacing: 0) {
+            Text("Built-in rules").font(.headline)
+            card {
                 PolicyRow(rule: Policies.guardRule, on: .constant(true), locked: true)
                 ForEach(Policies.builtins) { rule in
                     Divider().padding(.leading, 12)
                     PolicyRow(rule: rule, on: binding(for: rule), locked: false)
                 }
             }
-            .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(Theme.panel))
-            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08)))
         }
     }
 
@@ -132,10 +220,18 @@ struct PoliciesSheet: View {
     }
 }
 
+private struct EditingRule: Identifiable {
+    var rule: PolicyRule
+    var isNew: Bool
+    var id: String { rule.id }
+}
+
 private struct PolicyRow: View {
     let rule: PolicyRule
     @Binding var on: Bool
     let locked: Bool
+    var onEdit: (() -> Void)? = nil
+    @State private var hovering = false
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -143,11 +239,21 @@ private struct PolicyRow: View {
                 HStack(spacing: 8) {
                     Text(rule.name).font(.callout.weight(.medium))
                     DecisionBadge(decision: rule.decision)
+                    if let folders = rule.folders, !folders.isEmpty {
+                        Label(folders.map { URL(fileURLWithPath: $0).lastPathComponent }.joined(separator: ", "), systemImage: "folder")
+                            .font(.caption2).foregroundStyle(.secondary).lineLimit(1)
+                    }
                 }
-                Text(rule.message).font(.caption).foregroundStyle(.secondary)
+                Text(onEdit != nil ? summary : rule.message).font(.caption).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
+            if let onEdit {
+                Button(action: onEdit) { Image(systemName: "pencil") }
+                    .buttonStyle(.deckBorderless)
+                    .opacity(hovering ? 1 : 0)
+                    .help("Edit this rule")
+            }
             if locked {
                 Image(systemName: "lock.fill").font(.caption).foregroundStyle(.tertiary)
                     .help("Always on: Claude can't change Deck's policies")
@@ -160,6 +266,26 @@ private struct PolicyRow: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 10)
         .opacity(on ? 1 : 0.6)
+        .contentShape(Rectangle())
+        .onHover { hovering = $0 }
+        .onTapGesture(count: 2) { onEdit?() }
+    }
+
+    /// Your rule in words: "Commands containing npm publish".
+    private var summary: String {
+        guard let m = rule.match else { return rule.message }
+        let what = switch PolicyScope(tools: rule.tools) {
+        case .commands: "Commands"
+        case .files: "Files"
+        case .anyTool: "Any tool call"
+        }
+        let how = switch m.kind {
+        case .contains: "containing"
+        case .startsWith: "starting with"
+        case .path: "matching"
+        case .regex: "matching the pattern"
+        }
+        return "\(what) \(how) \(m.text)" + (m.except.isEmpty ? "" : ", unless \(m.except)")
     }
 }
 

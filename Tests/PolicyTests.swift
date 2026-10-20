@@ -76,6 +76,65 @@ func policyTests() {
         expect(Policies.isValid(#"\bx"#) && !Policies.isValid("(["))
         expectEqual(PolicyDecision.allow.strength, 0)
     }
+    test("editor rules: words, command starts, paths, regex") {
+        func rule(_ kind: PolicyMatch.Kind, _ text: String, except: String = "", scope: PolicyScope = .commands,
+                  folders: [String] = []) -> PolicyRule? {
+            Policies.rule(id: "r", name: " ", scope: scope, match: PolicyMatch(kind: kind, text: text, except: except),
+                          decision: .deny, message: " why \n", folders: folders)
+        }
+        func hits(_ r: PolicyRule?, _ subject: String, tool: String = "Bash", cwd: String = "") -> Bool {
+            Policies.matches(r!, tool: tool, subject: subject, cwd: cwd)
+        }
+        let publish = rule(.contains, "npm  publish", except: "--dry-run")
+        expectEqual(publish?.name, "npm  publish")
+        expectEqual(publish?.message, "why")
+        expect(publish?.folders == nil)
+        expect(hits(publish, "cd x && NPM   publish --tag next"))
+        expect(!hits(publish, "npm publisher"))
+        expect(!hits(publish, "npm publish --dry-run"))
+        expect(!hits(publish, "npm publish", tool: "Read"))
+        let reset = rule(.startsWith, "git reset --hard")
+        expect(hits(reset, "git reset --hard HEAD~1"))
+        expect(hits(reset, "make && git reset --hard"))
+        expect(!hits(reset, "echo git reset --hard"))
+        let dash = rule(.contains, "--no-verify")
+        expect(hits(dash, "git commit --no-verify -m x"))
+        let keys = rule(.path, "*.pem", scope: .files)
+        expect(hits(keys, "/Users/x/keys/server.pem", tool: "Read"))
+        expect(!hits(keys, "/Users/x/server.pem.txt", tool: "Edit"))
+        expect(!hits(keys, "/x/a.pem", tool: "Bash"))
+        let secrets = rule(.path, "secrets/**", scope: .files)
+        expect(hits(secrets, "/p/secrets/a/b.json", tool: "Write"))
+        let one = rule(.path, "config?.yml", scope: .anyTool)
+        expect(hits(one, "/p/config1.yml", tool: "Grep"))
+        expect(!hits(one, "/p/config12.yml"))
+        let re = rule(.regex, #"\bdocker\s+rm\b"#, except: "--dry")
+        expect(hits(re, "docker rm x") && !hits(re, "docker rm --dry"))
+        expect(rule(.regex, "([") == nil)
+        expect(rule(.contains, "   ") == nil)
+        // An exception written for "starts with" is matched anywhere in the command.
+        let startEx = rule(.startsWith, "rm", except: "tmp")
+        expect(!hits(startEx, "rm -r /tmp/x"))
+        let scoped = rule(.contains, "deploy", folders: ["/work/api"])
+        expectEqual(scoped?.folders, ["/work/api"])
+        expect(hits(scoped, "deploy", cwd: "/work/api"))
+        expect(hits(scoped, "deploy", cwd: "/work/api/sub"))
+        expect(!hits(scoped, "deploy", cwd: "/work/api2"))
+        expect(!hits(scoped, "deploy"))
+        var slash = scoped!; slash.folders = ["/work/api/"]
+        expect(hits(slash, "deploy", cwd: "/work/api/x"))
+        // The checker passes the session's folder.
+        let box = Sandbox(); defer { box.cleanup() }
+        try Policies.save(PolicySettings(rules: [scoped!]))
+        expect(Policies.check(Data(#"{"tool_name":"Bash","cwd":"/work/api","tool_input":{"command":"deploy"}}"#.utf8)) != nil)
+        expect(Policies.check(Data(#"{"tool_name":"Bash","cwd":"/work/web","tool_input":{"command":"deploy"}}"#.utf8)) == nil)
+    }
+    test("scope from tools") {
+        expectEqual(PolicyScope(tools: ["Bash"]), .commands)
+        expectEqual(PolicyScope(tools: PolicyScope.fileTools), .files)
+        expectEqual(PolicyScope(tools: []), .anyTool)
+        expectEqual(PolicyScope.anyTool.tools, [])
+    }
     test("what's matched: command, then file or path") {
         expectEqual(Policies.subject(of: ["command": "ls", "file_path": "x"]), "ls")
         expectEqual(Policies.subject(of: ["notebook_path": "n.ipynb"]), "n.ipynb")
