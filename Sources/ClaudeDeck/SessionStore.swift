@@ -21,6 +21,7 @@ final class SessionStore {
     var showSwitcher = false
     var showNewSession = false
     var showUsage = false
+    var showPolicies = false
     /// A session we just started (and the terminal it's in): select it as soon as it appears.
     private var starting: (folder: String, at: Date, terminal: String?)?
     /// A session being restarted, and the start times that keep restarted sessions in their slot.

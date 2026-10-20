@@ -10,7 +10,7 @@ enum PendingRequests {
     nonisolated(unsafe) static var dir: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("com.devenbhooshan.claudedeck/pending")
 
-    static var settingsURL: URL { ClaudePaths.home.appendingPathComponent("settings.json") }
+    static var settingsURL: URL { ClaudeSettings.url }
     private static let marker = "com.devenbhooshan.claudedeck/pending"
 
     /// Writes stdin to a unique file and prints nothing, so Claude's normal dialog still appears.
@@ -74,32 +74,10 @@ enum PendingRequests {
         }
     }
 
-    static var isInstalled: Bool {
-        guard let text = try? String(contentsOf: settingsURL, encoding: .utf8) else { return false }
-        return text.contains(marker)
-    }
+    static var isInstalled: Bool { ClaudeSettings.contains(marker) }
 
     /// Adds the hook to ~/.claude/settings.json (after backing it up). Running sessions pick it up live.
     static func install() throws {
-        let fm = FileManager.default
-        // Write through a symlinked settings file (dotfiles setups) instead of replacing the link.
-        let settingsURL = settingsURL.resolvingSymlinksInPath()
-        var settings: [String: Any] = [:]
-        if let data = try? Data(contentsOf: settingsURL) {
-            guard let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                throw NSError(domain: "ClaudeDeck", code: 1, userInfo: [NSLocalizedDescriptionKey: "~/.claude/settings.json isn't a JSON object"])
-            }
-            settings = obj
-            let backup = settingsURL.appendingPathExtension("claudedeck-backup")
-            try? fm.removeItem(at: backup)
-            try fm.copyItem(at: settingsURL, to: backup)
-        }
-        var hooks = settings["hooks"] as? [String: Any] ?? [:]
-        var entries = hooks["PermissionRequest"] as? [[String: Any]] ?? []
-        entries.append(["matcher": "", "hooks": [["type": "command", "command": hookCommand]]])
-        hooks["PermissionRequest"] = entries
-        settings["hooks"] = hooks
-        let data = try JSONSerialization.data(withJSONObject: settings, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
-        try data.write(to: settingsURL, options: .atomic)
+        try ClaudeSettings.addHook(event: "PermissionRequest", command: hookCommand)
     }
 }

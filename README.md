@@ -66,6 +66,22 @@ integration?"*: Claude Haiku turns it into a search (fixing typos, adding relate
 latest), Deck searches locally, and Haiku answers with the session and moment. ↩ on any match opens
 the session right there, even in a long or old transcript ("Back to Latest" returns to the live end).
 
+## Policies: ⇧⌘P
+
+Rules checked before every tool call in every Claude Code session on this Mac, managed in one
+place. **Turn On…** adds a `PreToolUse` hook to `~/.claude/settings.json` (after a backup) that
+runs `deck-policy`, a small checker bundled in Deck.app. When a rule matches, it blocks the call
+(Claude is told why), or asks you first; otherwise Claude carries on as usual. It works even when
+Deck isn't open, and if the checker fails Claude carries on (a Deck bug never stalls a session).
+
+Built in: deleting / or ~, `rm -rf` (asks), `sudo`, `git push --force`, pushing to main (off by
+default), `.env` files, destructive SQL, `terraform apply` / `destroy`, `kubectl` changes, and
+piping a download into a shell. Switch each on or off in the Policies sheet, which also lists
+what was recently caught. Claude can never edit the policy file or its log.
+
+Rules and switches live in `~/Library/Application Support/ClaudeDeck/policies.json`, decisions in
+`policy-log.jsonl` next to it.
+
 ## Themes
 
 **View → Theme** (or the menu bar panel): **Classic** (follows the system, Claude's terracotta) or
@@ -100,6 +116,8 @@ All of these are also listed in the **Sessions** menu.
 | ⌘R | Rename the selected session |
 | ⌥⌘R | Restart the selected session (quits and resumes Claude in the same terminal, so new skills, MCP servers and settings load; it keeps its number) |
 | ⇧⌘T | Open the selected session's terminal |
+| ⇧⌘E | End the selected session (quits Claude and closes its terminal) |
+| ⇧⌘P | Policies |
 | ⌥⌘A | Switch the open session between Conversation and Activity |
 | ⇧⌘H | Activity History: every PR, ticket, push and screenshot across sessions |
 | ⌘. | Stop Claude's current step (also the Stop button on the "Working…" pill) |

@@ -93,6 +93,14 @@ struct ContentView: View {
             }
             ToolbarItem {
                 Button {
+                    store.showPolicies = true
+                } label: {
+                    Label("Policies", systemImage: "checkmark.shield")
+                }
+                .help("Rules checked before every tool call in every session (⇧⌘P)")
+            }
+            ToolbarItem {
+                Button {
                     store.showNewSession = true
                 } label: {
                     Label("New Session", systemImage: "plus")
@@ -102,6 +110,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $store.showNewSession) { NewSessionSheet() }
         .sheet(isPresented: $store.showUsage) { UsageSheet() }
+        .sheet(isPresented: $store.showPolicies) { PoliciesSheet() }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 8) {
                 if !store.hookInstalled {

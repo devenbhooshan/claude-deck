@@ -95,6 +95,8 @@ struct SessionCommands: Commands {
                 .keyboardShortcut("n", modifiers: .command)
             Button("Plan Usage…") { store.showUsage = true }
                 .keyboardShortcut("u", modifiers: [.command, .shift])
+            Button("Policies…") { store.showPolicies = true; store.bringToFront() }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
             Button("Show / Hide Floating Dock") { FloatingDock.shared.toggle(store: store, usage: usage) }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
             Divider()
