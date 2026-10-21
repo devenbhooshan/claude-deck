@@ -315,6 +315,7 @@ struct TranscriptRenderer {
         if c.loaded && out.length == 0 {
             out.append(notice("No messages yet", symbol: nil, color: .tertiaryLabelColor))
         }
+        Self.linkify(out)
         return out
     }
 
@@ -706,6 +707,24 @@ struct TranscriptRenderer {
             out.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: attrs))
         }
         return out
+    }
+
+    private static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+
+    /// Makes plain web addresses clickable wherever they appear (messages, tool output, code),
+    /// leaving text that's already a link alone. Only http, https and mailto: what a click may open.
+    static func linkify(_ s: NSMutableAttributedString) {
+        let full = NSRange(location: 0, length: s.length)
+        for match in detector.matches(in: s.string, range: full) {
+            guard let url = match.url, let scheme = url.scheme?.lowercased(),
+                  TranscriptTextController.openableSchemes.contains(scheme) else { continue }
+            var linked = false
+            s.enumerateAttribute(.link, in: match.range) { value, _, stop in
+                if value != nil { linked = true; stop.pointee = true }
+            }
+            if linked { continue }
+            s.addAttributes([.link: url, .toolTip: url.absoluteString, .foregroundColor: Palette.accent], range: match.range)
+        }
     }
 
     static func parseInline(_ s: String) throws -> AttributedString {
