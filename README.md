@@ -73,6 +73,13 @@ When Claude replies in a session you're not looking at, its row shows a count of
 session counts as read once you open it with Deck in front, or when you send it a message (from
 Deck or its terminal). Notices like background task results and subagents' messages don't count.
 
+## Links and files
+
+Web addresses in the chat are clickable and open in your browser. Paths to PDFs, images and HTML
+pages that Claude writes or mentions (`docs/report.pdf`, `~/Desktop/Screenshot … .png`) open in
+Deck's own viewer window, which reloads when the file changes. Reload with ⌘R, or open the file
+in Finder or its usual app from the toolbar. Links inside a page open in your browser.
+
 ## Policies: ⇧⌘P
 
 Rules checked before every tool call in every Claude Code session on this Mac, managed in one

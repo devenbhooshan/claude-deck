@@ -49,6 +49,11 @@ struct ClaudeDeckApp: App {
             }
         }
 
+        // PDFs, images and web pages opened from a transcript.
+        WindowGroup("Viewer", id: "viewer", for: URL.self) { $url in
+            if let url { FileViewer(url: url).id(appliedTheme) }
+        }
+        .defaultSize(width: 900, height: 700)
 
         MenuBarExtra {
             MenuBarContent().environment(store).environment(usage).environment(activity).id(theme)

@@ -55,10 +55,13 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
     static let openableSchemes: Set<String> = ["http", "https", "mailto"]
 
     private let openURL: (URL) -> Bool
+    private let openFile: (URL) -> Void
 
     /// `openURL` opens an allowed link; the app passes NSWorkspace, tests pass a recorder.
-    init(openURL: @escaping (URL) -> Bool) {
+    /// `openFile` shows a PDF, image or web page in Deck's viewer.
+    init(openURL: @escaping (URL) -> Bool, openFile: @escaping (URL) -> Void = { _ in }) {
         self.openURL = openURL
+        self.openFile = openFile
     }
 
     /// Builds the scroll view + text view pair this controller drives.
@@ -207,7 +210,9 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
             render(force: true)
             return true
         }
-        if let scheme = url.scheme?.lowercased(), Self.openableSchemes.contains(scheme) {
+        if let file = FileLinks.file(for: url, cwd: content?.cwd ?? "") {
+            openFile(file)
+        } else if let scheme = url.scheme?.lowercased(), Self.openableSchemes.contains(scheme) {
             _ = openURL(url)
         }
         return true
@@ -315,7 +320,7 @@ struct TranscriptRenderer {
         if c.loaded && out.length == 0 {
             out.append(notice("No messages yet", symbol: nil, color: .tertiaryLabelColor))
         }
-        Self.linkify(out)
+        Self.linkify(out, cwd: c.cwd)
         return out
     }
 
@@ -713,17 +718,24 @@ struct TranscriptRenderer {
 
     /// Makes plain web addresses clickable wherever they appear (messages, tool output, code),
     /// leaving text that's already a link alone. Only http, https and mailto: what a click may open.
-    static func linkify(_ s: NSMutableAttributedString) {
+    /// Paths to PDFs, images and web pages that exist become links that open them in Deck.
+    static func linkify(_ s: NSMutableAttributedString, cwd: String = "",
+                        exists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }) {
+        func link(_ range: NSRange, _ url: URL, tip: String) {
+            var linked = false
+            s.enumerateAttribute(.link, in: range) { value, _, stop in
+                if value != nil { linked = true; stop.pointee = true }
+            }
+            if !linked { s.addAttributes([.link: url, .toolTip: tip, .foregroundColor: Palette.accent], range: range) }
+        }
         let full = NSRange(location: 0, length: s.length)
         for match in detector.matches(in: s.string, range: full) {
             guard let url = match.url, let scheme = url.scheme?.lowercased(),
                   TranscriptTextController.openableSchemes.contains(scheme) else { continue }
-            var linked = false
-            s.enumerateAttribute(.link, in: match.range) { value, _, stop in
-                if value != nil { linked = true; stop.pointee = true }
-            }
-            if linked { continue }
-            s.addAttributes([.link: url, .toolTip: url.absoluteString, .foregroundColor: Palette.accent], range: match.range)
+            link(match.range, url, tip: url.absoluteString)
+        }
+        for (range, file) in FileLinks.find(in: s.string, cwd: cwd, exists: exists) {
+            link(range, FileLinks.link(to: file.path), tip: "Open \(file.lastPathComponent) in Deck")
         }
     }
 
