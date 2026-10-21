@@ -66,9 +66,14 @@ enum Format {
         }
     }
 
-    /// Elapsed time for the working indicator: "42s", "3m 5s".
+    /// Elapsed time for the working indicator: "42s", "3m 5s", "18h 58m", "2d 3h".
     static func elapsed(since start: Date, now: Date = Date()) -> String {
         let s = max(0, Int(now.timeIntervalSince(start)))
-        return s < 60 ? "\(s)s" : "\(s / 60)m \(s % 60)s"
+        switch s {
+        case ..<60: return "\(s)s"
+        case ..<3600: return "\(s / 60)m \(s % 60)s"
+        case ..<86400: return "\(s / 3600)h \(s % 3600 / 60)m"
+        default: return "\(s / 86400)d \(s % 86400 / 3600)h"
+        }
     }
 }

@@ -206,6 +206,21 @@ final class SessionStore {
         }
     }
 
+    /// Stops a command Claude left running in the background (and everything it started).
+    func stopTask(_ task: BackgroundTask, in s: Session) {
+        Task.detached {
+            let stopped = BackgroundTasks.stop(task)
+            await MainActor.run {
+                if stopped {
+                    HUD.show("Stopped", detail: task.command, symbol: "stop.circle.fill", tint: Theme.danger)
+                } else {
+                    self.lastError = "\(task.command) had already stopped."
+                }
+                self.refresh()
+            }
+        }
+    }
+
     func openTerminal(_ s: Session) {
         Task {
             do { try await Ghostty.focus(s) } catch { lastError = error.localizedDescription }

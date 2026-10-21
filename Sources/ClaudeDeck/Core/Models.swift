@@ -25,7 +25,8 @@ extension SessionRecord {
 }
 
 enum SessionStatus: String {
-    /// `background`: Claude is at its prompt but a background task it started is still running.
+    /// `background`: Claude is at its prompt but a background task it started is still running
+    /// (one that isn't a server; a session running only servers counts as idle).
     case waiting, busy, background, idle, ended
 
     var label: String {
@@ -66,8 +67,12 @@ struct Session: Identifiable, Equatable {
     var pendingTool: ToolCall? = nil
     /// When the session started; running sessions keep this order so they never jump around.
     var startedAt: Date? = nil
+    /// Commands Claude started in the background that are still running.
+    var background: [BackgroundTask] = []
 
     var isLive: Bool { pid != nil }
+    /// Only servers and watchers run in the background: shown as idle, with the server noted.
+    var onlyServers: Bool { !background.isEmpty && background.allSatisfy(\.isServer) }
 
     /// `statusSince` as Claude Code writes it (milliseconds), to identify the prompt being answered.
     var statusStamp: Double? { statusSince.map { $0.timeIntervalSince1970 * 1000 } }

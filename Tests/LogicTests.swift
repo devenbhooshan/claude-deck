@@ -4,6 +4,7 @@ func modelTests() {
     test("status labels and ranks") {
         expectEqual([SessionStatus.waiting, .busy, .idle, .ended].map(\.label), ["Needs you", "Working", "Idle", "Ended"])
         expectEqual([SessionStatus.waiting, .busy, .background, .idle, .ended].map(\.sortRank), [0, 1, 2, 3, 4])
+        expectEqual(SessionStatus.background.label, "Background task")
     }
     test("display title falls back from title to name to folder") {
         expectEqual(session("a", cwd: "/x/proj", title: "T", name: "N").displayTitle, "T")
@@ -48,6 +49,8 @@ func formatTests() {
         let now = Date(timeIntervalSince1970: 1000)
         expectEqual(Format.elapsed(since: now.addingTimeInterval(-42), now: now), "42s")
         expectEqual(Format.elapsed(since: now.addingTimeInterval(-185), now: now), "3m 5s")
+        expectEqual(Format.elapsed(since: now.addingTimeInterval(-68285), now: now), "18h 58m")
+        expectEqual(Format.elapsed(since: now.addingTimeInterval(-(2 * 86400 + 3 * 3600 + 59)), now: now), "2d 3h")
         expect(!Format.elapsed(since: Date()).isEmpty)
     }
     test("short path") {

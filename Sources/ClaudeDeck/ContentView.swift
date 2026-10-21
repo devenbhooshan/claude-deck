@@ -314,6 +314,12 @@ struct SessionRow<Accessory: View>: View {
                         .font(.body.weight(session.status == .waiting ? .semibold : .regular))
                         .lineLimit(1)
                     Spacer(minLength: 4)
+                    if !session.background.isEmpty && accessory == nil {
+                        Image(systemName: session.onlyServers ? "server.rack" : "terminal")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .help(session.background.map(\.command).joined(separator: "\n") + " running in the background")
+                    }
                     if let accessory {
                         accessory
                     } else {

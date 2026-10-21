@@ -9,12 +9,15 @@ enum SessionLoader {
         return try? JSONDecoder().decode(SessionRecord.self, from: data)
     }
 
-    static func loadLive(cache: [String: TitleInfo], alive: (Int32) -> Bool = isAlive) -> ([Session], [String: TitleInfo]) {
+    static func loadLive(cache: [String: TitleInfo], alive: (Int32) -> Bool = isAlive,
+                         tasks: () -> [Int32: [BackgroundTask]] = BackgroundTasks.snapshot) -> ([Session], [String: TitleInfo]) {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(atPath: ClaudePaths.sessions.path) else { return ([], [:]) }
         let requests = PendingRequests.load()
         var updates: [String: TitleInfo] = [:]
         var sessions: [String: Session] = [:]
+        // The process list is read once, and only if some session runs a background task.
+        var running: [Int32: [BackgroundTask]]?
         for file in files where file.hasSuffix(".json") {
             let url = ClaudePaths.sessions.appendingPathComponent(file)
             guard let data = try? Data(contentsOf: url),
@@ -23,10 +26,15 @@ enum SessionLoader {
             let transcript = ClaudePaths.transcript(for: rec.sessionId, cwd: rec.cwd)
             let (title, update) = title(for: transcript, cache: cache)
             if let transcript, let update { updates[transcript.path] = update }
+            var background: [BackgroundTask] = []
+            if rec.status == "shell" {
+                if running == nil { running = tasks() }
+                background = running?[rec.pid] ?? []
+            }
             let status: SessionStatus = switch rec.status {
             case "waiting": .waiting
             case "busy": .busy
-            case "shell": .background
+            case "shell": !background.isEmpty && background.allSatisfy(\.isServer) ? .idle : .background
             default: .idle
             }
             var s = Session(
@@ -35,7 +43,7 @@ enum SessionLoader {
                 updatedAt: Date(timeIntervalSince1970: (rec.updatedAt ?? rec.startedAt ?? 0) / 1000),
                 transcriptURL: transcript,
                 statusSince: rec.statusUpdatedAt.map { Date(timeIntervalSince1970: $0 / 1000) },
-                startedAt: rec.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) })
+                startedAt: rec.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) }, background: background)
             // Only trust a captured request made around the time this prompt opened.
             if status == .waiting, let req = requests[rec.sessionId],
                req.date.timeIntervalSince(s.statusSince ?? .distantPast) > -10 {

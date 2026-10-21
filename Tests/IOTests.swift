@@ -32,15 +32,20 @@ func loaderTests() {
         // A headless run (like Deck's own `claude -p /usage` check) isn't a session you can use.
         box.write("claude/sessions/10.json", #"{"pid":10,"sessionId":"headless","cwd":"/tmp","kind":"interactive","entrypoint":"sdk-cli","status":"busy"}"#)
         box.write("claude/sessions/12.json", record(12, "bg", status: "shell"))
+        box.write("claude/sessions/13.json", record(13, "srv", status: "shell"))
         box.write("claude/sessions/11.json", #"{"pid":11,"sessionId":"term","cwd":"/p/app","startedAt":2000000,"entrypoint":"cli"}"#)
         box.jsonl("claude/projects/-p-app/w.jsonl", [["type": "ai-title", "aiTitle": "Waiting one"]])
         box.write("pending/req.a", #"{"session_id":"w","tool_name":"Bash","tool_input":{"command":"rm -rf x"}}"#)
         let old = box.write("pending/req.b", #"{"session_id":"old","tool_name":"Bash","tool_input":{}}"#)
         setMTime(old, Date().addingTimeInterval(-3600))
 
-        let (live, updates) = SessionLoader.loadLive(cache: [:], alive: { $0 != 4 })
+        let server = BackgroundTask(pid: 50, parent: 13, command: "bin/dev", started: Date(), isServer: true)
+        let job = BackgroundTask(pid: 51, parent: 12, command: "make test", started: Date(), isServer: false)
+        var reads = 0
+        let (live, updates) = SessionLoader.loadLive(cache: [:], alive: { $0 != 4 }, tasks: { reads += 1; return [12: [job], 13: [server]] })
+        expectEqual(reads, 1) // the process list is read once
         // Stable order: by start time, then id; status and activity don't move a session.
-        expectEqual(live.map(\.id), ["b", "bg", "dup", "i", "old", "w", "term"])
+        expectEqual(live.map(\.id), ["b", "bg", "dup", "i", "old", "srv", "w", "term"])
         let w = live.first { $0.id == "w" }!
         expectEqual(w.title, "Waiting one")
         expectEqual(w.pendingTool?.summary, "rm -rf x")
@@ -48,10 +53,22 @@ func loaderTests() {
         expectEqual(live[0].status, .busy)
         expectEqual(live.first { $0.id == "i" }?.status, .idle)
         expectEqual(live.first { $0.id == "bg" }?.status, .background)
+        expectEqual(live.first { $0.id == "bg" }?.background, [job])
+        // A session running only a server counts as idle, with the server noted.
+        let srv = live.first { $0.id == "srv" }!
+        expectEqual(srv.status, .idle)
+        expect(srv.onlyServers && !live.first { $0.id == "bg" }!.onlyServers && !live.first { $0.id == "i" }!.onlyServers)
         expectEqual(live.first { $0.id == "dup" }?.pid, 7)
         expectEqual(updates.count, 1)
         expect(w.statusSince != nil)
         expectEqual(live[0].startedAt, Date(timeIntervalSince1970: 0.5))
+    }
+    test("live sessions: a background task the process list doesn't show is still a background task") {
+        let box = Sandbox(); defer { box.cleanup() }
+        box.write("claude/sessions/\(getpid()).json", #"{"pid":\#(getpid()),"sessionId":"sh","cwd":"/p","status":"shell"}"#)
+        let s = SessionLoader.loadLive(cache: [:]).0.first!
+        expectEqual(s.status, .background)
+        expect(s.background.isEmpty)
     }
     test("live sessions: defaults for missing timestamps; default liveness check") {
         let box = Sandbox(); defer { box.cleanup() }
