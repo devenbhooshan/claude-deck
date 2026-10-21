@@ -74,10 +74,21 @@ runs `deck-policy`, a small checker bundled in Deck.app. When a rule matches, it
 (Claude is told why), or asks you first; otherwise Claude carries on as usual. It works even when
 Deck isn't open, and if the checker fails Claude carries on (a Deck bug never stalls a session).
 
-Built in: deleting / or ~, `rm -rf` (asks), `sudo`, `git push --force`, pushing to main (off by
-default), `.env` files, destructive SQL, `terraform apply` / `destroy`, `kubectl` changes, and
-piping a download into a shell. Switch each on or off in the Policies sheet, which also lists
-what was recently caught. Claude can never edit the policy file or its log.
+Built in, in groups: **production and deploys** (running code on production via `railway ssh` /
+`run`, `kamal app exec`, `RAILS_ENV=production`; deploys and pipeline runs; changing secrets or env
+vars; AWS changes; printing env secrets), **git and GitHub** (force pushes, blocked on main;
+discarding uncommitted work; `--no-verify`; merging PRs; deleting or publishing on GitHub; pushing
+to main), **data** (DROP, TRUNCATE, DELETE or UPDATE without WHERE, `db:reset`, `FLUSHALL`,
+`delete_all`), **secrets** (private keys and credential files, `.env` files, Claude Code's own
+settings, publishing packages) and **your Mac** (deleting / or ~, `rm -rf` outside temp folders,
+`sudo`, `curl | sh`, system settings, global installs). Most ask rather than block. Switch each on
+or off in the Policies sheet, which also lists what was recently caught. Claude can never edit
+the policy file or its log.
+
+**Suggest from History** reads the commands your sessions ran in the last 30 days, grouped by
+their first words (`railway ssh`, `gh pr merge`…, with secrets masked), and asks Claude (your
+`claude` CLI) for rules covering the risky ones you don't have yet. Each suggestion says why and
+how many times it would have fired, with an example; add it as is, edit it first, or dismiss it.
 
 **New Rule** opens an editor: when Claude runs a command, reads or edits a file, or uses any tool;
 what it contains, starts with, or which path it is (`*.pem`, `secrets/**`), or a regex; an

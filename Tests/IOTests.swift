@@ -11,7 +11,7 @@ private func record(_ pid: Int32, _ id: String, cwd: String = "/p/app", status: 
     return String(data: try! JSONSerialization.data(withJSONObject: o), encoding: .utf8)!
 }
 
-private func setMTime(_ url: URL, _ date: Date) {
+func setMTime(_ url: URL, _ date: Date) {
     try! FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
 }
 

@@ -35,8 +35,8 @@ enum ActivitySummarizer {
     static let maxSummary = 220
 
     /// `claude` arguments for one structured, tool-less, unsaved Haiku call.
-    static func arguments(prompt: String, schema: String) -> [String] {
-        ["-p", "--model", "haiku", "--no-session-persistence", "--tools", "", "--strict-mcp-config",
+    static func arguments(prompt: String, schema: String, model: String = "haiku") -> [String] {
+        ["-p", "--model", model, "--no-session-persistence", "--tools", "", "--strict-mcp-config",
          "--disable-slash-commands", "--output-format", "json", "--json-schema", schema, prompt]
     }
 

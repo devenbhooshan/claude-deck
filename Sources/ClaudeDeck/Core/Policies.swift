@@ -150,44 +150,105 @@ enum Policies {
         pattern: #"ClaudeDeck/(?:policies\.json|policy-log\.jsonl)"#, except: nil, decision: .deny,
         message: "Deck's policy file and log can only be changed from Claude Deck.")
 
+    private static let notHelp = #"(?:^|\s)(?:--help|-h)(?:\s|$)"#
+
     static let builtins: [PolicyRule] = [
+        // Production and deploys
+        PolicyRule(id: "ask-prod-console", name: "Running code against production", tools: ["Bash"],
+                   pattern: #"\b(?:kamal\s+(?:app\s+exec|console|shell|dbc)|railway\s+(?:ssh|run|connect|shell)|heroku\s+(?:run|pg:psql)|fly(?:ctl)?\s+(?:ssh|console))\b|RAILS_ENV=production|PROD_DATABASE_URL|\.env\.production\b"#,
+                   except: notHelp, decision: .ask,
+                   message: "This runs code on a production server or against production data."),
+        PolicyRule(id: "ask-deploy", name: "Deploys and pipeline runs", tools: ["Bash"],
+                   pattern: #"\b(?:kamal\s+(?:deploy|setup|redeploy|rollback|remove|app\s+(?:boot|start|stop|remove)|accessory\s+(?:boot|reboot|remove|restart|stop))|railway\s+(?:up|redeploy|down|delete|restart)|(?:fly|flyctl)\s+deploy|gh\s+(?:workflow\s+run|run\s+rerun))\b|\b(?:vercel|netlify\s+deploy)\b[^\n;&|]*--prod\b"#,
+                   except: notHelp, decision: .ask, message: "This deploys, or starts a pipeline that may deploy."),
+        PolicyRule(id: "ask-prod-config", name: "Changing secrets or environment variables", tools: ["Bash"],
+                   pattern: #"\b(?:railway\s+variables?\b[^\n;&|]*(?:--set\b|\sset\b|\sdelete\b)|gh\s+(?:secret|variable)\s+(?:set|delete|remove)|kamal\s+(?:env\s+push|secrets\s+(?:set|push))|heroku\s+config:(?:set|unset)|fly(?:ctl)?\s+secrets\s+(?:set|unset))\b"#,
+                   except: notHelp, decision: .ask, message: "This changes a deployed app's secrets or settings."),
+        PolicyRule(id: "ask-cloud-changes", name: "AWS changes", tools: ["Bash"],
+                   pattern: #"\baws\s+(?:--?\S+\s+(?:[^-\s]\S*\s+)?)*(?:[a-z0-9-]+)\s+(?:create|delete|put|update|modify|authorize|revoke|terminate|run|start|stop|reboot|attach|detach|associate|disassociate|remove|add|register|deregister|tag|untag|reset|restore|replace|set|enable|disable|import|copy|cancel)-[a-z0-9-]+|\baws\s+s3\s+(?:rm|rb|mv)\b|\baws\s+s3\s+sync\b[^\n;&|]*--delete\b"#,
+                   except: notHelp, decision: .ask,
+                   message: "This changes AWS resources (read-only describe, list and get calls aren't asked)."),
+        PolicyRule(id: "ask-env-dump", name: "Printing secrets from the environment", tools: ["Bash"],
+                   pattern: #"\bprintenv\b|(?:^|[;&|(]|['"])\s*(?:env|export\s+-p)\s*(?=$|[|;&)'"])|\brailway\s+variables?\b(?![^\n;&|]*(?:--set\b|\sset\b|\sdelete\b))|\bkamal\s+secrets\s+print\b|\bheroku\s+config\b(?!:)|/proc/\S+/environ"#,
+                   except: notHelp, decision: .ask, message: "The output may contain API keys and passwords."),
+        // Git and GitHub
+        PolicyRule(id: "block-force-push-main", name: "Force pushing main or master", tools: ["Bash"],
+                   pattern: #"\bgit\b(?=[^;&|\n]*\bpush\b)(?=[^;&|\n]*(?:\s--force\S*|\s-[a-zA-Z]*f\b|\s\+\S))(?=[^;&|\n]*\s\+?(?:\S+:)?(?:main|master)\b)"#,
+                   except: nil, decision: .deny,
+                   message: "Force pushing main rewrites shared history and is blocked. Ask the user."),
+        PolicyRule(id: "ask-force-push", name: "git push --force", tools: ["Bash"],
+                   pattern: #"\bgit\b[^;&|\n]*\bpush\b[^;&|\n]*(?:\s--force\S*|\s-[a-zA-Z]*f\b|\s\+\S+)"#,
+                   except: nil, decision: .ask, message: "A force push overwrites the remote branch."),
+        PolicyRule(id: "ask-push-main", name: "Pushing to main or master", tools: ["Bash"],
+                   pattern: #"\bgit\b[^;&|\n]*\bpush\b[^;&|\n]*\s(?:\S+:)?(?:main|master)\b"#,
+                   except: nil, decision: .ask, message: "This pushes straight to main."),
+        PolicyRule(id: "ask-discard-changes", name: "Discarding uncommitted work", tools: ["Bash"],
+                   pattern: #"\bgit\s+(?:reset\s+[^\n;&|]*--hard\b|checkout\s+(?:-f\s+|--force\s+)?(?:--\s+)?\.(?=$|[\s;&|])|restore\s+(?!(?:--staged|-S)\s+\.)(?:--?\S+\s+)*\.(?=$|[\s;&|])|clean\s+-[a-zA-Z]*[fdx]|stash\s+(?:drop|clear)\b|branch\s+(?:-D|-d\s+-f|--delete\s+--force)\b)"#,
+                   except: nil, decision: .ask, message: "This throws away changes or a branch that may not be saved anywhere else."),
+        PolicyRule(id: "ask-no-verify", name: "Skipping git hooks (--no-verify)", tools: ["Bash"],
+                   pattern: #"\bgit\s+(?:commit|push|merge|rebase)\b[^\n;&|]*\s--no-verify\b"#,
+                   except: nil, decision: .ask, message: "This skips the repo's checks (lint, tests) that run on commit or push."),
+        PolicyRule(id: "ask-pr-merge", name: "Merging pull requests", tools: ["Bash"],
+                   pattern: #"\bgh\s+pr\s+merge\b"#, except: notHelp, decision: .ask,
+                   message: "Merging can ship straight to production."),
+        PolicyRule(id: "ask-github-changes", name: "Deleting or publishing on GitHub", tools: ["Bash"],
+                   pattern: #"\bgh\s+(?:repo\s+(?:delete|archive|rename|edit\b[^\n;&|]*--visibility)|release\s+(?:create|delete|edit|upload)|pr\s+close|issue\s+delete|api\b[^\n;&|]*(?:-X|--method)\s*(?:DELETE|PUT|PATCH))\b"#,
+                   except: notHelp, decision: .ask, message: "This deletes, publishes or changes something on GitHub."),
+        // Data
+        PolicyRule(id: "ask-destructive-data", name: "Deleting or overwriting data", tools: ["Bash"],
+                   pattern: #"(?i)\b(?:drop\s+(?:table|database|schema)|truncate\s+(?:table\s+)?\w+)\b|\bdelete\s+from\s+[\w."`]+\s*(?:;|$|["'])|\bupdate\s+[\w."`]+\s+set\b(?![^;'"]*\bwhere\b)|\b(?:rails|rake)\s+db:(?:drop|reset|purge|schema:load|structure:load|truncate_all|seed:replant)\b|\bflush(?:all|db)\b|\.(?:destroy_all|delete_all|update_all)\b"#,
+                   except: nil, decision: .ask, message: "This deletes or rewrites rows in bulk."),
+        // Secrets and files
+        PolicyRule(id: "block-private-keys", name: "Private keys and credential files", tools: [],
+                   pattern: #"(?:^|[\s/'"=~])(?:id_(?:rsa|ed25519|ecdsa|dsa)(?!\.pub)\b|\.aws/credentials\b|master\.key\b|\.netrc\b|\.pgpass\b)"#,
+                   except: nil, decision: .deny,
+                   message: "Private keys and credential files are off limits. Ask the user if you need access."),
+        PolicyRule(id: "ask-env-files", name: "Secret .env files", tools: [],
+                   pattern: envFile, except: envExample, decision: .ask,
+                   message: ".env files hold secrets: API keys, passwords and production URLs."),
+        PolicyRule(id: "ask-claude-settings", name: "Editing Claude Code's settings", tools: ["Edit", "MultiEdit", "Write"],
+                   pattern: #"\.claude/settings(?:\.local)?\.json$"#, except: nil, decision: .ask,
+                   message: "This changes Claude Code's permissions or hooks."),
+        PolicyRule(id: "ask-package-publish", name: "Publishing packages or images", tools: ["Bash"],
+                   pattern: #"\b(?:(?:npm|pnpm|yarn)\s+publish|gem\s+push|cargo\s+publish|pod\s+trunk\s+push|twine\s+upload|docker\s+push)\b"#,
+                   except: #"--dry-run"#, decision: .ask, message: "This publishes to a public registry."),
+        // Your Mac
         PolicyRule(id: "block-rm-rf-home", name: "Deleting / or your home folder", tools: ["Bash"],
                    pattern: #"\brm\s+(?:-\S+\s+)+(?:/|/\*|~|~/|~/\*|\$HOME|\$HOME/|\$HOME/\*|\.\.?/?)(?=$|[\s;&|)])"#,
                    except: nil, decision: .deny,
                    message: "Recursive deletes of /, ~, . or .. are blocked. Delete specific paths instead."),
-        PolicyRule(id: "ask-rm-rf", name: "Recursive force delete (rm -rf)", tools: ["Bash"],
+        PolicyRule(id: "ask-rm-rf", name: "rm -rf outside temp folders", tools: ["Bash"],
                    pattern: #"\brm\s+(?:-\S+\s+)*-(?:[a-zA-Z]*[rR][a-zA-Z]*f|[a-zA-Z]*f[a-zA-Z]*[rR])[a-zA-Z]*\b"#,
-                   except: nil, decision: .ask, message: "rm -rf deletes without a way back."),
-        PolicyRule(id: "block-sudo", name: "sudo", tools: ["Bash"], pattern: #"(?:(?:^|[;&|(`]|\$\()\s*|\b(?:then|do|xargs|exec|env|time|nohup)\s+)sudo\s"#,
+                   except: #"/tmp/|/private/tmp/|\$TMPDIR|scratchpad|\$S\b|node_modules|\.build\b|\bbuild\b|\bdist\b|DerivedData"#,
+                   decision: .ask, message: "rm -rf deletes without a way back."),
+        PolicyRule(id: "block-sudo", name: "sudo", tools: ["Bash"],
+                   pattern: #"(?:(?:^|[;&|(`]|\$\()\s*|\b(?:then|do|xargs|exec|env|time|nohup)\s+)sudo\s"#,
                    except: nil, decision: .deny,
                    message: "sudo is blocked. Ask the user to run commands that need admin rights."),
-        PolicyRule(id: "block-force-push", name: "git push --force", tools: ["Bash"],
-                   pattern: #"\bgit\b[^;&|\n]*\bpush\b[^;&|\n]*(?:\s--force\S*|\s-[a-zA-Z]*f\b|\s\+\S+)"#,
-                   except: nil, decision: .deny,
-                   message: "Force pushes rewrite shared history and are blocked. Push normally or ask the user."),
-        PolicyRule(id: "ask-push-main", name: "Pushing to main or master", tools: ["Bash"],
-                   pattern: #"\bgit\b[^;&|\n]*\bpush\b[^;&|\n]*\s(?:\S+:)?(?:main|master)\b"#,
-                   except: nil, decision: .ask, message: "This pushes straight to main."),
-        PolicyRule(id: "block-env-files", name: "Secret .env files", tools: [],
-                   pattern: envFile, except: envExample, decision: .deny,
-                   message: ".env files hold secrets and are off limits. Ask the user for the values you need."),
-        PolicyRule(id: "ask-destructive-sql", name: "DROP, TRUNCATE or DELETE without WHERE", tools: ["Bash"],
-                   pattern: #"(?i)\b(?:drop\s+(?:table|database|schema)|truncate\s+(?:table\s+)?\w+)\b|\bdelete\s+from\s+[\w."`]+\s*(?:;|$|["'])"#,
-                   except: nil, decision: .ask, message: "This SQL deletes data."),
-        PolicyRule(id: "ask-terraform", name: "terraform apply / destroy", tools: ["Bash"],
-                   pattern: #"\bterraform\b[^;&|\n]*\s(?:apply|destroy|import|state\s+(?:rm|mv|push))\b"#,
-                   except: nil, decision: .ask, message: "This changes live infrastructure."),
-        PolicyRule(id: "ask-kubectl", name: "kubectl changes", tools: ["Bash"],
-                   pattern: #"\bkubectl\b[^;&|\n]*\s(?:apply|create|delete|replace|patch|edit|scale|rollout|drain|cordon|set)\b"#,
-                   except: nil, decision: .ask, message: "This changes a live cluster."),
         PolicyRule(id: "block-curl-pipe-shell", name: "Piping a download into a shell", tools: ["Bash"],
                    pattern: #"\b(?:curl|wget)\b[^;&\n]*\|\s*(?:sudo\s+)?(?:ba|z|da)?sh\b"#,
                    except: nil, decision: .deny,
                    message: "Running a downloaded script unseen is blocked. Download it, show it to the user, then run it."),
+        PolicyRule(id: "ask-system-changes", name: "Changing macOS system settings", tools: ["Bash"],
+                   pattern: #"\b(?:launchctl\s+(?:load|unload|bootstrap|bootout|remove|enable|disable)|crontab\s+(?!-l\b)\S|chsh\b|scutil\s+--set|networksetup\s+-set|pmset\s|csrutil\s|spctl\s+--master|dscl\s|systemsetup\s)|\bch(?:mod|own)\s+-R\s+\S+\s+(?:/|~/?|\$HOME/?)(?=$|\s)"#,
+                   except: nil, decision: .ask, message: "This changes how your Mac runs, outside any project."),
+        PolicyRule(id: "ask-global-install", name: "Installing tools globally", tools: ["Bash"],
+                   pattern: #"\b(?:(?:npm|pnpm)\s+(?:i|install|add)\b[^\n;&|]*\s(?:-g|--global)\b|yarn\s+global\s+add|gem\s+install|brew\s+(?:install|uninstall|upgrade|reinstall)|pipx?\s+install|pip3\s+install|cargo\s+install|go\s+install)\b"#,
+                   except: nil, decision: .ask, message: "This installs software for your whole Mac, not just this project."),
     ]
 
-    /// Built-ins that start switched off (they'd interrupt too often for most people).
-    static let offByDefault: Set<String> = ["ask-push-main"]
+    /// The built-ins in the groups the Policies sheet shows them in.
+    static let groups: [(title: String, ids: [String])] = [
+        ("Production & deploys", ["ask-prod-console", "ask-deploy", "ask-prod-config", "ask-cloud-changes", "ask-env-dump"]),
+        ("Git & GitHub", ["block-force-push-main", "ask-force-push", "ask-push-main", "ask-discard-changes", "ask-no-verify", "ask-pr-merge", "ask-github-changes"]),
+        ("Data", ["ask-destructive-data"]),
+        ("Secrets & files", ["block-private-keys", "ask-env-files", "ask-claude-settings", "ask-package-publish"]),
+        ("Your Mac", ["block-rm-rf-home", "ask-rm-rf", "block-sudo", "block-curl-pipe-shell", "ask-system-changes", "ask-global-install"]),
+    ]
+
+    /// Built-ins that start switched off: things you do often enough that asking every time
+    /// would get in the way. Switch them on if you want the check.
+    static let offByDefault: Set<String> = ["ask-push-main", "ask-pr-merge", "ask-global-install", "ask-env-files"]
 
     static func isOn(_ rule: PolicyRule, in settings: PolicySettings) -> Bool {
         settings.overrides[rule.id] ?? !offByDefault.contains(rule.id)
@@ -230,9 +291,19 @@ enum Policies {
                           match: match, folders: folders.isEmpty ? nil : folders)
     }
 
+    /// Compiled patterns, reused: a history check runs every rule over thousands of calls.
+    private static let compiled = NSCache<NSString, NSRegularExpression>()
+
     /// A pattern that doesn't compile matches nothing.
     private static func found(_ pattern: String, in text: String) -> Bool {
-        guard let re = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else { return false }
+        let re: NSRegularExpression
+        if let cached = compiled.object(forKey: pattern as NSString) {
+            re = cached
+        } else {
+            guard let made = try? NSRegularExpression(pattern: pattern, options: [.anchorsMatchLines]) else { return false }
+            compiled.setObject(made, forKey: pattern as NSString)
+            re = made
+        }
         return re.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 
