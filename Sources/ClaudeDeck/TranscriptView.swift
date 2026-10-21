@@ -23,7 +23,7 @@ struct TranscriptView: View {
     /// and keep it on continuously until Claude reports it's working (no gap, no flicker).
     private var sending: Bool { status != .busy && status != .waiting && model.awaitingPickup }
 
-    private var active: Bool { status == .busy || sending }
+    private var active: Bool { status == .busy || status == .background || sending }
 
     var body: some View {
         TranscriptTextView(content: TranscriptContent(
@@ -36,11 +36,12 @@ struct TranscriptView: View {
                 // The row's space is always reserved, so the transcript never jumps when it appears;
                 // its contents fade in and out. Lined up with the reading column, under the last message.
                 HStack(spacing: 8) {
-                    WorkingRow(tool: status == .busy ? openTool : nil, since: model.turnStart ?? statusSince,
-                               sending: sending)
+                    WorkingRow(tool: status == .busy ? openTool : nil,
+                               since: status == .background ? statusSince : model.turnStart ?? statusSince,
+                               sending: sending, background: status == .background && !sending)
                         .padding(.horizontal, 12).padding(.vertical, 6)
                         .background(Capsule().fill(Color.primary.opacity(0.05)))
-                    if let onStop {
+                    if let onStop, status != .background || sending {
                         // Present from the start (no second pop-in), usable once Claude is working.
                         Button(action: onStop) {
                             Label("Stop", systemImage: "stop.fill")
@@ -97,6 +98,8 @@ struct WorkingRow: View {
     let since: Date?
     /// A message is on its way and Claude hasn't picked it up yet.
     var sending = false
+    /// Claude is at its prompt while a background task it started keeps running.
+    var background = false
     @State private var pulse = false
 
     var body: some View {
@@ -121,6 +124,7 @@ struct WorkingRow: View {
 
     private var label: String {
         if sending { return "Sending…" }
+        if background { return "Background task running · you can keep chatting" }
         guard let tool else { return "Thinking…" }
         return "Running \(ToolStyle.displayName(tool.name))…"
     }

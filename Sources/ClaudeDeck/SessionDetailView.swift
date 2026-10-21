@@ -210,8 +210,7 @@ struct SessionDetailView: View {
     private var subtitle: String {
         let status = store.restarting?.session.id == session.id ? "Restarting…"
             : store.ending.contains(session.sessionId) ? "Ending…"
-            : session.status == .waiting ? "Waiting for \(session.waitingFor ?? "you")"
-            : session.status == .background ? "Running a background task" : session.status.label
+            : session.status == .waiting ? "Waiting for \(session.waitingFor ?? "you")" : session.status.label
         return "\(status) · \(Theme.shortPath(session.cwd))"
     }
 
