@@ -169,7 +169,7 @@ enum Ghostty {
                 return s != "busy" && s != "waiting"
             }
         }
-        guard PromptGuard.canRestart(SessionLoader.record(pid: pid)) else { throw Failure.wontStop }
+        guard PromptGuard.canEnd(SessionLoader.record(pid: pid)) else { throw Failure.wontStop }
         let id = try await terminalId(for: session)
         try await send(text: "/exit", to: session)
         guard try await waitFor(seconds: 15, { !SessionLoader.isAlive(pid) }) else { throw Failure.stillRunning }

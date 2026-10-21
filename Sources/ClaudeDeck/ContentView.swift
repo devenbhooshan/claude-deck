@@ -189,6 +189,8 @@ private struct Dialogs: ViewModifier {
             } message: {
                 Text(store.endTarget?.status == .waiting
                      ? "Claude is waiting on a prompt. Ending dismisses it, quits Claude and closes its terminal. You can resume it later."
+                     : store.endTarget?.status == .background
+                     ? "A background task Claude started is still running. Ending stops it, quits Claude and closes its terminal. You can resume the session later."
                      : "Claude is still working. Ending stops this step, quits Claude and closes its terminal. You can resume it later.")
             }
             .alert("Couldn't reach the terminal", isPresented: failed) {

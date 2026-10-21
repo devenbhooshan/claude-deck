@@ -26,6 +26,7 @@ enum SessionLoader {
             let status: SessionStatus = switch rec.status {
             case "waiting": .waiting
             case "busy": .busy
+            case "shell": .background
             default: .idle
             }
             var s = Session(

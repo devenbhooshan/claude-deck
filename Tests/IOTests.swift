@@ -31,6 +31,7 @@ func loaderTests() {
         box.write("claude/sessions/9.json", record(9, "old", status: "waiting", waitingFor: "permission prompt", statusUpdatedAt: now))
         // A headless run (like Deck's own `claude -p /usage` check) isn't a session you can use.
         box.write("claude/sessions/10.json", #"{"pid":10,"sessionId":"headless","cwd":"/tmp","kind":"interactive","entrypoint":"sdk-cli","status":"busy"}"#)
+        box.write("claude/sessions/12.json", record(12, "bg", status: "shell"))
         box.write("claude/sessions/11.json", #"{"pid":11,"sessionId":"term","cwd":"/p/app","startedAt":2000000,"entrypoint":"cli"}"#)
         box.jsonl("claude/projects/-p-app/w.jsonl", [["type": "ai-title", "aiTitle": "Waiting one"]])
         box.write("pending/req.a", #"{"session_id":"w","tool_name":"Bash","tool_input":{"command":"rm -rf x"}}"#)
@@ -39,13 +40,14 @@ func loaderTests() {
 
         let (live, updates) = SessionLoader.loadLive(cache: [:], alive: { $0 != 4 })
         // Stable order: by start time, then id; status and activity don't move a session.
-        expectEqual(live.map(\.id), ["b", "dup", "i", "old", "w", "term"])
+        expectEqual(live.map(\.id), ["b", "bg", "dup", "i", "old", "w", "term"])
         let w = live.first { $0.id == "w" }!
         expectEqual(w.title, "Waiting one")
         expectEqual(w.pendingTool?.summary, "rm -rf x")
         expect(live.first { $0.id == "old" }!.pendingTool == nil, "a request from before the prompt opened is ignored")
         expectEqual(live[0].status, .busy)
         expectEqual(live.first { $0.id == "i" }?.status, .idle)
+        expectEqual(live.first { $0.id == "bg" }?.status, .background)
         expectEqual(live.first { $0.id == "dup" }?.pid, 7)
         expectEqual(updates.count, 1)
         expect(w.statusSince != nil)

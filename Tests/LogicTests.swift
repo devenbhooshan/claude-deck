@@ -3,7 +3,7 @@ import AppKit
 func modelTests() {
     test("status labels and ranks") {
         expectEqual([SessionStatus.waiting, .busy, .idle, .ended].map(\.label), ["Needs you", "Working", "Idle", "Ended"])
-        expectEqual([SessionStatus.waiting, .busy, .idle, .ended].map(\.sortRank), [0, 1, 2, 3])
+        expectEqual([SessionStatus.waiting, .busy, .background, .idle, .ended].map(\.sortRank), [0, 1, 2, 3, 4])
     }
     test("display title falls back from title to name to folder") {
         expectEqual(session("a", cwd: "/x/proj", title: "T", name: "N").displayTitle, "T")
@@ -276,6 +276,9 @@ func safetyTests() {
         expect(!PromptGuard.canRestart(rec("busy")), "would quit mid-step")
         expect(!PromptGuard.canRestart(rec("waiting")))
         expect(!PromptGuard.canRestart(nil))
+        expect(!PromptGuard.canRestart(rec("shell")), "would stop the background task")
+        expect(PromptGuard.canEnd(rec("idle")) && PromptGuard.canEnd(rec("shell")))
+        expect(!PromptGuard.canEnd(rec("busy")) && !PromptGuard.canEnd(rec("waiting")) && !PromptGuard.canEnd(nil))
         expect(PromptGuard.canAnswer(rec("waiting", since: 1000), expectedSince: 1000.0004))
         expect(PromptGuard.canAnswer(rec("waiting", since: 1000), expectedSince: nil))
         expect(!PromptGuard.canAnswer(rec("waiting", since: 2000), expectedSince: 1000), "a newer prompt")

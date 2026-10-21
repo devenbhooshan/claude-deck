@@ -151,7 +151,7 @@ struct DockView: View {
     /// The pill: a spinner per session that's working (idle ones stay out of the way). Expand
     /// and hide appear on hover, or always while expanded.
     private var bar: some View {
-        let working = store.live.filter { $0.status == .busy }
+        let working = store.live.filter { $0.status == .busy || $0.status == .background }
         return HStack(spacing: 6) {
             Image(systemName: "sparkles")
                 .font(.system(size: 12, weight: .semibold))

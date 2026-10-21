@@ -20,7 +20,7 @@ enum Theme {
     static func color(_ status: SessionStatus) -> Color {
         switch status {
         case .waiting: waiting
-        case .busy: busy
+        case .busy, .background: busy
         case .idle: idle
         case .ended: .secondary
         }
@@ -43,7 +43,7 @@ struct StatusIcon: View {
             RoundedRectangle(cornerRadius: size * 0.3, style: .continuous)
                 .fill(Theme.color(status).opacity(status == .ended ? 0.12 : 0.16))
             switch status {
-            case .busy:
+            case .busy, .background:
                 ProgressView().controlSize(.mini).scaleEffect(size / 26)
             default:
                 Image(systemName: symbol)
@@ -58,7 +58,7 @@ struct StatusIcon: View {
         switch status {
         case .waiting: "hand.raised.fill"
         case .idle: "checkmark"
-        case .busy, .ended: "clock"
+        case .busy, .background, .ended: "clock"
         }
     }
 }

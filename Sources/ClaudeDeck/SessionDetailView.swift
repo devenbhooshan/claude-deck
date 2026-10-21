@@ -89,7 +89,7 @@ final class TranscriptModel {
     func statusChanged(_ status: SessionStatus) {
         switch status {
         case .busy: awaitingPickup = false
-        case .idle, .waiting, .ended: if !awaitingPickup { turnStart = nil }
+        case .background, .idle, .waiting, .ended: if !awaitingPickup { turnStart = nil }
         }
     }
 
@@ -210,7 +210,8 @@ struct SessionDetailView: View {
     private var subtitle: String {
         let status = store.restarting?.session.id == session.id ? "Restarting…"
             : store.ending.contains(session.sessionId) ? "Ending…"
-            : session.status == .waiting ? "Waiting for \(session.waitingFor ?? "you")" : session.status.label
+            : session.status == .waiting ? "Waiting for \(session.waitingFor ?? "you")"
+            : session.status == .background ? "Running a background task" : session.status.label
         return "\(status) · \(Theme.shortPath(session.cwd))"
     }
 

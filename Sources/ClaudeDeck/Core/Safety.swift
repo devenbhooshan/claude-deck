@@ -77,6 +77,11 @@ enum PromptGuard {
         record?.status == "idle"
     }
 
+    /// Ending quits Claude: at its prompt, including while a background task runs (which stops it).
+    static func canEnd(_ record: SessionRecord?) -> Bool {
+        record?.status == "idle" || record?.status == "shell"
+    }
+
     /// Esc stops Claude only while it's working; at the prompt it would clear what's typed there.
     static func canInterrupt(_ record: SessionRecord?) -> Bool {
         record?.status == "busy"

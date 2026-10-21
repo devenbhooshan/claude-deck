@@ -25,12 +25,14 @@ extension SessionRecord {
 }
 
 enum SessionStatus: String {
-    case waiting, busy, idle, ended
+    /// `background`: Claude is at its prompt but a background task it started is still running.
+    case waiting, busy, background, idle, ended
 
     var label: String {
         switch self {
         case .waiting: "Needs you"
         case .busy: "Working"
+        case .background: "Background task"
         case .idle: "Idle"
         case .ended: "Ended"
         }
@@ -40,8 +42,9 @@ enum SessionStatus: String {
         switch self {
         case .waiting: 0
         case .busy: 1
-        case .idle: 2
-        case .ended: 3
+        case .background: 2
+        case .idle: 3
+        case .ended: 4
         }
     }
 }

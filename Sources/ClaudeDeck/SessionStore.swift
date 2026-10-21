@@ -186,7 +186,7 @@ final class SessionStore {
 
     /// Ends the session: asks first if Claude is working or waiting on you, since that's cut short.
     func requestEnd(_ s: Session) {
-        if s.status == .busy || s.status == .waiting { endTarget = s } else { end(s) }
+        if s.status == .busy || s.status == .waiting || s.status == .background { endTarget = s } else { end(s) }
     }
 
     /// Quits Claude in its terminal and closes the terminal. The session stays resumable.
