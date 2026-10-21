@@ -66,6 +66,13 @@ integration?"*: Claude Haiku turns it into a search (fixing typos, adding relate
 latest), Deck searches locally, and Haiku answers with the session and moment. ↩ on any match opens
 the session right there, even in a long or old transcript ("Back to Latest" returns to the live end).
 
+## Unread replies
+
+When Claude replies in a session you're not looking at, its row shows a count of new replies
+(and a bold title), and the total shows on Deck's Dock icon and in the menu bar ("3 new"). A
+session counts as read once you open it with Deck in front, or when you send it a message (from
+Deck or its terminal). Notices like background task results and subagents' messages don't count.
+
 ## Policies: ⇧⌘P
 
 Rules checked before every tool call in every Claude Code session on this Mac, managed in one
@@ -126,7 +133,7 @@ All of these are also listed in the **Sessions** menu.
 | ⌥⌘↩ | Allow the next permission prompt, from any app (selected session first, else the longest-waiting) |
 | ⌥⌘⌫ | Deny the next permission prompt, from any app |
 | ⇧⌘D | Show / hide the floating dock: an always-on-top pill with a spinner per working session and one-click Allow / Deny for waiting prompts (over any app, even full-screen video); hover to expand or hide |
-| ⌘J | Next session that needs you |
+| ⌘J | Next session that needs you: waiting on a prompt first, then unread replies |
 | ⌘1 – ⌘9 | Go to running session 1–9 (the number shown next to it; numbers never change while it runs) |
 | ⌥⌘↑ / ⌥⌘↓ | Previous / next session |
 | ⌘R | Rename the selected session |

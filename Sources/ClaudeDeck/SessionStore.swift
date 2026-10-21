@@ -9,7 +9,9 @@ import UserNotifications
 final class SessionStore {
     private(set) var live: [Session] = []
     private(set) var recent: [Session] = []
-    var selectedId: String?
+    var selectedId: String? {
+        didSet { markSeen() }
+    }
     /// Conversation or Activity, for the open session.
     var detailTab: DetailTab = .conversation
     /// A place to open a session at (from search): consumed by the session view.
@@ -89,6 +91,44 @@ final class SessionStore {
     private(set) var answered: [String: Date] = [:]
 
     var waitingCount: Int { live.filter { $0.status == .waiting }.count }
+
+    // MARK: Unread replies
+
+    /// When you last looked at each session (had it open with Deck in front), by session id.
+    private var seenAt: [String: Date] = {
+        let raw = UserDefaults.standard.dictionary(forKey: "seenAt") as? [String: Double] ?? [:]
+        return raw.mapValues { Date(timeIntervalSince1970: $0) }
+    }()
+    /// Replies from before Deck started counting aren't unread.
+    private let countingSince: Date = {
+        if let t = UserDefaults.standard.object(forKey: "unreadSince") as? Double { return Date(timeIntervalSince1970: t) }
+        let now = Date()
+        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "unreadSince")
+        return now
+    }()
+
+    /// Claude's replies you haven't seen in this session.
+    func unread(_ s: Session) -> Int {
+        guard s.isLive else { return 0 }
+        return SessionNav.unread(s, seen: max(seenAt[s.sessionId] ?? countingSince, countingSince))
+    }
+
+    var unreadTotal: Int { live.reduce(0) { $0 + unread($1) } }
+
+    /// The open session counts as read while Deck is in front.
+    func markSeen() {
+        guard NSApp?.isActive == true, let s = session(selectedId), s.isLive, unread(s) > 0 || seenAt[s.sessionId] == nil else { return }
+        seenAt[s.sessionId] = Date()
+        // Keep the newest few hundred.
+        if seenAt.count > 400 { seenAt = Dictionary(uniqueKeysWithValues: seenAt.sorted { $0.value > $1.value }.prefix(300).map { ($0.key, $0.value) }) }
+        UserDefaults.standard.set(seenAt.mapValues(\.timeIntervalSince1970), forKey: "seenAt")
+        updateBadge()
+    }
+
+    private func updateBadge() {
+        let n = waitingCount + unreadTotal
+        NSApp?.dockTile.badgeLabel = n > 0 ? "\(n)" : nil
+    }
 
     /// Sessions in sidebar order, for keyboard navigation.
     var ordered: [Session] { SessionNav.ordered(live: live, recent: recent) }
@@ -232,7 +272,7 @@ final class SessionStore {
     }
 
     func selectNextWaiting() {
-        if let id = SessionNav.nextWaiting(live, after: selectedId) { selectedId = id }
+        if let id = SessionNav.nextWaiting(live, after: selectedId, unread: { self.unread($0) }) { selectedId = id }
     }
 
     func bringToFront(switcher: Bool = false) {
@@ -287,6 +327,10 @@ final class SessionStore {
         }
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
+        }
+        // Coming back to Deck counts as reading the open session.
+        NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.markSeen() }
         }
     }
 
@@ -357,7 +401,8 @@ final class SessionStore {
             recent = newRecent.filter { !liveIds.contains($0.id) }
             applyNames()
         }
-        NSApp.dockTile.badgeLabel = waitingCount > 0 ? "\(waitingCount)" : nil
+        markSeen()
+        updateBadge()
     }
 
     private func syncRecordWatchers(_ pids: Set<Int32>) {

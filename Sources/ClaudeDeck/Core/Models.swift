@@ -69,6 +69,8 @@ struct Session: Identifiable, Equatable {
     var startedAt: Date? = nil
     /// Commands Claude started in the background that are still running.
     var background: [BackgroundTask] = []
+    /// When Claude wrote each reply since your last message, oldest first.
+    var replies: [Date] = []
 
     var isLive: Bool { pid != nil }
     /// Only servers and watchers run in the background: shown as idle, with the server noted.
@@ -154,6 +156,8 @@ struct TitleInfo: Equatable {
     let mtime: Date
     let title: String?
     let isCustom: Bool
+    /// When Claude wrote each reply since your last message (for unread counts).
+    var replies: [Date] = []
 }
 
 /// A message just sent from Deck, shown until the transcript catches up.

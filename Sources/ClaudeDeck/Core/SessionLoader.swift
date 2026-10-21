@@ -24,7 +24,7 @@ enum SessionLoader {
                   let rec = try? JSONDecoder().decode(SessionRecord.self, from: data),
                   !rec.isHeadless, alive(rec.pid) else { continue }
             let transcript = ClaudePaths.transcript(for: rec.sessionId, cwd: rec.cwd)
-            let (title, update) = title(for: transcript, cache: cache)
+            let (title, update, replies) = details(for: transcript, cache: cache)
             if let transcript, let update { updates[transcript.path] = update }
             var background: [BackgroundTask] = []
             if rec.status == "shell" {
@@ -43,7 +43,7 @@ enum SessionLoader {
                 updatedAt: Date(timeIntervalSince1970: (rec.updatedAt ?? rec.startedAt ?? 0) / 1000),
                 transcriptURL: transcript,
                 statusSince: rec.statusUpdatedAt.map { Date(timeIntervalSince1970: $0 / 1000) },
-                startedAt: rec.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) }, background: background)
+                startedAt: rec.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) }, background: background, replies: replies)
             // Only trust a captured request made around the time this prompt opened.
             if status == .waiting, let req = requests[rec.sessionId],
                req.date.timeIntervalSince(s.statusSince ?? .distantPast) > -10 {
@@ -88,10 +88,18 @@ enum SessionLoader {
     }
 
     static func title(for url: URL?, cache: [String: TitleInfo]) -> (String?, TitleInfo?) {
+        let (title, info, _) = details(for: url, cache: cache)
+        return (title, info)
+    }
+
+    /// The session's title and Claude's replies since your last message, from the transcript's tail
+    /// (re-read only when the file changed; the info is nil when the cache was used).
+    static func details(for url: URL?, cache: [String: TitleInfo]) -> (String?, TitleInfo?, [Date]) {
         guard let url,
-              let mtime = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { return (nil, nil) }
-        if let hit = cache[url.path], hit.mtime == mtime { return (hit.title, nil) }
+              let mtime = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { return (nil, nil, []) }
+        if let hit = cache[url.path], hit.mtime == mtime { return (hit.title, nil, hit.replies) }
         let (lines, _) = TailReader.read(url, from: nil, maxBytes: 256_000)
+        let replies = Self.replies(in: lines)
         var custom: String?
         var auto: String?
         for line in lines.reversed() {
@@ -105,7 +113,36 @@ enum SessionLoader {
         var title = custom ?? auto
         if custom == nil, let cached = cache[url.path]?.title, cache[url.path]?.isCustom == true { title = cached }
         if title == nil { title = cache[url.path]?.title }
-        return (title, TitleInfo(mtime: mtime, title: title, isCustom: custom != nil || cache[url.path]?.isCustom == true))
+        return (title, TitleInfo(mtime: mtime, title: title, isCustom: custom != nil || cache[url.path]?.isCustom == true,
+                                 replies: replies), replies)
+    }
+
+    /// When Claude wrote each reply (a message with text, not just tool calls) after the last thing
+    /// you typed, oldest first. Notices Claude Code adds (background task results, command output)
+    /// aren't you, and subagents' messages aren't replies to you.
+    static func replies(in lines: [Data]) -> [Date] {
+        var out: [Date] = []
+        for line in lines.reversed() {
+            let isUser = line.range(of: Data(#""type":"user""#.utf8)) != nil
+            guard isUser || line.range(of: Data(#""type":"text""#.utf8)) != nil,
+                  let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                  obj["isSidechain"] as? Bool != true, obj["isMeta"] as? Bool != true else { continue }
+            let content = (obj["message"] as? [String: Any])?["content"]
+            let texts: [String] = (content as? String).map { [$0] }
+                ?? (content as? [[String: Any]] ?? []).filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }
+            switch obj["type"] as? String {
+            case "user":
+                let typed = texts.contains { !$0.hasPrefix("<task-notification>") && !$0.hasPrefix("<local-command-stdout>") }
+                if typed { return out.reversed() }
+            case "assistant":
+                if texts.contains(where: { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }),
+                   let at = (obj["timestamp"] as? String).flatMap(ISO8601DateFormatter.withFractions.date(from:)) {
+                    out.append(at)
+                }
+            default: break
+            }
+        }
+        return out.reversed()
     }
 
     /// Whether a transcript came from `claude -p` or the SDK (entrypoint "sdk-…") rather than you.

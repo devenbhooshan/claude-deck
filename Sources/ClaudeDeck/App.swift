@@ -53,7 +53,8 @@ struct ClaudeDeckApp: App {
         MenuBarExtra {
             MenuBarContent().environment(store).environment(usage).environment(activity).id(theme)
         } label: {
-            Image(systemName: store.waitingCount > 0 ? "exclamationmark.bubble.fill" : "bubble.left.and.bubble.right")
+            Image(systemName: store.waitingCount > 0 ? "exclamationmark.bubble.fill"
+                  : store.unreadTotal > 0 ? "bubble.left.and.text.bubble.right.fill" : "bubble.left.and.bubble.right")
             Text(menuBarText)
         }
         .menuBarExtraStyle(.window)
@@ -64,7 +65,8 @@ extension ClaudeDeckApp {
     /// "2 · 35%": sessions waiting on you, then your current-session plan usage.
     var menuBarText: String {
         let pct = usage.usage?.session.map { "\($0.percent)%" }
-        return [store.waitingCount > 0 ? "\(store.waitingCount)" : nil, pct].compactMap { $0 }.joined(separator: " · ")
+        return [store.waitingCount > 0 ? "\(store.waitingCount)" : nil, store.unreadTotal > 0 ? "\(store.unreadTotal) new" : nil, pct]
+            .compactMap { $0 }.joined(separator: " · ")
     }
 }
 

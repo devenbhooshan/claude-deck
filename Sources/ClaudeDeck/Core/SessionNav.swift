@@ -26,12 +26,19 @@ enum SessionNav {
         return list[((i + offset) % list.count + list.count) % list.count].id
     }
 
-    /// The next session that needs you after the selection, wrapping around.
-    static func nextWaiting(_ live: [Session], after selected: String?) -> String? {
+    /// The next session that needs you after the selection, wrapping around: those waiting on a
+    /// prompt first, then those with replies you haven't read.
+    static func nextWaiting(_ live: [Session], after selected: String?, unread: (Session) -> Int = { _ in 0 }) -> String? {
         let waiting = live.filter { $0.status == .waiting }
-        guard !waiting.isEmpty else { return nil }
-        let i = waiting.firstIndex { $0.id == selected } ?? -1
-        return waiting[(i + 1) % waiting.count].id
+        let needing = waiting + live.filter { $0.status != .waiting && unread($0) > 0 }
+        guard !needing.isEmpty else { return nil }
+        let i = needing.firstIndex { $0.id == selected } ?? -1
+        return needing[(i + 1) % needing.count].id
+    }
+
+    /// Claude's replies in `s` that arrived after you last looked at it.
+    static func unread(_ s: Session, seen: Date) -> Int {
+        s.replies.filter { $0 > seen }.count
     }
 
     /// Permission prompts can be answered with Allow / Deny; other waits (questions) need the terminal.

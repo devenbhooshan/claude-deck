@@ -289,6 +289,7 @@ struct SectionHeader: View {
 
 struct SessionRow<Accessory: View>: View {
     @Environment(ActivityStore.self) private var activity
+    @Environment(SessionStore.self) private var store
     let session: Session
     /// The session's fixed number (⌘1–9 opens it), shown for running sessions.
     var number: Int? = nil
@@ -311,7 +312,7 @@ struct SessionRow<Accessory: View>: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(alignment: .firstTextBaseline) {
                     Text(session.displayTitle)
-                        .font(.body.weight(session.status == .waiting ? .semibold : .regular))
+                        .font(.body.weight(session.status == .waiting || unread > 0 ? .semibold : .regular))
                         .lineLimit(1)
                     Spacer(minLength: 4)
                     if !session.background.isEmpty && accessory == nil {
@@ -319,6 +320,14 @@ struct SessionRow<Accessory: View>: View {
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                             .help(session.background.map(\.command).joined(separator: "\n") + " running in the background")
+                    }
+                    if unread > 0 && accessory == nil {
+                        Text(unread > 99 ? "99+" : "\(unread)")
+                            .font(.caption2.weight(.bold)).monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(Theme.accent))
+                            .help("\(unread) new \(unread == 1 ? "reply" : "replies") from Claude")
                     }
                     if let accessory {
                         accessory
@@ -342,6 +351,8 @@ struct SessionRow<Accessory: View>: View {
             if session.isLive { activity.nameTask(session.sessionId) }
         }
     }
+
+    private var unread: Int { store.unread(session) }
 
     private var subtitle: String {
         // What it's on (ticket · PR) when known, then the project. The orange hand and ✓ / ✕
