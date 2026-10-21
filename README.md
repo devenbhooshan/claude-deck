@@ -77,7 +77,7 @@ Deck or its terminal). Notices like background task results and subagents' messa
 
 Web addresses in the chat are clickable and open in your browser. Paths to PDFs, images and HTML
 pages that Claude writes or mentions (`docs/report.pdf`, `~/Desktop/Screenshot … .png`) open in
-Deck's own viewer window, which reloads when the file changes. Reload with ⌘R, or open the file
+a viewer over the session, which reloads when the file changes. Reload with ⌘R, close with Esc, or open the file
 in Finder or its usual app from the toolbar. Links inside a page open in your browser.
 
 ## Policies: ⇧⌘P

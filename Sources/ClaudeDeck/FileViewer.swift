@@ -3,48 +3,79 @@ import PDFKit
 import SwiftUI
 import WebKit
 
-/// A PDF, image or web page Claude made or mentioned, shown in its own Deck window.
+struct ViewedFile: Identifiable {
+    let url: URL
+    var id: URL { url }
+}
+
+/// A PDF, image or web page Claude made or mentioned, shown as a sheet over the session.
 /// It reloads when the file changes, so a report Claude rewrites stays current.
 struct FileViewer: View {
     let url: URL
+    @Environment(\.dismiss) private var dismiss
     @State private var version = 0
     @State private var watcher: FileWatcher?
     @State private var exists = true
 
     var body: some View {
-        Group {
-            if !exists {
-                ContentUnavailableView("File not found", systemImage: "doc.questionmark",
-                                       description: Text(Theme.shortPath(url.path)))
-            } else {
-                switch FileLinks.kind(of: url) {
-                case .pdf: PDFFileView(url: url, version: version)
-                case .image: ImageFileView(url: url, version: version)
-                case .html: WebFileView(url: url, version: version)
-                case nil: ContentUnavailableView("Deck can't show this file", systemImage: "doc")
+        VStack(spacing: 0) {
+            header
+            Divider()
+            Group {
+                if !exists {
+                    ContentUnavailableView("File not found", systemImage: "doc.questionmark",
+                                           description: Text(Theme.shortPath(url.path)))
+                } else {
+                    switch FileLinks.kind(of: url) {
+                    case .pdf: PDFFileView(url: url, version: version)
+                    case .image: ImageFileView(url: url, version: version)
+                    case .html: WebFileView(url: url, version: version)
+                    case nil: ContentUnavailableView("Deck can't show this file", systemImage: "doc")
+                    }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 480, minHeight: 360)
+        .frame(minWidth: 720, idealWidth: 1000, minHeight: 520, idealHeight: 760)
         .background(Theme.surface)
-        .navigationTitle(url.lastPathComponent)
-        .navigationSubtitle(Theme.shortPath(url.deletingLastPathComponent().path))
-        .toolbar {
-            ToolbarItemGroup {
-                Button { reload() } label: { Label("Reload", systemImage: "arrow.clockwise") }
-                    .keyboardShortcut("r")
-                    .help("Reload (⌘R)")
-                Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: {
-                    Label("Show in Finder", systemImage: "folder")
-                }
-                .help("Show in Finder")
-                Button { NSWorkspace.shared.open(url) } label: {
-                    Label("Open in \(defaultApp ?? "Default App")", systemImage: "arrow.up.forward.app")
-                }
-                .help("Open in \(defaultApp ?? "the default app")")
-            }
-        }
         .onAppear { reload() }
+    }
+
+    private var header: some View {
+        HStack(spacing: 8) {
+            Image(systemName: icon).foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(url.lastPathComponent).font(.headline).lineLimit(1).truncationMode(.middle)
+                Text(Theme.shortPath(url.deletingLastPathComponent().path))
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+            }
+            Spacer()
+            Button { reload() } label: { Image(systemName: "arrow.clockwise") }
+                .buttonStyle(.deck(size: .small))
+                .keyboardShortcut("r")
+                .help("Reload (⌘R)")
+            Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder") }
+                .buttonStyle(.deck(size: .small))
+                .help("Show in Finder")
+            Button { NSWorkspace.shared.open(url) } label: {
+                Label("Open in \(defaultApp ?? "App")", systemImage: "arrow.up.forward.app")
+            }
+            .buttonStyle(.deck(size: .small))
+            .help("Open in \(defaultApp ?? "the default app")")
+            Button("Done") { dismiss() }
+                .buttonStyle(.deck(.primary, size: .small))
+                .keyboardShortcut(.cancelAction)
+                .help("Close (Esc)")
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+    }
+
+    private var icon: String {
+        switch FileLinks.kind(of: url) {
+        case .pdf: "doc.richtext"
+        case .image: "photo"
+        case .html, nil: "globe"
+        }
     }
 
     private var defaultApp: String? {

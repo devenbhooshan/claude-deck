@@ -24,6 +24,8 @@ final class SessionStore {
     var showNewSession = false
     var showUsage = false
     var showPolicies = false
+    /// A PDF, image or web page opened from the transcript, shown over the session.
+    var viewing: ViewedFile?
     /// A session we just started (and the terminal it's in): select it as soon as it appears.
     private var starting: (folder: String, at: Date, terminal: String?)?
     /// A session being restarted, and the start times that keep restarted sessions in their slot.

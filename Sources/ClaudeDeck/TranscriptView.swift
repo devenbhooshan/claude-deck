@@ -81,10 +81,10 @@ struct TranscriptView: View {
 
 struct TranscriptTextView: NSViewRepresentable {
     let content: TranscriptContent
-    @Environment(\.openWindow) private var openWindow
+    @Environment(SessionStore.self) private var store
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(openURL: { NSWorkspace.shared.open($0) }, openFile: { [openWindow] in openWindow(id: "viewer", value: $0) })
+        Coordinator(openURL: { NSWorkspace.shared.open($0) }, openFile: { [store] in store.viewing = ViewedFile(url: $0) })
     }
 
     func makeNSView(context: Context) -> NSScrollView {
