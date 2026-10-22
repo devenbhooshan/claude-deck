@@ -249,7 +249,8 @@ final class TranscriptParser: @unchecked Sendable {
                 if let t = block["text"] as? String { texts.append(t) }
             case "image":
                 if let source = block["source"] as? [String: Any], let b64 = source["data"] as? String,
-                   let data = Data(base64Encoded: b64), let thumb = Self.thumbnail(data) {
+                   let data = Data(base64Encoded: b64),
+                   let thumb = Self.thumbnail(data, file: AttachmentStore.saveTranscriptImage(data, mediaType: source["media_type"] as? String)) {
                     images.append(thumb)
                 }
             default:
@@ -267,15 +268,15 @@ final class TranscriptParser: @unchecked Sendable {
         add(.user(cleaned, images: images))
     }
 
-    /// Downsampled once at parse time (max 640px), at 2x for Retina.
-    static func thumbnail(_ data: Data, maxPixels: Int = 640) -> NSImage? {
+    /// Downsampled once at parse time (max 640px), at 2x for Retina. `file` is the full image.
+    static func thumbnail(_ data: Data, maxPixels: Int = 640, file: URL? = nil) -> NSImage? {
         guard let src = CGImageSourceCreateWithData(data as CFData, nil),
               let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, [
                   kCGImageSourceCreateThumbnailFromImageAlways: true,
                   kCGImageSourceThumbnailMaxPixelSize: maxPixels,
                   kCGImageSourceCreateThumbnailWithTransform: true,
               ] as CFDictionary) else { return nil }
-        return NSImage(cgImage: cg, size: NSSize(width: cg.width / 2, height: cg.height / 2))
+        return TranscriptImage(cgImage: cg, size: NSSize(width: cg.width / 2, height: cg.height / 2), file: file)
     }
 
     private static func userKind(_ raw: String) -> TranscriptItem.Kind? {
@@ -336,5 +337,17 @@ final class TranscriptParser: @unchecked Sendable {
 
     private static func truncate(_ s: String, _ n: Int) -> String {
         s.count > n ? String(s.prefix(n)) + "…" : s
+    }
+}
+
+/// A thumbnail of an image in a message, and where the full image is saved (to view it).
+final class TranscriptImage: NSImage {
+    // Set once, right after creation.
+    nonisolated(unsafe) private(set) var file: URL?
+
+    convenience init(cgImage: CGImage, size: NSSize, file: URL?) {
+        self.init(size: size)
+        addRepresentation(NSBitmapImageRep(cgImage: cgImage))
+        self.file = file
     }
 }

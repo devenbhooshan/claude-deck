@@ -54,4 +54,47 @@ func fileLinkTests() {
         expect(browsed.isEmpty, "file:// that Deck can't show is never opened")
         TranscriptTextController(openURL: { _ in true }).textView(tv, clickedOnLink: link!, at: 0) // default: no viewer
     }
+    test("images you shared: saved full size, thumbnail opens it") {
+        let box = Sandbox(); defer { box.cleanup() }
+        let png = pngData(width: 40, height: 20)
+        let block: [String: Any] = ["type": "image", "source": ["data": png.base64EncodedString(), "media_type": "image/jpeg"]]
+        let url = box.jsonl("t.jsonl", [["type": "user", "message": ["content": [["type": "text", "text": "look"], block]]]])
+        let p = TranscriptParser(url: url)
+        p.refresh()
+        guard case let .user(_, images)? = p.items.first?.kind, let thumb = images.first as? TranscriptImage,
+              let file = thumb.file else { return expect(false, "parsed image with a file") }
+        expectEqual(file.pathExtension, "jpeg")
+        expectEqual(try? Data(contentsOf: file), png)
+        // The same image again reuses the file and keeps it fresh.
+        try FileManager.default.setAttributes([.modificationDate: Date.distantPast], ofItemAtPath: file.path)
+        expectEqual(AttachmentStore.saveTranscriptImage(png, mediaType: "image/jpeg"), file)
+        let mtime = try FileManager.default.attributesOfItem(atPath: file.path)[.modificationDate] as? Date
+        expect(mtime.map { Date().timeIntervalSince($0) < 60 } == true)
+        expectEqual(AttachmentStore.saveTranscriptImage(Data([1]), mediaType: nil)?.pathExtension, "png")
+        let saved = AttachmentStore.dir
+        AttachmentStore.dir = URL(fileURLWithPath: "/dev/null/nope")
+        expect(AttachmentStore.saveTranscriptImage(Data([2]), mediaType: nil) == nil, "can't save: no file, still a thumbnail")
+        AttachmentStore.dir = saved
+
+        // Rendered: the thumbnail is a link to the full image; clicking it opens the viewer.
+        var opened: [URL] = []
+        let ctl = TranscriptTextController(openURL: { _ in true }, openFile: { opened.append($0) })
+        let scroll = ctl.makeScrollView()
+        scroll.frame = NSRect(x: 0, y: 0, width: 900, height: 400)
+        scroll.tile()
+        ctl.content = TranscriptContent(blocks: [.item(item(.user("look", images: [thumb, image()])))], results: [:], queued: [],
+                                        outgoing: [], cwd: "", status: .idle, openToolId: nil, loaded: true, focus: nil)
+        ctl.render(force: true)
+        let tv = ctl.textView!
+        let text = tv.textStorage!.string as NSString
+        let at = text.range(of: "\u{FFFC}").location
+        expect(tv.textStorage!.attribute(.link, at: at, effectiveRange: nil) != nil)
+        expectEqual(tv.textStorage!.attribute(.toolTip, at: at, effectiveRange: nil) as? String, "Click to view full size")
+        let cell = NSTextAttachmentCell()
+        ctl.textView(tv, clickedOn: cell, in: .zero, at: at)
+        expectEqual(opened, [file.standardizedFileURL])
+        ctl.textView(tv, clickedOn: cell, in: .zero, at: text.range(of: "\u{FFFC}", options: .backwards).location) // plain image: no file
+        ctl.textView(tv, clickedOn: cell, in: .zero, at: text.length + 5)
+        expectEqual(opened.count, 1)
+    }
 }

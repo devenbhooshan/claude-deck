@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import UniformTypeIdentifiers
 
 /// A file staged in the composer, copied into Deck's cache. Images are saved under a space-free
@@ -83,6 +84,22 @@ enum AttachmentStore {
         let dest = dir.appendingPathComponent("\(UUID().uuidString).png")
         guard (try? png.write(to: dest)) != nil else { return nil }
         return Attachment(url: dest, thumbnail: image)
+    }
+
+    /// Saves an image from a transcript at full size, so clicking its thumbnail can show it.
+    /// Named by its content, so reloading the transcript reuses the file (and keeps it from
+    /// being purged while it's still shown).
+    static func saveTranscriptImage(_ data: Data, mediaType: String?) -> URL? {
+        ensureDir()
+        let ext = mediaType.flatMap { UTType(mimeType: $0)?.preferredFilenameExtension } ?? "png"
+        let hash = SHA256.hash(data: data).prefix(12).map { String(format: "%02x", $0) }.joined()
+        let dest = dir.appendingPathComponent("image-\(hash).\(ext)")
+        let fm = FileManager.default
+        if fm.fileExists(atPath: dest.path) {
+            try? fm.setAttributes([.modificationDate: Date()], ofItemAtPath: dest.path)
+            return dest
+        }
+        return (try? data.write(to: dest)) != nil ? dest : nil
     }
 
     /// Files on the pasteboard first, then raw image data (screenshots).

@@ -201,6 +201,13 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
         return visible.maxY >= doc.bounds.height - 40
     }
 
+    /// An image in a message: its thumbnail carries a link to the full image.
+    func textView(_ textView: NSTextView, clickedOn cell: any NSTextAttachmentCellProtocol, in cellFrame: NSRect, at charIndex: Int) {
+        guard let storage = textView.textStorage, charIndex < storage.length,
+              let link = storage.attribute(.link, at: charIndex, effectiveRange: nil) else { return }
+        _ = self.textView(textView, clickedOnLink: link, at: charIndex)
+    }
+
     /// Tool rows are links (deck://tool/<id>); clicking one expands or collapses it.
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
         guard let url = link as? URL else { return false }
@@ -347,7 +354,13 @@ struct TranscriptRenderer {
                 let att = NSTextAttachment()
                 att.image = Self.rounded(img, fitting: size)
                 att.bounds = NSRect(origin: .zero, size: att.image!.size)
-                content.append(NSAttributedString(attachment: att))
+                let thumb = NSMutableAttributedString(attachment: att)
+                if let file = (img as? TranscriptImage)?.file {
+                    // Click to see it full size.
+                    thumb.addAttributes([.link: FileLinks.link(to: file.path), .toolTip: "Click to view full size"],
+                                        range: NSRange(location: 0, length: thumb.length))
+                }
+                content.append(thumb)
                 if i < images.count - 1 { content.append(NSAttributedString(string: " ")) }
             }
             if !text.isEmpty { content.append(NSAttributedString(string: "\n")) }
