@@ -20,6 +20,10 @@ final class TranscriptModel {
     private var timer: Timer?
     private var watcher: FileWatcher?
 
+    /// There's history before what's loaded (long sessions load their latest part first).
+    private(set) var hasEarlier = false
+    private var loadingEarlier = false
+
     /// Showing just the part of the transcript around a message (opened from search).
     private(set) var isWindow = false
     /// That message's text, to point it out.
@@ -107,18 +111,36 @@ final class TranscriptModel {
         outgoing = TranscriptExport.reconcile(outgoing, queued: queued, blocks: blocks)
     }
 
+    /// Loads the history before what's shown (scrolled to the top).
+    func loadEarlier() {
+        guard let parser, hasEarlier, !loadingEarlier, !isWindow else { return }
+        loadingEarlier = true
+        queue.async { [weak self] in
+            parser.loadEarlier()
+            let snapshot = (TranscriptBlock.group(parser.items), parser.results, parser.hasEarlier)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.blocks = snapshot.0
+                self.results = snapshot.1
+                self.hasEarlier = snapshot.2
+                self.loadingEarlier = false
+            }
+        }
+    }
+
     private func poll(force: Bool) {
         guard let parser else { return }
         queue.async { [weak self] in
             let changed = parser.refresh()
             guard changed || force else { return }
-            let snapshot = (TranscriptBlock.group(parser.items), parser.results, parser.pendingTool, parser.queued)
+            let snapshot = (TranscriptBlock.group(parser.items), parser.results, parser.pendingTool, parser.queued, parser.hasEarlier)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.blocks = snapshot.0
                 self.results = snapshot.1
                 self.pendingTool = snapshot.2
                 self.queued = snapshot.3
+                self.hasEarlier = snapshot.4
                 self.loaded = true
                 self.reconcileOutgoing()
             }

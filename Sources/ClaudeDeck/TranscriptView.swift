@@ -38,7 +38,8 @@ struct TranscriptView: View {
             blocks: model.blocks, results: model.results, queued: model.queued, outgoing: model.outgoing,
             cwd: cwd, status: status,
             openToolId: status == .busy || status == .waiting ? openTool?.id : nil,
-            loaded: model.loaded, focus: model.focusText))
+            loaded: model.loaded, focus: model.focusText, hasEarlier: model.hasEarlier),
+                           onReachTop: { model.loadEarlier() })
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 // The row's space is always reserved, so the transcript never jumps when it appears;
@@ -81,6 +82,7 @@ struct TranscriptView: View {
 
 struct TranscriptTextView: NSViewRepresentable {
     let content: TranscriptContent
+    var onReachTop: (() -> Void)? = nil
     @Environment(SessionStore.self) private var store
 
     func makeCoordinator() -> Coordinator {
@@ -99,6 +101,7 @@ struct TranscriptTextView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.content = content
+        context.coordinator.onReachTop = onReachTop
         context.coordinator.render(force: false)
     }
 

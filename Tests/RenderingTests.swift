@@ -31,7 +31,7 @@ func toolStyleTests() {
     }
     test("content signature changes with what's visible") {
         let a = content([])
-        expect(a.signature.hasPrefix("0||0|"))
+        expect(a.signature.hasPrefix("0||false||0|"))
         let call = ToolCall(id: "t", name: "Bash", summary: "ls")
         let b = content([.tools([call, call])], openToolId: "t")
         expect(b.signature.contains("|2|") && b.signature.hasSuffix("t|true|"))

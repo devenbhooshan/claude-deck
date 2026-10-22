@@ -34,10 +34,12 @@ struct TranscriptContent {
     let loaded: Bool
     /// Text of a message to scroll to and point out once (from search).
     var focus: String? = nil
+    /// There's earlier history in the file than what's shown; it loads as you scroll up.
+    var hasEarlier = false
 
     /// Cheap fingerprint so the text is only rebuilt when something visible changed.
     var signature: String {
-        "\(blocks.count)|\(blocks.last?.id ?? "")|\(lastToolCount)|\(results.count)|\(queued.joined(separator: "\u{1}"))|"
+        "\(blocks.count)|\(blocks.first?.id ?? "")|\(hasEarlier)|\(blocks.last?.id ?? "")|\(lastToolCount)|\(results.count)|\(queued.joined(separator: "\u{1}"))|"
             + "\(outgoing.map { "\($0.id)\($0.delivered)" }.joined())|\(status)|\(openToolId ?? "")|\(loaded)|\(focus ?? "")"
     }
 
@@ -112,6 +114,9 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
 
     weak var textView: ColumnTextView?
     var content: TranscriptContent?
+    /// Called when you scroll to the top and there's earlier history to load.
+    var onReachTop: (() -> Void)?
+    private var firstBlockId: String?
     private var expanded: Set<String> = []
     private var lastSignature = ""
     /// True while you're at the bottom; new content keeps you there. Scrolling up turns it off.
@@ -120,7 +125,9 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
     private var focused: String?
 
     @objc func userScrolled() {
-        pinned = isAtBottom(textView?.enclosingScrollView)
+        let scroll = textView?.enclosingScrollView
+        pinned = isAtBottom(scroll)
+        if content?.hasEarlier == true, let scroll, scroll.contentView.bounds.minY < 300 { onReachTop?() }
     }
 
     /// Scrolls after the text view has resized to its laid-out text, so the last line is fully visible.
@@ -151,6 +158,10 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
         let scroll = tv.enclosingScrollView
         let origin = scroll?.contentView.bounds.origin ?? .zero
         let selection = tv.selectedRange()
+        // Earlier history was added above: keep what you're reading where it is.
+        let prepended = firstBlockId != nil && content.blocks.first?.id != firstBlockId
+        let fromBottom = tv.frame.height - origin.y
+        firstBlockId = content.blocks.first?.id
 
         let text = TranscriptRenderer(width: tv.columnWidth, cwd: content.cwd, expanded: expanded).render(content)
         tv.textStorage?.setAttributedString(text)
@@ -165,7 +176,13 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
                 }
             }
         } else if let scroll {
-            scroll.contentView.scroll(to: origin)
+            var to = origin
+            if prepended, let container = tv.textContainer {
+                tv.layoutManager?.ensureLayout(for: container)
+                tv.sizeToFit()
+                to.y = max(0, tv.frame.height - fromBottom)
+            }
+            scroll.contentView.scroll(to: to)
             scroll.reflectScrolledClipView(scroll.contentView)
         }
         if let focus = content.focus, focus != focused, let range = Self.range(of: focus, in: text.string) {
@@ -211,6 +228,10 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
     /// Tool rows are links (deck://tool/<id>); clicking one expands or collapses it.
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
         guard let url = link as? URL else { return false }
+        if url == TranscriptRenderer.earlierLink {
+            onReachTop?()
+            return true
+        }
         if url.scheme == "deck", url.host == "tool" {
             let id = url.lastPathComponent
             if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
@@ -300,6 +321,13 @@ struct TranscriptRenderer {
 
     func render(_ c: TranscriptContent) -> NSAttributedString {
         let out = NSMutableAttributedString()
+        if c.hasEarlier {
+            let more = notice("↑ Earlier messages load as you scroll up", symbol: nil, color: .tertiaryLabelColor)
+            let row = NSMutableAttributedString(attributedString: more)
+            row.addAttributes([.link: Self.earlierLink, .toolTip: "Load earlier messages"],
+                              range: NSRange(location: 0, length: row.length - 1))
+            out.append(row)
+        }
         for block in c.blocks {
             switch block {
             case .tools(let calls):
@@ -726,6 +754,9 @@ struct TranscriptRenderer {
         }
         return out
     }
+
+    /// The row at the top that loads earlier history when clicked.
+    static let earlierLink = URL(string: "deck://earlier")!
 
     private static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 

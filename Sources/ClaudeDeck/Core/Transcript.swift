@@ -28,6 +28,12 @@ enum ClaudePaths {
 /// Reads complete lines from the end of a file without loading all of it.
 enum TailReader {
     static func read(_ url: URL, from offset: UInt64?, maxBytes: UInt64) -> (lines: [Data], end: UInt64) {
+        let (lines, end) = readLines(url, from: offset, maxBytes: maxBytes)
+        return (lines.map(\.data), end)
+    }
+
+    /// Like `read`, with where each line starts in the file.
+    static func readLines(_ url: URL, from offset: UInt64?, maxBytes: UInt64) -> (lines: [(offset: UInt64, data: Data)], end: UInt64) {
         guard let handle = try? FileHandle(forReadingFrom: url), let size = try? handle.seekToEnd() else {
             return ([], offset ?? 0)
         }
@@ -41,14 +47,45 @@ enum TailReader {
         try? handle.seek(toOffset: midFile ? start - 1 : start)
         let data = (try? handle.readToEnd()) ?? Data()
 
-        var lines = data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false).map { Data($0) }
+        var lines = split(data, at: midFile ? start - 1 : start)
         if midFile { lines.removeFirst() }
         // Keep the trailing partial line for the next read.
         var consumed = UInt64(data.count) - (midFile ? 1 : 0)
         if data.last != UInt8(ascii: "\n"), let last = lines.popLast() {
-            consumed -= UInt64(last.count)
+            consumed -= UInt64(last.data.count)
         }
-        return (lines.filter { !$0.isEmpty }, start + consumed)
+        return (lines.filter { !$0.data.isEmpty }, start + consumed)
+    }
+
+    /// The complete lines just before `end` (a line start): at least one if there are any,
+    /// reading further back as needed, since a line with images can be megabytes long.
+    static func lines(before end: UInt64, in url: URL, chunk: UInt64) -> [(offset: UInt64, data: Data)] {
+        guard let handle = try? FileHandle(forReadingFrom: url) else { return [] }
+        defer { try? handle.close() }
+        var size = chunk
+        var start: UInt64
+        var lines: [(offset: UInt64, data: Data)]
+        repeat {
+            start = end > size ? end - size : 0
+            // From the byte before `start`, so a line cut at the start can be told apart and dropped.
+            let from = start > 0 ? start - 1 : 0
+            try? handle.seek(toOffset: from)
+            let data = (try? handle.read(upToCount: Int(end - from))) ?? Data()
+            lines = split(data, at: from)
+            if start > 0 { lines.removeFirst() }
+            lines = lines.filter { !$0.data.isEmpty }
+            size *= 2
+        } while start > 0 && lines.isEmpty
+        return lines
+    }
+
+    /// Splits on newlines, keeping where each piece starts (`base` is where `data` starts).
+    private static func split(_ data: Data, at base: UInt64) -> [(offset: UInt64, data: Data)] {
+        var at = base
+        return data.split(separator: UInt8(ascii: "\n"), omittingEmptySubsequences: false).map { piece in
+            defer { at += UInt64(piece.count) + 1 }
+            return (at, Data(piece))
+        }
     }
 }
 
@@ -86,7 +123,19 @@ final class TranscriptParser: @unchecked Sendable {
     private var counter = 0
     let url: URL
 
+    /// Where in the file each item's line starts, so earlier history can be read on demand.
+    private var itemOffsets: [UInt64] = []
+    private var lineOffset: UInt64 = 0
+    /// Where the loaded part of the file begins; there's earlier history before it.
+    private(set) var historyStart: UInt64 = 0
+    var hasEarlier: Bool { historyStart > 0 }
+    /// Reading earlier history: it adds messages, but must not change the title or queue.
+    private var historical = false
+
     static let maxItems = 600
+    static let minFirstLoad = 150
+    /// Raised as you load earlier history, so following new messages doesn't drop it again.
+    private var limit = maxItems
 
     init(url: URL) { self.url = url }
 
@@ -98,12 +147,47 @@ final class TranscriptParser: @unchecked Sendable {
     /// Returns true if anything new was read.
     @discardableResult
     func refresh() -> Bool {
-        let (lines, end) = TailReader.read(url, from: offset, maxBytes: 4_000_000)
+        let fresh = offset == nil
+        let (lines, end) = TailReader.readLines(url, from: offset, maxBytes: 4_000_000)
         let changed = end != offset
         offset = end
-        for line in lines { ingest(line) }
-        if items.count > Self.maxItems { items.removeFirst(items.count - Self.maxItems) }
+        if fresh { historyStart = lines.first?.offset ?? 0 }
+        for line in lines { lineOffset = line.offset; ingest(line.data) }
+        // Long lines (images, big outputs) can leave only a screenful: open with a readable stretch.
+        if fresh, items.count < Self.minFirstLoad { loadEarlier(minItems: Self.minFirstLoad - items.count) }
+        if items.count > limit {
+            // Cut at a line boundary, so loading earlier history resumes exactly there.
+            var cut = items.count - limit
+            while cut < items.count - 1, itemOffsets[cut] == itemOffsets[cut - 1] { cut += 1 }
+            items.removeFirst(cut)
+            itemOffsets.removeFirst(cut)
+            historyStart = itemOffsets[0]
+        }
         return changed && !lines.isEmpty
+    }
+
+    /// Reads the history before what's loaded, until there are `minItems` more messages or the
+    /// start of the file. Returns false when there was nothing earlier.
+    @discardableResult
+    func loadEarlier(minItems: Int = 150, chunk: UInt64 = 2_000_000) -> Bool {
+        guard hasEarlier else { return false }
+        let (laterItems, laterOffsets) = (items, itemOffsets)
+        var (earlier, earlierOffsets): ([TranscriptItem], [UInt64]) = ([], [])
+        historical = true
+        while historyStart > 0 && earlier.count < minItems {
+            let lines = TailReader.lines(before: historyStart, in: url, chunk: chunk)
+            items = []
+            itemOffsets = []
+            for line in lines { lineOffset = line.offset; ingest(line.data) }
+            earlier = items + earlier
+            earlierOffsets = itemOffsets + earlierOffsets
+            historyStart = lines.first?.offset ?? 0
+        }
+        historical = false
+        items = earlier + laterItems
+        itemOffsets = earlierOffsets + laterOffsets
+        limit = max(limit, items.count + Self.maxItems)
+        return true
     }
 
     /// The most recent tool call that has no result yet: what a permission prompt is asking about.
@@ -127,6 +211,8 @@ final class TranscriptParser: @unchecked Sendable {
               let type = obj["type"] as? String else { return }
 
         switch type {
+        case _ where historical && ["ai-title", "custom-title", "queue-operation"].contains(type):
+            return
         case "ai-title":
             if let t = obj["aiTitle"] as? String, !hasCustomTitle { title = t }
             return
@@ -170,6 +256,7 @@ final class TranscriptParser: @unchecked Sendable {
         func add(_ kind: TranscriptItem.Kind) {
             counter += 1
             items.append(TranscriptItem(id: "\(uuid)-\(counter)", kind: kind, timestamp: ts))
+            itemOffsets.append(lineOffset)
         }
 
         if type == "attachment" {
@@ -231,11 +318,12 @@ final class TranscriptParser: @unchecked Sendable {
         guard let kind else { return }
         counter += 1
         items.append(TranscriptItem(id: "\(uuid)-\(counter)", kind: kind, timestamp: ts))
+        itemOffsets.append(lineOffset)
     }
 
     /// A user prompt is either a string or blocks of text and images.
     private func addUser(_ content: Any?, _ add: (TranscriptItem.Kind) -> Void) {
-        if let text = content as? String, let i = queue.firstIndex(of: text) { queue.remove(at: i) }
+        if !historical, let text = content as? String, let i = queue.firstIndex(of: text) { queue.remove(at: i) }
         if let text = content as? String {
             if let kind = Self.userKind(text) { add(kind) }
             return
