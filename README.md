@@ -80,6 +80,23 @@ pages that Claude writes or mentions (`docs/report.pdf`, `~/Desktop/Screenshot �
 a viewer over the session, which reloads when the file changes. Reload with ⌘R, close with Esc, or open the file
 in Finder or its usual app from the toolbar. Links inside a page open in your browser. Click an image you shared to see it full size in the same viewer.
 
+## Markdown editor
+
+Markdown files Claude writes or mentions (`docs/plan.md`, `CLAUDE.md`) open in an editor over the
+session; ⌘O opens any file. The text stays plain markdown, styled as you type: headings, bold,
+code and quotes look the part, and the `#`, `**` and backticks fade back. ⌘B, ⌘I and ⌘K make
+bold, italic and links; Return continues a list; click a task's `[ ]` to tick it. ⌥⌘P switches to
+the preview. It saves as you type, and when Claude changes the file it shows the new text, or, if
+you have unsaved edits, asks which to keep (with a comparison). Select a passage and choose
+**Ask Claude** to send it to the open session, quoted with its file and lines, along with your note.
+
+## Remote Control
+
+The **Remote Control** switch in a session's toolbar connects it to the Claude app on your phone
+and claude.ai (Claude Code's `/remote-control`), and turning it off disconnects it. It works while
+Claude is mid-step. Connected sessions show a phone in the sidebar. New Session can start one
+already connected.
+
 ## Policies: ⇧⌘P
 
 Rules checked before every tool call in every Claude Code session on this Mac, managed in one

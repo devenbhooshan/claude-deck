@@ -95,6 +95,8 @@ struct SessionCommands: Commands {
         CommandMenu("Sessions") {
             Button("New Session…") { store.showNewSession = true }
                 .keyboardShortcut("n", modifiers: .command)
+            Button("Open File…") { store.openFile() }
+                .keyboardShortcut("o", modifiers: .command)
             Button("Plan Usage…") { store.showUsage = true }
                 .keyboardShortcut("u", modifiers: [.command, .shift])
             Button("Policies…") { store.showPolicies = true; store.bringToFront() }

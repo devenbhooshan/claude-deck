@@ -9,7 +9,7 @@ let suites: [(String, () -> Void)] = [
     ("Tool style", toolStyleTests), ("Renderer", rendererTests), ("Text view", textViewTests),
     ("Skills", skillTests), ("Slash commands", commandTests), ("Command kinds", commandKindTests), ("Plan usage", planUsageTests), ("Diffs", diffTests), ("claude command", claudeCLITests),
     ("Activity", activityTests), ("Activity index", activityIndexTests), ("Activity summaries", activitySummaryTests), ("Search", searchTests),
-    ("Background tasks", backgroundTaskTests), ("Unread replies", unreadTests), ("Policies", policyTests), ("Policy history & suggestions", policyHistoryTests), ("Policy files & hook", policyIOTests), ("File links", fileLinkTests), ("Earlier history", historyTests),
+    ("Background tasks", backgroundTaskTests), ("Unread replies", unreadTests), ("Policies", policyTests), ("Policy history & suggestions", policyHistoryTests), ("Policy files & hook", policyIOTests), ("File links", fileLinkTests), ("Earlier history", historyTests), ("Markdown editor", markdownEditorTests),
 ]
 for (name, run) in suites {
     print("• \(name)")

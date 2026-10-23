@@ -1,9 +1,9 @@
 import Foundation
 
-/// Files Deck can show itself (PDFs, images, web pages), and finding them in what Claude wrote,
+/// Files Deck can show itself (PDFs, images, web pages, markdown it edits), and finding them in what Claude wrote,
 /// so a path like `docs/report.pdf` or `~/Desktop/Screenshot 2026-10-21 at 9.57.47 AM.png` opens in Deck.
 enum FileLinks {
-    enum Kind: Equatable { case pdf, image, html }
+    enum Kind: Equatable { case pdf, image, html, markdown }
 
     private static let kinds: [String: Kind] = [
         "pdf": .pdf,
@@ -11,6 +11,7 @@ enum FileLinks {
         "heic": .image, "heif": .image, "tif": .image, "tiff": .image, "bmp": .image,
         // A web view draws SVG best.
         "svg": .html, "html": .html, "htm": .html,
+        "md": .markdown, "markdown": .markdown,
     ]
 
     static func kind(of url: URL) -> Kind? { kinds[url.pathExtension.lowercased()] }

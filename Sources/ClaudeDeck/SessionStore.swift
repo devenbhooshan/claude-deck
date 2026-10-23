@@ -2,6 +2,7 @@ import AppKit
 import SwiftUI
 import Foundation
 import Observation
+import UniformTypeIdentifiers
 import UserNotifications
 
 @MainActor
@@ -24,7 +25,7 @@ final class SessionStore {
     var showNewSession = false
     var showUsage = false
     var showPolicies = false
-    /// A PDF, image or web page opened from the transcript, shown over the session.
+    /// A PDF, image, web page or markdown file opened from the transcript, shown over the session.
     var viewing: ViewedFile?
     /// A session we just started (and the terminal it's in): select it as soon as it appears.
     private var starting: (folder: String, at: Date, terminal: String?)?
@@ -295,6 +296,17 @@ final class SessionStore {
             }
             remoteSwitching[s.sessionId] = nil
         }
+    }
+
+    /// Picks a markdown, PDF, image or web page to open in Deck, starting in the open session's folder.
+    func openFile() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = ["md", "markdown", "pdf", "png", "jpg", "jpeg", "gif", "webp", "heic", "svg", "html", "htm"]
+            .compactMap { UTType(filenameExtension: $0) }
+        if let s = session(selectedId) { panel.directoryURL = URL(fileURLWithPath: s.cwd) }
+        panel.prompt = "Open in Deck"
+        bringToFront()
+        if panel.runModal() == .OK, let url = panel.url { viewing = ViewedFile(url: url) }
     }
 
     func openTerminal(_ s: Session) {

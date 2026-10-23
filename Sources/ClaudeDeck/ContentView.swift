@@ -111,7 +111,9 @@ struct ContentView: View {
         .sheet(isPresented: $store.showNewSession) { NewSessionSheet() }
         .sheet(isPresented: $store.showUsage) { UsageSheet() }
         .sheet(isPresented: $store.showPolicies) { PoliciesSheet() }
-        .sheet(item: $store.viewing) { FileViewer(url: $0.url) }
+        .sheet(item: $store.viewing) { file in
+            if FileLinks.kind(of: file.url) == .markdown { MarkdownEditor(url: file.url) } else { FileViewer(url: file.url) }
+        }
         .safeAreaInset(edge: .bottom) {
             VStack(spacing: 8) {
                 if !store.hookInstalled {

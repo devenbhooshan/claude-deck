@@ -30,7 +30,7 @@ struct FileViewer: View {
                     case .pdf: PDFFileView(url: url, version: version)
                     case .image: ImageFileView(url: url, version: version)
                     case .html: WebFileView(url: url, version: version)
-                    case nil: ContentUnavailableView("Deck can't show this file", systemImage: "doc")
+                    case .markdown, nil: ContentUnavailableView("Deck can't show this file", systemImage: "doc")
                     }
                 }
             }
@@ -74,7 +74,7 @@ struct FileViewer: View {
         switch FileLinks.kind(of: url) {
         case .pdf: "doc.richtext"
         case .image: "photo"
-        case .html, nil: "globe"
+        case .html, .markdown, nil: "globe"
         }
     }
 

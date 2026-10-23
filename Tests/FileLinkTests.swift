@@ -8,6 +8,7 @@ func fileLinkTests() {
         expectEqual(FileLinks.kind(of: URL(fileURLWithPath: "/a/chart.svg")), .html)
         expectEqual(FileLinks.kind(of: URL(fileURLWithPath: "/a/index.htm")), .html)
         expectEqual(FileLinks.kind(of: URL(fileURLWithPath: "/a/run.sh")), nil)
+        expectEqual(FileLinks.kind(of: URL(fileURLWithPath: "/a/PLAN.md")), .markdown)
     }
     test("paths found in text, resolved, only if the file exists") {
         let files: Set<String> = ["/p/docs/report.pdf", "/p/out.png", "\(home)/Desktop/Screenshot 2026-10-21 at 9.57.47 AM.png",
