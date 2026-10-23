@@ -488,15 +488,21 @@ struct RemoteControlToggle: View {
 
     var body: some View {
         let on = store.isRemote(session)
-        Toggle(isOn: Binding(get: { on }, set: { store.setRemote(session, on: $0) })) {
+        // A toolbar hides a toggle's own label, so the name sits beside the switch.
+        HStack(spacing: 6) {
             Label("Remote Control", systemImage: "iphone.radiowaves.left.and.right")
                 .labelStyle(.titleAndIcon)
                 .font(.callout)
                 .foregroundStyle(on ? Theme.accent : .secondary)
+            Toggle("Remote Control", isOn: Binding(get: { on }, set: { store.setRemote(session, on: $0) }))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .tint(Theme.accent)
         }
-        .toggleStyle(.switch)
-        .controlSize(.mini)
-        .tint(Theme.accent)
+        .padding(.horizontal, 6)
+        .contentShape(Rectangle())
+        .onTapGesture { store.setRemote(session, on: !on) }
         .pointingHand()
         .disabled(store.remoteSwitching[session.sessionId] != nil)
         .help(on ? "Remote Control is on: drive this session from the Claude app or claude.ai. Turn off to disconnect."
