@@ -33,7 +33,7 @@ func loaderTests() {
         box.write("claude/sessions/10.json", #"{"pid":10,"sessionId":"headless","cwd":"/tmp","kind":"interactive","entrypoint":"sdk-cli","status":"busy"}"#)
         box.write("claude/sessions/12.json", record(12, "bg", status: "shell"))
         box.write("claude/sessions/13.json", record(13, "srv", status: "shell"))
-        box.write("claude/sessions/11.json", #"{"pid":11,"sessionId":"term","cwd":"/p/app","startedAt":2000000,"entrypoint":"cli"}"#)
+        box.write("claude/sessions/11.json", #"{"pid":11,"sessionId":"term","cwd":"/p/app","startedAt":2000000,"entrypoint":"cli","bridgeSessionId":"session_01Abc"}"#)
         box.jsonl("claude/projects/-p-app/w.jsonl", [["type": "ai-title", "aiTitle": "Waiting one"]])
         box.write("pending/req.a", #"{"session_id":"w","tool_name":"Bash","tool_input":{"command":"rm -rf x"}}"#)
         let old = box.write("pending/req.b", #"{"session_id":"old","tool_name":"Bash","tool_input":{}}"#)
@@ -62,6 +62,11 @@ func loaderTests() {
         expectEqual(updates.count, 1)
         expect(w.statusSince != nil)
         expectEqual(live[0].startedAt, Date(timeIntervalSince1970: 0.5))
+        // Remote Control: a link to the session on claude.ai, only for a well-formed id.
+        expectEqual(live.first { $0.id == "term" }?.remoteURL?.absoluteString, "https://claude.ai/code/session_01Abc")
+        expect(live[0].remoteURL == nil)
+        var odd = live[0]; odd.remoteId = "session_1/../x"
+        expect(odd.remoteURL == nil)
     }
     test("live sessions: a background task the process list doesn't show is still a background task") {
         let box = Sandbox(); defer { box.cleanup() }

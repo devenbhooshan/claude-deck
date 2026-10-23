@@ -265,6 +265,20 @@ final class SessionStore {
         }
     }
 
+    /// Connects a running session with Remote Control (Claude Code's /remote-control), so you can
+    /// drive it from the Claude app or claude.ai. The session's record then carries the link.
+    func connectRemote(_ s: Session) {
+        Task {
+            do {
+                try await Ghostty.send(text: "/remote-control", to: s)
+                HUD.show("Connecting Remote Control", detail: s.displayTitle,
+                         symbol: "iphone.radiowaves.left.and.right", tint: Theme.accent)
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
     func openTerminal(_ s: Session) {
         Task {
             do { try await Ghostty.focus(s) } catch { lastError = error.localizedDescription }

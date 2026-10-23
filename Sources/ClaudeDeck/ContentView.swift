@@ -225,6 +225,12 @@ extension ContentView {
         }
         Button("Rename…") { store.renameTarget = s }
         if s.isLive {
+            if let url = s.remoteURL {
+                Button("Open on claude.ai") { NSWorkspace.shared.open(url) }
+            } else {
+                Button("Connect Remote Control") { store.connectRemote(s) }
+                    .disabled(s.status == .busy || s.status == .waiting)
+            }
             Button("Open Terminal") { store.openTerminal(s) }
             Button("Restart Session") { store.restart(s) }
                 .disabled(s.status != .idle || store.restarting != nil)
@@ -321,6 +327,12 @@ struct SessionRow<Accessory: View>: View {
                             .font(.caption2)
                             .foregroundStyle(.tertiary)
                             .help(session.background.map(\.command).joined(separator: "\n") + " running in the background")
+                    }
+                    if session.remoteURL != nil && accessory == nil {
+                        Image(systemName: "iphone.radiowaves.left.and.right")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Theme.accent)
+                            .help("Connected with Remote Control")
                     }
                     if unread > 0 && accessory == nil {
                         Text(unread > 99 ? "99+" : "\(unread)")

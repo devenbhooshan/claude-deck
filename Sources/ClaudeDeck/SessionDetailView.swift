@@ -235,12 +235,26 @@ struct SessionDetailView: View {
         let status = store.restarting?.session.id == session.id ? "Restarting…"
             : store.ending.contains(session.sessionId) ? "Ending…"
             : session.status == .waiting ? "Waiting for \(session.waitingFor ?? "you")" : session.status.label
-        return "\(status) · \(Theme.shortPath(session.cwd))"
+        let remote = session.isLive && session.remoteURL != nil ? " · Remote Control" : ""
+        return "\(status)\(remote) · \(Theme.shortPath(session.cwd))"
     }
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
+            if session.isLive, let url = session.remoteURL {
+                Button { NSWorkspace.shared.open(url) } label: {
+                    Label("Remote", systemImage: "iphone.radiowaves.left.and.right")
+                        .labelStyle(.titleAndIcon)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 8).padding(.vertical, 3)
+                        .background(Capsule().fill(Theme.accent.opacity(0.14)))
+                }
+                .buttonStyle(.deckPlain)
+                .pointingHand()
+                .help("Remote Control is on: you can drive this session from the Claude app or claude.ai. Click to open it there.")
+            }
             if !session.isLive {
                 Button {
                     act { try await Ghostty.resume(session) }

@@ -16,6 +16,8 @@ struct SessionRecord: Decodable {
     let updatedAt: Double?
     let statusUpdatedAt: Double?
     let detail: String?
+    /// Set while the session is connected with Remote Control.
+    var bridgeSessionId: String? = nil
 }
 
 extension SessionRecord {
@@ -71,8 +73,16 @@ struct Session: Identifiable, Equatable {
     var background: [BackgroundTask] = []
     /// When Claude wrote each reply since your last message, oldest first.
     var replies: [Date] = []
+    /// The claude.ai session it's connected to with Remote Control, if it is.
+    var remoteId: String? = nil
 
     var isLive: Bool { pid != nil }
+    /// Where to open it on claude.ai or the Claude app; only a well-formed id becomes a link.
+    var remoteURL: URL? {
+        guard let remoteId, remoteId.range(of: #"^session_[A-Za-z0-9]+$"#, options: .regularExpression) != nil
+        else { return nil }
+        return URL(string: "https://claude.ai/code/\(remoteId)")
+    }
     /// Only servers and watchers run in the background: shown as idle, with the server noted.
     var onlyServers: Bool { !background.isEmpty && background.allSatisfy(\.isServer) }
 
