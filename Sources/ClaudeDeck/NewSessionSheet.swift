@@ -6,11 +6,13 @@ struct NewSessionSheet: View {
     @Environment(SessionStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var highlighted: String?
+    @AppStorage("newSessionRemoteControl") private var remoteControl = false
+    @State private var name = ""
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             Text("New Claude session").font(.title3.weight(.semibold))
-            Text("Opens a Ghostty window in the folder and starts `claude`.")
+            Text("Opens a Ghostty window in the folder and starts `\(Safety.newSessionCommand(remoteControl: remoteControl))`.")
                 .font(.callout).foregroundStyle(.secondary)
 
             List(store.projectFolders, id: \.self, selection: $highlighted) { folder in
@@ -29,6 +31,21 @@ struct NewSessionSheet: View {
             .overlay {
                 if store.projectFolders.isEmpty {
                     Text("No recent folders").foregroundStyle(.tertiary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                Toggle(isOn: $remoteControl) {
+                    Label("Remote Control", systemImage: "iphone.radiowaves.left.and.right")
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .pointingHand()
+                .help("Also drive this session from the Claude app on your phone or claude.ai. It still runs on this Mac.")
+                if remoteControl {
+                    TextField("Name (optional, shown in the Claude app)", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit { if let f = highlighted { start(f) } }
                 }
             }
 
@@ -59,6 +76,6 @@ struct NewSessionSheet: View {
 
     private func start(_ folder: String) {
         dismiss()
-        store.startSession(in: folder)
+        store.startSession(in: folder, remoteControl: remoteControl, name: name)
     }
 }

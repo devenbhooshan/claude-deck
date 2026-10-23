@@ -227,10 +227,10 @@ enum Ghostty {
         adopt(id, for: session.sessionId)
     }
 
-    /// Opens a new Ghostty window in `folder` and starts Claude Code there. Returns the new
-    /// terminal's id, to `adopt` once the session appears.
-    static func newSession(in folder: String) async throws -> String {
-        try await openWindow(in: folder, typing: "claude")
+    /// Opens a new Ghostty window in `folder` and starts Claude Code there, with Remote Control
+    /// if asked. Returns the new terminal's id, to `adopt` once the session appears.
+    static func newSession(in folder: String, remoteControl: Bool = false, name: String = "") async throws -> String {
+        try await openWindow(in: folder, typing: Safety.newSessionCommand(remoteControl: remoteControl, name: name))
     }
 
     /// The folder is passed as Ghostty's working directory (never through the shell); `command`

@@ -13,6 +13,14 @@ enum Safety {
         "'" + s.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 
+    /// The command a new session starts with. With Remote Control you can also drive it from the
+    /// Claude app or claude.ai; its name is typed into a shell, so it's one quoted line.
+    static func newSessionCommand(remoteControl: Bool, name: String = "") -> String {
+        guard remoteControl else { return "claude" }
+        let name = stripControls(name, keepNewlines: false).trimmingCharacters(in: .whitespaces)
+        return name.isEmpty ? "claude --remote-control" : "claude --remote-control \(shellQuote(name))"
+    }
+
     /// Removes terminal colour/format escape sequences (ESC [ … letter).
     static func stripANSI(_ s: String) -> String {
         s.replacingOccurrences(of: #"\x{1B}\[[0-9;?]*[ -/]*[@-~]"#, with: "", options: .regularExpression)

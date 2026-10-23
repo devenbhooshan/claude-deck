@@ -179,14 +179,16 @@ final class SessionStore {
             .filter { var dir: ObjCBool = false; return FileManager.default.fileExists(atPath: $0, isDirectory: &dir) && dir.boolValue }
     }
 
-    func startSession(in folder: String) {
+    func startSession(in folder: String, remoteControl: Bool = false, name: String = "") {
         starting = (folder, Date(), nil)
         Task {
             do {
-                let terminal = try await Ghostty.newSession(in: folder)
+                let terminal = try await Ghostty.newSession(in: folder, remoteControl: remoteControl, name: name)
                 starting?.terminal = terminal
                 refresh()
-                HUD.show("Starting Claude", detail: Theme.shortPath(folder), symbol: "plus.circle.fill", tint: Theme.accent)
+                HUD.show(remoteControl ? "Starting Claude with Remote Control" : "Starting Claude",
+                         detail: Theme.shortPath(folder),
+                         symbol: remoteControl ? "iphone.radiowaves.left.and.right" : "plus.circle.fill", tint: Theme.accent)
             } catch {
                 starting = nil
                 lastError = error.localizedDescription

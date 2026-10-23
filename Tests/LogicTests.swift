@@ -253,6 +253,11 @@ func safetyTests() {
     test("shell quoting") {
         expectEqual(Safety.shellQuote("plain"), "'plain'")
         expectEqual(Safety.shellQuote("it's $(x)"), #"'it'\''s $(x)'"#)
+        expectEqual(Safety.newSessionCommand(remoteControl: false, name: "x"), "claude")
+        expectEqual(Safety.newSessionCommand(remoteControl: true), "claude --remote-control")
+        expectEqual(Safety.newSessionCommand(remoteControl: true, name: "  \n "), "claude --remote-control")
+        expectEqual(Safety.newSessionCommand(remoteControl: true, name: " deck's fix\n; rm -rf ~ "),
+                    #"claude --remote-control 'deck'\''s fix; rm -rf ~'"#)
     }
     test("control characters") {
         expectEqual(Safety.stripControls("a\u{1b}[201~b\u{7f}c\u{85}d\n\te"), "a[201~bcd\n\te")
