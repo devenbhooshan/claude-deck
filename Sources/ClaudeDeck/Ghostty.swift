@@ -113,6 +113,26 @@ enum Ghostty {
         }
     }
 
+    /// Turns Remote Control on or off with Claude Code's /remote-control. Off opens its dialog
+    /// (Disconnect, Show QR code, Continue, with Continue selected) and picks Disconnect. Both work
+    /// while Claude is mid-step. Ghostty's `send key` has no arrow keys, so ↑ is typed as its sequence.
+    static func setRemoteControl(_ on: Bool, for session: Session) async throws {
+        guard PromptGuard.canType(session.pid.flatMap(SessionLoader.record(pid:))) else { throw Failure.promptOpen }
+        try await act(on: session, """
+              perform action "text:/remote-control" on t
+              delay 0.25
+              send key "enter" to t
+              if (item 4 of argv) is "off" then
+                delay 1
+                perform action "text:\\x1b[A" on t
+                delay 0.2
+                perform action "text:\\x1b[A" on t
+                delay 0.2
+                send key "enter" to t
+              end if
+            """, args: [on ? "on" : "off", ""])
+    }
+
     /// Stops Claude's current step (Esc), only if it's still working.
     static func interrupt(_ session: Session) async throws {
         guard PromptGuard.canInterrupt(session.pid.flatMap(SessionLoader.record(pid:))) else { throw Failure.notWorking }

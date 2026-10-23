@@ -265,17 +265,35 @@ final class SessionStore {
         }
     }
 
-    /// Connects a running session with Remote Control (Claude Code's /remote-control), so you can
-    /// drive it from the Claude app or claude.ai. The session's record then carries the link.
-    func connectRemote(_ s: Session) {
+    /// Remote Control you've just switched, by session id, shown until the session's record agrees.
+    private(set) var remoteSwitching: [String: Bool] = [:]
+
+    /// Whether the session is (or is about to be) connected with Remote Control.
+    func isRemote(_ s: Session) -> Bool { remoteSwitching[s.sessionId] ?? (s.remoteURL != nil) }
+
+    /// Connects or disconnects a running session with Remote Control, so you can drive it from the
+    /// Claude app or claude.ai. Checks the session's record afterwards and says if it didn't take.
+    func setRemote(_ s: Session, on: Bool) {
+        guard remoteSwitching[s.sessionId] == nil else { return }
+        remoteSwitching[s.sessionId] = on
         Task {
             do {
-                try await Ghostty.send(text: "/remote-control", to: s)
-                HUD.show("Connecting Remote Control", detail: s.displayTitle,
-                         symbol: "iphone.radiowaves.left.and.right", tint: Theme.accent)
+                try await Ghostty.setRemoteControl(on, for: s)
+                for _ in 0..<16 {
+                    try? await Task.sleep(for: .milliseconds(500))
+                    refresh()
+                    if session(s.sessionId).map({ ($0.remoteURL != nil) == on }) ?? true { break }
+                }
+                if let now = session(s.sessionId), (now.remoteURL != nil) != on {
+                    lastError = "Remote Control didn't turn \(on ? "on" : "off"). Check the session's terminal."
+                } else {
+                    HUD.show(on ? "Remote Control on" : "Remote Control off", detail: s.displayTitle,
+                             symbol: on ? "iphone.radiowaves.left.and.right" : "iphone.slash", tint: Theme.accent)
+                }
             } catch {
                 lastError = error.localizedDescription
             }
+            remoteSwitching[s.sessionId] = nil
         }
     }
 

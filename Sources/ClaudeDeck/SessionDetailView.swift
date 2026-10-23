@@ -235,25 +235,15 @@ struct SessionDetailView: View {
         let status = store.restarting?.session.id == session.id ? "Restarting…"
             : store.ending.contains(session.sessionId) ? "Ending…"
             : session.status == .waiting ? "Waiting for \(session.waitingFor ?? "you")" : session.status.label
-        let remote = session.isLive && session.remoteURL != nil ? " · Remote Control" : ""
+        let remote = session.isLive && store.isRemote(session) ? " · Remote Control" : ""
         return "\(status)\(remote) · \(Theme.shortPath(session.cwd))"
     }
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
-            if session.isLive, let url = session.remoteURL {
-                Button { NSWorkspace.shared.open(url) } label: {
-                    Label("Remote", systemImage: "iphone.radiowaves.left.and.right")
-                        .labelStyle(.titleAndIcon)
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 8).padding(.vertical, 3)
-                        .background(Capsule().fill(Theme.accent.opacity(0.14)))
-                }
-                .buttonStyle(.deckPlain)
-                .pointingHand()
-                .help("Remote Control is on: you can drive this session from the Claude app or claude.ai. Click to open it there.")
+            if session.isLive {
+                RemoteControlToggle(session: session)
             }
             if !session.isLive {
                 Button {
@@ -488,5 +478,34 @@ private struct EarlierPartBar: View {
         .frame(height: 36)
         .background(Theme.accent.opacity(0.06))
         .overlay(alignment: .bottom) { Divider() }
+    }
+}
+
+/// Remote Control as one switch: on, you can drive the session from the Claude app or claude.ai.
+struct RemoteControlToggle: View {
+    @Environment(SessionStore.self) private var store
+    let session: Session
+
+    var body: some View {
+        let on = store.isRemote(session)
+        Toggle(isOn: Binding(get: { on }, set: { store.setRemote(session, on: $0) })) {
+            Label("Remote Control", systemImage: "iphone.radiowaves.left.and.right")
+                .labelStyle(.titleAndIcon)
+                .font(.callout)
+                .foregroundStyle(on ? Theme.accent : .secondary)
+        }
+        .toggleStyle(.switch)
+        .controlSize(.mini)
+        .tint(Theme.accent)
+        .pointingHand()
+        .disabled(store.remoteSwitching[session.sessionId] != nil)
+        .help(on ? "Remote Control is on: drive this session from the Claude app or claude.ai. Turn off to disconnect."
+                 : "Turn on to drive this session from the Claude app on your phone or claude.ai. It keeps running on this Mac.")
+        .contextMenu {
+            if let url = session.remoteURL {
+                Button("Open on claude.ai") { NSWorkspace.shared.open(url) }
+                Button("Copy Link") { Clipboard.copy(url.absoluteString) }
+            }
+        }
     }
 }

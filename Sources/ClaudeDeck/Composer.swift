@@ -48,7 +48,6 @@ struct Composer: View {
                     .font(.caption2).foregroundStyle(.tertiary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                RemoteControlButton(session: session)
                 Button { store.openTerminal(session) } label: {
                     FooterLabel(title: "Open Terminal", systemImage: "apple.terminal")
                 }
@@ -337,32 +336,6 @@ struct SlashMenu: View {
         .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(.regularMaterial)
             .shadow(color: .black.opacity(0.15), radius: 14, y: 4))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
-    }
-}
-
-/// Connects the session with Remote Control in one click; once connected, opens it on claude.ai.
-struct RemoteControlButton: View {
-    @Environment(SessionStore.self) private var store
-    let session: Session
-
-    var body: some View {
-        if let url = session.remoteURL {
-            Button { NSWorkspace.shared.open(url) } label: {
-                FooterLabel(title: "Remote Control On", systemImage: "iphone.radiowaves.left.and.right", tint: Theme.accent)
-            }
-            .help("Connected with Remote Control: open it on claude.ai, or in the Claude app on your phone")
-            .contextMenu {
-                Button("Copy Link") { Clipboard.copy(url.absoluteString) }
-            }
-        } else {
-            Button { store.connectRemote(session) } label: {
-                FooterLabel(title: "Remote Control", systemImage: "iphone.radiowaves.left.and.right")
-            }
-            .disabled(session.status == .busy || session.status == .waiting)
-            .help(session.status == .busy || session.status == .waiting
-                  ? "Available once Claude finishes this step"
-                  : "Drive this session from the Claude app on your phone or claude.ai. It keeps running on this Mac.")
-        }
     }
 }
 
