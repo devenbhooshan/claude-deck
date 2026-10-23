@@ -50,11 +50,11 @@ struct Composer: View {
                 Spacer(minLength: 8)
                 RemoteControlButton(session: session)
                 Button { store.openTerminal(session) } label: {
-                    Label("Open Terminal", systemImage: "apple.terminal")
+                    FooterLabel(title: "Open Terminal", systemImage: "apple.terminal")
                 }
                 .help("Jump to this session's Ghostty terminal (⇧⌘T)")
                 Button { store.requestEnd(session) } label: {
-                    Label("End Session", systemImage: "stop.circle")
+                    FooterLabel(title: "End Session", systemImage: "stop.circle")
                 }
                 .disabled(store.ending.contains(session.sessionId))
                 .help("Quit Claude and close its terminal; you can resume it later (⇧⌘E)")
@@ -348,21 +348,37 @@ struct RemoteControlButton: View {
     var body: some View {
         if let url = session.remoteURL {
             Button { NSWorkspace.shared.open(url) } label: {
-                Label("On claude.ai", systemImage: "iphone.radiowaves.left.and.right")
+                FooterLabel(title: "Remote Control On", systemImage: "iphone.radiowaves.left.and.right", tint: Theme.accent)
             }
-            .foregroundStyle(Theme.accent)
             .help("Connected with Remote Control: open it on claude.ai, or in the Claude app on your phone")
             .contextMenu {
                 Button("Copy Link") { Clipboard.copy(url.absoluteString) }
             }
         } else {
             Button { store.connectRemote(session) } label: {
-                Label("Remote Control", systemImage: "iphone")
+                FooterLabel(title: "Remote Control", systemImage: "iphone.radiowaves.left.and.right")
             }
             .disabled(session.status == .busy || session.status == .waiting)
             .help(session.status == .busy || session.status == .waiting
                   ? "Available once Claude finishes this step"
                   : "Drive this session from the Claude app on your phone or claude.ai. It keeps running on this Mac.")
+        }
+    }
+}
+
+/// The actions under the message box: same icon slot and spacing, so they line up as one row.
+struct FooterLabel: View {
+    let title: String
+    let systemImage: String
+    var tint: Color? = nil
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: systemImage)
+                .imageScale(.medium)
+                .frame(width: 18, alignment: .center)
+                .foregroundStyle(tint ?? .secondary)
+            Text(title)
         }
     }
 }
