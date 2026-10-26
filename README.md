@@ -35,6 +35,8 @@ lets you read each transcript live, send messages, and jump to the session's ter
 - Typing `/` lists every command (custom, skills, built-ins). Built-ins are handled by kind: most
   are sent as typed (their output appears in the transcript); ones that open a menu (`/model`,
   `/mcp`, `/config`…) bring the terminal forward; `/usage` (or ⇧⌘U) shows your plan limits in Deck.
+- Unsent messages and staged attachments are kept per session (in `~/Library/Application Support/ClaudeDeck/drafts.json`),
+  so switching sessions or quitting Deck doesn't lose them; attachments a draft holds are never cleared from the cache.
 
 ## Activity: PRs, tickets and screenshots
 

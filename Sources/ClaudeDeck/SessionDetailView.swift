@@ -178,9 +178,11 @@ struct SessionDetailView: View {
         .toolbar { toolbar }
         .onAppear {
             model.start(url: session.transcriptURL, focus: store.focus?.sessionId == session.sessionId ? store.focus : nil)
+            attachments = Drafts.draft(for: session.sessionId).files.compactMap(AttachmentStore.restore)
             if session.isLive { Task { await Ghostty.prewarm(session) } }
         }
         .onDisappear { model.stop() }
+        .onChange(of: attachments) { Drafts.update(session.sessionId) { $0.files = attachments.map(\.url.path) } }
         .alert("Couldn't reach the terminal", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
         } message: {

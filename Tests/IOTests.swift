@@ -326,3 +326,47 @@ func attachmentTests() {
         expect(!AttachmentStore.shouldAttach(from: pb))
     }
 }
+
+func draftTests() {
+    test("drafts: text and files kept per session, removed when empty") {
+        let box = Sandbox(); defer { box.cleanup() }
+        expectEqual(Drafts.draft(for: "a"), Draft())
+        Drafts.update("a") { $0.text = "half a thought\nline two" }
+        Drafts.update("b") { $0.files = ["/c/x.png"] }
+        expectEqual(Drafts.draft(for: "a").text, "half a thought\nline two")
+        expectEqual(Drafts.all(), ["a": Draft(text: "half a thought\nline two"), "b": Draft(files: ["/c/x.png"])])
+        expectEqual(Drafts.files(), ["/c/x.png"])
+        Drafts.update("a") { $0.text = "  \n" }
+        Drafts.update("b") { $0.text = " " }  // files alone keep a draft
+        expectEqual(Drafts.all(), ["b": Draft(text: " ", files: ["/c/x.png"])])
+        Drafts.update("missing") { $0.text = "" }  // nothing to remove: the file isn't rewritten
+        expectEqual(Drafts.all().count, 1)
+    }
+    test("drafts: older text-only drafts, and a damaged file") {
+        let box = Sandbox(); defer { box.cleanup() }
+        box.write("drafts/drafts.json", #"{"a":"old","b":{"files":["/f"]},"c":{}}"#)
+        expectEqual(Drafts.all(), ["a": Draft(text: "old"), "b": Draft(files: ["/f"]), "c": Draft()])
+        box.write("drafts/drafts.json", "{not json")
+        expectEqual(Drafts.all(), [:])
+        Drafts.update("a") { $0.text = "fresh" }
+        expectEqual(Drafts.all(), ["a": Draft(text: "fresh")])
+    }
+    test("drafts: staged files come back, and aren't cleared away") {
+        let box = Sandbox(); defer { box.cleanup() }
+        let png = box.root.appendingPathComponent("p.png"); try pngData().write(to: png)
+        let image = AttachmentStore.from(fileURL: png)!
+        let file = AttachmentStore.from(fileURL: box.write("notes.txt", "n"))!
+        let stray = box.write("attachments/stray.png", "x")
+        let old = Date().addingTimeInterval(-2 * 86400)
+        for url in [image.url, file.url.deletingLastPathComponent(), stray] {
+            try FileManager.default.setAttributes([.modificationDate: old], ofItemAtPath: url.path)
+        }
+        Drafts.update("a") { $0.files = [image.url.path, file.url.path] }
+        AttachmentStore.purge()
+        expect(FileManager.default.fileExists(atPath: image.url.path) && FileManager.default.fileExists(atPath: file.url.path))
+        expect(!FileManager.default.fileExists(atPath: stray.path))
+        expect(AttachmentStore.restore(image.url.path)?.isImage == true)
+        expectEqual(AttachmentStore.restore(file.url.path)?.isImage, false)
+        expect(AttachmentStore.restore(stray.path) == nil, "gone")
+    }
+}

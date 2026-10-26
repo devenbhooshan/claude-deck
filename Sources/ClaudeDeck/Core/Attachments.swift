@@ -30,14 +30,26 @@ enum AttachmentStore {
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
     }
 
-    /// Deletes staged files older than `age` (they're only needed until Claude has read them).
+    /// Deletes staged files older than `age` (they're only needed until Claude has read them),
+    /// except ones an unsent draft still holds.
     static func purge(olderThan age: TimeInterval = 86400, now: Date = Date()) {
         let fm = FileManager.default
         guard let files = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.contentModificationDateKey]) else { return }
+        let kept = Drafts.files().map { URL(fileURLWithPath: $0).resolvingSymlinksInPath().path }
         for f in files {
+            let path = f.resolvingSymlinksInPath().path
+            if kept.contains(where: { $0 == path || $0.hasPrefix(path + "/") }) { continue }
             guard let modified = try? f.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { continue }
             if now.timeIntervalSince(modified) > age { try? fm.removeItem(at: f) }
         }
+    }
+
+    /// A staged file from a saved draft, if it's still there.
+    static func restore(_ path: String) -> Attachment? {
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: path) else { return nil }
+        let image = imageExtensions.contains(url.pathExtension.lowercased()) ? NSImage(contentsOf: url) : nil
+        return Attachment(url: url, thumbnail: image)
     }
 
     static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "gif", "webp"]

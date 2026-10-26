@@ -66,13 +66,17 @@ struct Composer: View {
             .padding(.bottom, 8)
         }
         .onAppear {
+            draft = Drafts.draft(for: session.sessionId).text
             focusSoon()
             installKeyMonitor()
         }
         // Switching sessions (click, ⌘K, ⌘1–9, ⌥⌘↑/↓) lands you in the message box.
         .onChange(of: store.selectedId) { focusSoon() }
         .onChange(of: store.showSwitcher) { if !store.showSwitcher { focusSoon() } }
-        .onChange(of: draft) { menuIndex = 0 }
+        .onChange(of: draft) {
+            menuIndex = 0
+            Drafts.update(session.sessionId) { $0.text = draft }
+        }
         .onChange(of: store.composerInsert) {
             guard let insert = store.composerInsert else { return }
             store.composerInsert = nil
@@ -185,8 +189,16 @@ struct Composer: View {
     }
 
     /// The sidebar keeps focus while it handles the selection, so take it just after.
+    /// Focusing a text field selects all of it; with a saved draft you want to carry on typing, so
+    /// the cursor goes to the end.
     private func focusSoon() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focused = true }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            focused = true
+            DispatchQueue.main.async {
+                guard let editor = NSApp.keyWindow?.firstResponder as? NSTextView else { return }
+                editor.setSelectedRange(NSRange(location: (editor.string as NSString).length, length: 0))
+            }
+        }
     }
 
     private var placeholder: String {
