@@ -120,14 +120,22 @@ struct DockView: View {
     let close: () -> Void
 
     private var waiting: [Session] { store.live.filter { $0.status == .waiting } }
+    /// Sessions with replies you haven't read (waiting ones already have their card).
+    private var unread: [Session] { store.live.filter { $0.status != .waiting && store.unread($0) > 0 } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             bar
-            if !waiting.isEmpty {
+            if !waiting.isEmpty || !unread.isEmpty {
                 Divider().opacity(0.5)
                 VStack(spacing: 2) {
                     ForEach(waiting) { s in WaitingCard(session: s, number: number(of: s)) }
+                    ForEach(unread) { s in
+                        Button { open(s) } label: {
+                            UnreadCard(session: s, number: number(of: s), count: store.unread(s))
+                        }
+                        .buttonStyle(DockRowStyle())
+                    }
                 }
                 .padding(6)
             }
@@ -145,8 +153,8 @@ struct DockView: View {
         .tint(Theme.accent)
     }
 
-    /// Just the pill: nothing waiting and not expanded.
-    private var compact: Bool { waiting.isEmpty && !expanded }
+    /// Just the pill: nothing waiting or unread, and not expanded.
+    private var compact: Bool { waiting.isEmpty && unread.isEmpty && !expanded }
 
     /// The pill: a spinner per session that's working (idle ones stay out of the way). Expand
     /// and hide appear on hover, or always while expanded.
@@ -260,6 +268,42 @@ private struct WaitingCard: View {
     private var request: String {
         if let tool = session.pendingTool { return "\(ToolStyle.displayName(tool.name)): \(tool.summary)" }
         return "Waiting for \(session.waitingFor ?? "you")"
+    }
+}
+
+/// New replies you haven't read: which session, the latest one, and how many. Clicking opens it.
+private struct UnreadCard: View {
+    let session: Session
+    let number: Int?
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "text.bubble.fill")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+                .frame(width: 20, height: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(number.map { "\($0). \(session.displayTitle)" } ?? session.displayTitle)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                Text(session.lastReply ?? "New reply")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            Text(count > 99 ? "99+" : "\(count) new")
+                .font(.caption2.weight(.bold)).monospacedDigit()
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6).padding(.vertical, 1)
+                .background(Capsule().fill(Theme.accent))
+        }
+        .padding(.horizontal, 6).padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
+            .fill(Theme.accent.opacity(0.08)))
+        .contentShape(Rectangle())
+        .help("\(count) new \(count == 1 ? "reply" : "replies") from Claude. Click to open.")
     }
 }
 

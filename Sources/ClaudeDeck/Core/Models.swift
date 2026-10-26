@@ -73,6 +73,8 @@ struct Session: Identifiable, Equatable {
     var background: [BackgroundTask] = []
     /// When Claude wrote each reply since your last message, oldest first.
     var replies: [Date] = []
+    /// The newest of those replies, on one line.
+    var lastReply: String? = nil
     /// The claude.ai session it's connected to with Remote Control, if it is.
     var remoteId: String? = nil
 
@@ -168,6 +170,7 @@ struct TitleInfo: Equatable {
     let isCustom: Bool
     /// When Claude wrote each reply since your last message (for unread counts).
     var replies: [Date] = []
+    var lastReply: String? = nil
 }
 
 /// A message just sent from Deck, shown until the transcript catches up.

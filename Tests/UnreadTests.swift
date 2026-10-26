@@ -32,6 +32,12 @@ func unreadTests() {
         expectEqual(SessionLoader.replies(in: Array(lines.prefix(1))).count, 1)
         // A message you just typed: nothing unread.
         expect(SessionLoader.replies(in: lines + [user([["type": "text", "text": "thanks"], ["type": "image"]])]).isEmpty)
+        // The newest reply, on one line, for a preview.
+        expectEqual(SessionLoader.lastReply(in: lines), "Fixed.")
+        let multi = assistant([["type": "text", "text": "## Done\n\n- **one** `a`\n  - [x] two\n> ~~old~~ __new__"], ["type": "text", "text": " "], ["type": "text", "text": "Next?"]],
+                              at: "2026-10-20T11:00:00.000Z")
+        expectEqual(SessionLoader.lastReply(in: lines + [multi]), "Done one a two old new Next?")
+        expect(SessionLoader.lastReply(in: [user("hi")]) == nil)
     }
     test("loaded with the session, and cached with the title") {
         let box = Sandbox(); defer { box.cleanup() }
@@ -44,6 +50,8 @@ func unreadTests() {
         expectEqual(updates[url.path]?.replies.count, 1)
         let again = SessionLoader.loadLive(cache: updates, alive: { _ in true })
         expectEqual(again.0.first?.replies.count, 1) // from the cache
+        expectEqual(live.first?.lastReply, "Done.")
+        expectEqual(again.0.first?.lastReply, "Done.")
         expect(again.1.isEmpty)
     }
     test("unread counts and ⌘J goes to waiting, then unread sessions") {
