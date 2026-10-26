@@ -531,6 +531,9 @@ struct TranscriptRenderer {
             case .table(let rows):
                 if first { out.append(marker()) }
                 out.append(table(rows))
+            case .quote(let q):
+                if first { out.append(marker()) }
+                out.append(quote(q, spacingBefore: first ? 2 : 6))
             }
             first = false
         }
@@ -543,6 +546,29 @@ struct TranscriptRenderer {
             .font: NSFont.systemFont(ofSize: 13, weight: .bold), .foregroundColor: accent,
             .paragraphStyle: paragraph { $0.paragraphSpacingBefore = 16 },
         ])
+    }
+
+    /// Quoted text: softer, behind an accent bar, one paragraph per blank-line-separated part.
+    private func quote(_ text: String, spacingBefore: CGFloat) -> NSAttributedString {
+        let block = NSTextBlock()
+        block.setWidth(indent, type: .absoluteValueType, for: .margin, edge: .minX)
+        block.setWidth(spacingBefore, type: .absoluteValueType, for: .margin, edge: .minY)
+        block.setWidth(4, type: .absoluteValueType, for: .margin, edge: .maxY)
+        block.setWidth(3, type: .absoluteValueType, for: .border, edge: .minX)
+        block.setBorderColor(accent.withAlphaComponent(0.55), for: .minX)
+        block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
+        block.setWidth(2, type: .absoluteValueType, for: .padding, edge: .minY)
+        block.setWidth(2, type: .absoluteValueType, for: .padding, edge: .maxY)
+        block.setContentWidth(width - indent - 15, type: .absoluteValueType)
+        let out = NSMutableAttributedString()
+        for (i, part) in text.components(separatedBy: "\n\n").enumerated() {
+            let style = paragraph { $0.textBlocks = [block]; $0.paragraphSpacingBefore = i == 0 ? 0 : 6 }
+            let inline = Self.inline(part, font: body, color: .secondaryLabelColor)
+            inline.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: inline.length))
+            out.append(inline)
+            out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
+        }
+        return out
     }
 
     private func codeBlock(_ code: String, spacingBefore: CGFloat) -> NSAttributedString {

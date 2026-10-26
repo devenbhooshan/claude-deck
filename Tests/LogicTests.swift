@@ -342,6 +342,7 @@ func markdownTests() {
             case let .heading(t, level): kinds.append("h\(level):\(t)")
             case .table(let rows): kinds.append("t:\(rows)")
             case .code(let c): kinds.append("c:\(c)")
+            case .quote(let q): kinds.append("q:\(q)")
             }
         }
         expectEqual(kinds, [
@@ -353,6 +354,21 @@ func markdownTests() {
             "p:tail",
             "c:unterminated",
         ])
+    }
+    test("quotes: markers dropped, blank quote lines split paragraphs") {
+        let blocks = Markdown.parse("Intro\n> one\n>two\n>\n>\n> three\n| t |\n> after table\nplain\n```\n> code\n```\n>\n> last")
+        var kinds: [String] = []
+        for b in blocks {
+            switch b {
+            case .quote(let q): kinds.append("q:\(q)")
+            case .paragraph(let p): kinds.append("p:\(p)")
+            case .table: kinds.append("t")
+            case .code(let c): kinds.append("c:\(c)")
+            case .heading: kinds.append("h")
+            }
+        }
+        expectEqual(kinds, ["p:Intro", "q:one\ntwo\n\nthree", "t", "q:after table", "p:plain", "c:> code", "q:last"])
+        expect(Markdown.parse(">\n>").isEmpty, "an empty quote")
     }
     test("table flushes paragraph before it and at end") {
         let blocks = Markdown.parse("text\n| a |\n```\ncode\n```")

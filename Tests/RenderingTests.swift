@@ -74,6 +74,7 @@ func rendererTests() {
             .item(item(.assistant("```\nstarts with code\n```"))),
             .item(item(.assistant("| only | table |"))),
             .item(item(.assistant("# Starts with heading\ntext"))),
+            .item(item(.assistant("> Starts with a quote\n>\n> second part\n\nthen text\n> quoted later"))),
             .item(item(.notice("Interrupted"))), .item(item(.commandOutput("Context: 45% used"))),
             .item(item(.recap("We shipped the fix."))),
             .item(item(.taskEvent("Built", ok: true))), .item(item(.taskEvent("Broke", ok: false))),
@@ -86,8 +87,11 @@ func rendererTests() {
         let s = text.string
         for piece in ["hello", "/rename x", "/clear", "✦", "Heading", "bold", "link", "code block", "only", "Interrupted",
                       "✓ Built", "✗ Broke", "Bash", "ls src ⏎…", "~/y", "running…", "–", "(no output)", "… (truncated)",
-                      "queued msg", "Queued until", "Sending…", "Sent", "starts with code", "Starts with heading", "Context: 45% used", "Recap", "We shipped the fix.", "+1", "−1", "− b", "+ B", "⋯ 3 unchanged lines"] {
+                      "queued msg", "Queued until", "Sending…", "Sent", "starts with code", "Starts with heading", "Starts with a quote", "second part", "quoted later", "Context: 45% used", "Recap", "We shipped the fix.", "+1", "−1", "− b", "+ B", "⋯ 3 unchanged lines"] {
             expect(s.contains(piece), "missing \(piece)")
+        }
+        for marker in ["> Starts", "> second", "\n>\n"] {
+            expect(!s.contains(marker), "quote marker left in: \(marker)")
         }
         // Tool rows are links that toggle expansion.
         var links = 0

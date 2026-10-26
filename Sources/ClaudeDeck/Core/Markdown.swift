@@ -1,6 +1,6 @@
 import Foundation
 
-/// Lightweight block markdown: fenced code, headings, tables, lists and paragraphs.
+/// Lightweight block markdown: fenced code, headings, tables, quotes, lists and paragraphs.
 /// Inline styling (bold, code, links) is applied by the renderer.
 enum Markdown {
     enum Block {
@@ -8,6 +8,8 @@ enum Markdown {
         case heading(String, level: Int)
         case paragraph(String)
         case table([[String]])
+        /// The quoted text without its `>` markers; paragraphs inside are separated by a blank line.
+        case quote(String)
     }
 
     static func parse(_ text: String) -> [Block] {
@@ -15,6 +17,7 @@ enum Markdown {
         var para: [String] = []
         var code: [String]?
         var table: [[String]] = []
+        var quote: [String] = []
 
         func flushParagraph() {
             let p = para.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -27,8 +30,22 @@ enum Markdown {
             table = []
         }
 
+        func flushQuote() {
+            let q = quote.joined(separator: "\n").replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !q.isEmpty { blocks.append(.quote(q)) }
+            quote = []
+        }
+
         for line in text.components(separatedBy: "\n") {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
+            if code == nil, trimmed.hasPrefix(">") {
+                if quote.isEmpty { flushTable(); flushParagraph() }
+                let inner = trimmed.dropFirst()
+                quote.append(String(inner.hasPrefix(" ") ? inner.dropFirst() : inner))
+                continue
+            }
+            flushQuote()
             if trimmed.hasPrefix("```") {
                 if let c = code {
                     blocks.append(.code(c.joined(separator: "\n")))
@@ -65,6 +82,7 @@ enum Markdown {
             }
         }
         if let c = code { blocks.append(.code(c.joined(separator: "\n"))) }
+        flushQuote()
         flushTable()
         flushParagraph()
         return blocks
