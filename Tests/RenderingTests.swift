@@ -74,7 +74,9 @@ func rendererTests() {
             .item(item(.assistant("```\nstarts with code\n```"))),
             .item(item(.assistant("| only | table |"))),
             .item(item(.assistant("# Starts with heading\ntext"))),
-            .item(item(.assistant("> Starts with a quote\n>\n> second part\n\nthen text\n> quoted later"))),
+            .item(item(.assistant("> Starts with a quote\n>\n> second part\n> > nested quote\n\nthen text\n> quoted later"))),
+            .item(item(.assistant("---\nafter a rule\n\n- a list item\n  on two lines\n- [x] ticked"))),
+            .item(item(.assistant("| real | table |\n|---|---|\n| **x** y | z |"))),
             .item(item(.notice("Interrupted"))), .item(item(.commandOutput("Context: 45% used"))),
             .item(item(.recap("We shipped the fix."))),
             .item(item(.taskEvent("Built", ok: true))), .item(item(.taskEvent("Broke", ok: false))),
@@ -87,7 +89,7 @@ func rendererTests() {
         let s = text.string
         for piece in ["hello", "/rename x", "/clear", "✦", "Heading", "bold", "link", "code block", "only", "Interrupted",
                       "✓ Built", "✗ Broke", "Bash", "ls src ⏎…", "~/y", "running…", "–", "(no output)", "… (truncated)",
-                      "queued msg", "Queued until", "Sending…", "Sent", "starts with code", "Starts with heading", "Starts with a quote", "second part", "quoted later", "Context: 45% used", "Recap", "We shipped the fix.", "+1", "−1", "− b", "+ B", "⋯ 3 unchanged lines"] {
+                      "queued msg", "Queued until", "Sending…", "Sent", "starts with code", "Starts with heading", "Starts with a quote", "second part", "quoted later", "nested quote", "after a rule", "on two lines", "☑", "real", "x y", "Context: 45% used", "Recap", "We shipped the fix.", "+1", "−1", "− b", "+ B", "⋯ 3 unchanged lines"] {
             expect(s.contains(piece), "missing \(piece)")
         }
         for marker in ["> Starts", "> second", "\n>\n"] {
@@ -101,6 +103,12 @@ func rendererTests() {
         expect(links > 0)
         draw(text)
     }
+    test("replies lay out at full width (nothing wraps letter by letter)") {
+        let long = "Enterprise sales cycles are supposed to be slow, and this sentence is long enough to need the room."
+        let reply = "> \(long)\n> > \(long)\n\n- \(long)\n  - [ ] \(long)\n\n---\n\n| A | B |\n|---|---|\n| \(long) | x |"
+        let height = draw(r.render(content([.item(item(.assistant(reply)))]))).size.height
+        expect(height < 700, "laid out \(height)pt tall")
+    }
     test("waiting status marks the open tool") {
         let s = r.render(content([.tools([calls[3]])], status: .waiting, openToolId: "t4")).string
         expect(s.contains("Needs approval"))
@@ -112,7 +120,7 @@ func rendererTests() {
     }
     test("tables, inline markdown and image helpers") {
         expectEqual(r.table([]).length, 0)
-        expect(r.table([["a", "b"], ["c"]]).string.contains("c"))
+        expect(r.table([[AttributedString("a"), AttributedString("b")], [AttributedString("c")]]).string.contains("c"))
         struct Bad: Error {}
         let raw = TranscriptRenderer.inline("**x**", font: .systemFont(ofSize: 12), color: .labelColor, parse: { _ in throw Bad() })
         expectEqual(raw.string, "**x**")

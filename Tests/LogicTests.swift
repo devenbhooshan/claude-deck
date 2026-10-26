@@ -315,66 +315,78 @@ func safetyTests() {
 }
 
 func markdownTests() {
-    test("blocks") {
+    func describe(_ blocks: [Markdown.Block]) -> [String] {
+        blocks.map { b in
+            let where_ = String(repeating: ">", count: b.quoteDepth) + String(repeating: "-", count: b.listDepth) + (b.marker ?? "")
+            let what: String = switch b.kind {
+            case .paragraph(let p): "p:" + String(p.characters)
+            case let .heading(h, level): "h\(level):" + String(h.characters)
+            case .code(let c): "c:" + c
+            case .table(let rows): "t:" + rows.map { $0.map { String($0.characters) }.joined(separator: ",") }.joined(separator: "/")
+            case .rule: "rule"
+            }
+            return where_.isEmpty ? what : where_ + " " + what
+        }
+    }
+    test("blocks: everything Claude writes is recognised") {
         let md = """
         Intro line
-        - item one
-          * nested
-        # Title
-        ## Sub
+        next **bold** line
 
-        | A | B |
+        # Title
+        ## Sub *it*
+
+        > quote one
+        >
+        > quote two
+        > > nested
+
+        - item
+          * nested
+        - [ ] todo
+        - [x] done
+        1. first
+        2. second
+           more of second
+
+        ---
+
+        | A | **B** c |
         |---|:-:|
         | 1 | 2 |
-        after table
+        | 3 |
+
+        | other |
+        |---|
+        | table |
         ```swift
         let x = 1
         ```
-        tail
-        ```
-        unterminated
+        ~~~
+        tilde
+        ~~~
+        <details>raw</details>
         """
-        let blocks = Markdown.parse(md)
-        var kinds: [String] = []
-        for b in blocks {
-            switch b {
-            case .paragraph(let p): kinds.append("p:\(p)")
-            case let .heading(t, level): kinds.append("h\(level):\(t)")
-            case .table(let rows): kinds.append("t:\(rows)")
-            case .code(let c): kinds.append("c:\(c)")
-            case .quote(let q): kinds.append("q:\(q)")
-            }
-        }
-        expectEqual(kinds, [
-            "p:Intro line\n•  item one\n   •  nested",
-            "h1:Title", "h2:Sub",
-            "t:[[\"A\", \"B\"], [\"1\", \"2\"]]",
-            "p:after table",
-            "c:let x = 1",
-            "p:tail",
-            "c:unterminated",
+        expectEqual(describe(Markdown.parse(md)), [
+            "p:Intro line next bold line",
+            "h1:Title", "h2:Sub it",
+            "> p:quote one", "> p:quote two", ">> p:nested",
+            "-• p:item", "--• p:nested", "-☐ p:todo", "-☑ p:done",
+            "-1. p:first", "-2. p:second more of second",
+            "rule",
+            "t:A,B c/1,2/3", "t:other/table",
+            "c:let x = 1", "c:tilde",
+            "p:<details>raw</details>",
         ])
     }
-    test("quotes: markers dropped, blank quote lines split paragraphs") {
-        let blocks = Markdown.parse("Intro\n> one\n>two\n>\n>\n> three\n| t |\n> after table\nplain\n```\n> code\n```\n>\n> last")
-        var kinds: [String] = []
-        for b in blocks {
-            switch b {
-            case .quote(let q): kinds.append("q:\(q)")
-            case .paragraph(let p): kinds.append("p:\(p)")
-            case .table: kinds.append("t")
-            case .code(let c): kinds.append("c:\(c)")
-            case .heading: kinds.append("h")
-            }
-        }
-        expectEqual(kinds, ["p:Intro", "q:one\ntwo\n\nthree", "t", "q:after table", "p:plain", "c:> code", "q:last"])
-        expect(Markdown.parse(">\n>").isEmpty, "an empty quote")
+    test("blocks: unparseable text is shown as written") {
+        struct Broken: Error {}
+        expectEqual(describe(Markdown.parse("**x", parser: { _ in throw Broken() })), ["p:**x"])
     }
-    test("table flushes paragraph before it and at end") {
-        let blocks = Markdown.parse("text\n| a |\n```\ncode\n```")
-        expectEqual(blocks.count, 3)
-        let tableEnd = Markdown.parse("| a | b")
-        if case .table(let rows) = tableEnd[0] { expectEqual(rows, [["a", "b"]]) } else { expect(false) }
+    test("blocks: single line breaks are kept") {
+        guard case .paragraph(let p) = Markdown.parse("Sep 2025: 950\nSep 2026: 11,900")[0].kind else { return expect(false) }
+        expectEqual(TranscriptRenderer.styled(p, font: .systemFont(ofSize: 13), color: .labelColor).string,
+                    "Sep 2025: 950\nSep 2026: 11,900")
     }
 }
 

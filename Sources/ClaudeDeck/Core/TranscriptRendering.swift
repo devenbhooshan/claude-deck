@@ -476,53 +476,60 @@ struct TranscriptRenderer {
     /// Claude's reply: ✦ marker, then markdown blocks indented past it.
     private func assistant(_ text: String) -> NSAttributedString {
         let out = NSMutableAttributedString()
-        var first = true
-        for block in Markdown.parse(text) {
-            let spacingBefore: CGFloat = first ? 16 : 4
-            switch block {
-            case .paragraph(let p):
-                let style = paragraph { s in
-                    s.headIndent = indent
-                    s.firstLineHeadIndent = first ? 0 : indent
-                    s.tabStops = [NSTextTab(textAlignment: .left, location: indent)]
-                    s.paragraphSpacingBefore = spacingBefore
+        // One text block per open quote, shared by its paragraphs so the bar runs unbroken.
+        var quotes: [NSTextBlock] = []
+        for (i, block) in Markdown.parse(text).enumerated() {
+            let first = i == 0
+            while quotes.count > block.quoteDepth { quotes.removeLast() }
+            while quotes.count < block.quoteDepth { quotes.append(quoteBlock(depth: quotes.count)) }
+            // Inside a quote, indents are measured from the quote's text.
+            let base = (quotes.isEmpty ? indent : 0) + CGFloat(max(block.listDepth - 1, 0)) * 20
+            let textIndent = base + (block.listDepth > 0 ? 20 : 0)
+            let color: NSColor = quotes.isEmpty ? .labelColor : .secondaryLabelColor
+            let spacingBefore: CGFloat = first ? 16 : block.listDepth > 0 ? 2 : 6
+            // The ✦ starts the first line when the reply opens with plain text; otherwise it sits above.
+            let inlineMarker = first && quotes.isEmpty && block.listDepth == 0
+            switch block.kind {
+            case .paragraph(let p), .heading(let p, _):
+                var font = body
+                var heading = false
+                if case .heading(_, let level) = block.kind {
+                    font = NSFont.systemFont(ofSize: level == 1 ? 17 : 14.5, weight: .semibold)
+                    heading = true
                 }
-                if first {
+                let style = paragraph { s in
+                    s.headIndent = textIndent
+                    s.firstLineHeadIndent = inlineMarker ? 0 : block.marker != nil ? base : textIndent
+                    s.tabStops = [NSTextTab(textAlignment: .left, location: inlineMarker ? indent : textIndent)]
+                    s.paragraphSpacingBefore = heading ? (first ? 16 : 10) : spacingBefore
+                    s.textBlocks = quotes
+                }
+                if first && !inlineMarker { out.append(marker()) }
+                if inlineMarker {
                     out.append(NSAttributedString(string: "✦\t", attributes: [
                         .font: NSFont.systemFont(ofSize: 13, weight: .bold), .foregroundColor: accent, .paragraphStyle: style,
                     ]))
                 }
-                let inline = Self.inline(p, font: body, color: .labelColor)
+                if let m = block.marker {
+                    out.append(NSAttributedString(string: m + "\t", attributes: [
+                        .font: body, .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style,
+                    ]))
+                }
+                let inline = Self.styled(p, font: font, color: color)
                 inline.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: inline.length))
-                // Lines after the first (e.g. a list right under "Two problems:") are their own paragraphs;
-                // they must be indented normally, not styled like the ✦ line.
+                // Lines after the first (e.g. "Sep 2026: 11,900" under "Sep 2025: 950") line up with
+                // the text, not with the ✦ or list marker.
                 let firstBreak = (inline.string as NSString).range(of: "\n")
-                if first, firstBreak.location != NSNotFound {
+                if firstBreak.location != NSNotFound {
                     let rest = paragraph { s in
-                        s.headIndent = indent
-                        s.firstLineHeadIndent = indent
+                        s.headIndent = textIndent
+                        s.firstLineHeadIndent = textIndent
                         s.paragraphSpacingBefore = 4
+                        s.textBlocks = quotes
                     }
                     let start = firstBreak.location + 1
                     inline.addAttribute(.paragraphStyle, value: rest, range: NSRange(location: start, length: inline.length - start))
                 }
-                out.append(inline)
-                out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
-            case let .heading(t, level):
-                let font = NSFont.systemFont(ofSize: level == 1 ? 17 : 14.5, weight: .semibold)
-                let style = paragraph { s in
-                    s.headIndent = indent
-                    s.firstLineHeadIndent = first ? 0 : indent
-                    s.tabStops = [NSTextTab(textAlignment: .left, location: indent)]
-                    s.paragraphSpacingBefore = first ? 16 : 10
-                }
-                if first {
-                    out.append(NSAttributedString(string: "✦\t", attributes: [
-                        .font: NSFont.systemFont(ofSize: 13, weight: .bold), .foregroundColor: accent, .paragraphStyle: style,
-                    ]))
-                }
-                let inline = Self.inline(t, font: font, color: .labelColor)
-                inline.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: inline.length))
                 out.append(inline)
                 out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
             case .code(let code):
@@ -531,13 +538,39 @@ struct TranscriptRenderer {
             case .table(let rows):
                 if first { out.append(marker()) }
                 out.append(table(rows))
-            case .quote(let q):
+            case .rule:
                 if first { out.append(marker()) }
-                out.append(quote(q, spacingBefore: first ? 2 : 6))
+                out.append(rule())
             }
-            first = false
         }
         return out
+    }
+
+    /// The bar beside quoted text; a quote inside a quote (depth 1+) sits right next to its parent's bar.
+    private func quoteBlock(depth: Int) -> NSTextBlock {
+        let block = NSTextBlock()
+        // Text blocks need an explicit width, or their text wraps after every letter.
+        block.setContentWidth(width - indent - CGFloat(depth + 1) * 15, type: .absoluteValueType)
+        block.setWidth(depth > 0 ? 0 : indent, type: .absoluteValueType, for: .margin, edge: .minX)
+        block.setWidth(6, type: .absoluteValueType, for: .margin, edge: .minY)
+        block.setWidth(4, type: .absoluteValueType, for: .margin, edge: .maxY)
+        block.setWidth(3, type: .absoluteValueType, for: .border, edge: .minX)
+        block.setBorderColor(accent.withAlphaComponent(0.55), for: .minX)
+        block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
+        return block
+    }
+
+    /// A thin line across the reply (`---`).
+    private func rule() -> NSAttributedString {
+        let block = NSTextBlock()
+        block.setWidth(indent, type: .absoluteValueType, for: .margin, edge: .minX)
+        block.setWidth(10, type: .absoluteValueType, for: .margin, edge: .minY)
+        block.setWidth(10, type: .absoluteValueType, for: .margin, edge: .maxY)
+        block.setWidth(1, type: .absoluteValueType, for: .border, edge: .maxY)
+        block.setBorderColor(NSColor.separatorColor, for: .maxY)
+        block.setContentWidth(width - indent, type: .absoluteValueType)
+        let style = paragraph { $0.textBlocks = [block]; $0.paragraphSpacing = 0; $0.lineSpacing = 0 }
+        return NSAttributedString(string: "\n", attributes: [.font: NSFont.systemFont(ofSize: 2), .paragraphStyle: style])
     }
 
     /// A lone ✦ line, used when a reply starts with a code block or table.
@@ -546,29 +579,6 @@ struct TranscriptRenderer {
             .font: NSFont.systemFont(ofSize: 13, weight: .bold), .foregroundColor: accent,
             .paragraphStyle: paragraph { $0.paragraphSpacingBefore = 16 },
         ])
-    }
-
-    /// Quoted text: softer, behind an accent bar, one paragraph per blank-line-separated part.
-    private func quote(_ text: String, spacingBefore: CGFloat) -> NSAttributedString {
-        let block = NSTextBlock()
-        block.setWidth(indent, type: .absoluteValueType, for: .margin, edge: .minX)
-        block.setWidth(spacingBefore, type: .absoluteValueType, for: .margin, edge: .minY)
-        block.setWidth(4, type: .absoluteValueType, for: .margin, edge: .maxY)
-        block.setWidth(3, type: .absoluteValueType, for: .border, edge: .minX)
-        block.setBorderColor(accent.withAlphaComponent(0.55), for: .minX)
-        block.setWidth(12, type: .absoluteValueType, for: .padding, edge: .minX)
-        block.setWidth(2, type: .absoluteValueType, for: .padding, edge: .minY)
-        block.setWidth(2, type: .absoluteValueType, for: .padding, edge: .maxY)
-        block.setContentWidth(width - indent - 15, type: .absoluteValueType)
-        let out = NSMutableAttributedString()
-        for (i, part) in text.components(separatedBy: "\n\n").enumerated() {
-            let style = paragraph { $0.textBlocks = [block]; $0.paragraphSpacingBefore = i == 0 ? 0 : 6 }
-            let inline = Self.inline(part, font: body, color: .secondaryLabelColor)
-            inline.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: inline.length))
-            out.append(inline)
-            out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
-        }
-        return out
     }
 
     private func codeBlock(_ code: String, spacingBefore: CGFloat) -> NSAttributedString {
@@ -586,7 +596,7 @@ struct TranscriptRenderer {
         ])
     }
 
-    func table(_ rows: [[String]]) -> NSAttributedString {
+    func table(_ rows: [[AttributedString]]) -> NSAttributedString {
         let out = NSMutableAttributedString()
         let columns = rows.map(\.count).max() ?? 0
         guard columns > 0 else { return out }
@@ -611,7 +621,7 @@ struct TranscriptRenderer {
                 if r == 0 { cell.backgroundColor = NSColor.labelColor.withAlphaComponent(0.05) }
                 let style = paragraph { $0.textBlocks = [cell]; $0.paragraphSpacing = 0 }
                 let font = r == 0 ? NSFont.systemFont(ofSize: 12.5, weight: .semibold) : NSFont.systemFont(ofSize: 12.5)
-                let cellText = Self.inline(c < row.count ? row[c] : "", font: font, color: .labelColor)
+                let cellText = Self.styled(c < row.count ? row[c] : AttributedString(), font: font, color: .labelColor)
                 cellText.append(NSAttributedString(string: "\n"))
                 cellText.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: cellText.length))
                 out.append(cellText)
@@ -755,11 +765,20 @@ struct TranscriptRenderer {
     static func inline(_ s: String, font: NSFont, color: NSColor,
                        parse: (String) throws -> AttributedString = parseInline) -> NSMutableAttributedString {
         // If the markdown can't be parsed, show the raw text.
-        let parsed = (try? parse(s)) ?? AttributedString(s)
+        styled((try? parse(s)) ?? AttributedString(s), font: font, color: color)
+    }
+
+    /// Parsed markdown text into attributed text. Single line breaks stay line breaks, as Claude
+    /// meant them (markdown would join the lines).
+    static func styled(_ parsed: AttributedString, font: NSFont, color: NSColor) -> NSMutableAttributedString {
         let out = NSMutableAttributedString()
         for run in parsed.runs {
             var f = font
             var attrs: [NSAttributedString.Key: Any] = [.foregroundColor: color]
+            if let intent = run.inlinePresentationIntent, !intent.isDisjoint(with: [.softBreak, .lineBreak]) {
+                out.append(NSAttributedString(string: "\n", attributes: [.font: font, .foregroundColor: color]))
+                continue
+            }
             if let intent = run.inlinePresentationIntent {
                 if intent.contains(.code) {
                     // No background tint: on wrapped lines NSTextView smears it across the line.

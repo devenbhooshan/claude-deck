@@ -1,98 +1,127 @@
 import Foundation
 
-/// Lightweight block markdown: fenced code, headings, tables, quotes, lists and paragraphs.
-/// Inline styling (bold, code, links) is applied by the renderer.
+/// Claude's replies as blocks, parsed by Foundation's markdown parser (CommonMark plus tables), so
+/// any standard construct is recognised rather than shown as raw syntax. Inline styling (bold,
+/// code, links) stays on each block's text for the renderer.
 enum Markdown {
-    enum Block {
-        case code(String)
-        case heading(String, level: Int)
-        case paragraph(String)
-        case table([[String]])
-        /// The quoted text without its `>` markers; paragraphs inside are separated by a blank line.
-        case quote(String)
+    struct Block: Equatable {
+        enum Kind: Equatable {
+            case paragraph(AttributedString)
+            case heading(AttributedString, level: Int)
+            case code(String)
+            /// Rows of cells, the header row first.
+            case table([[AttributedString]])
+            case rule
+        }
+
+        var kind: Kind
+        /// How many quotes it's inside.
+        var quoteDepth = 0
+        /// How many lists it's inside (0: not in a list).
+        var listDepth = 0
+        /// The first paragraph of a list item: "•", "3.", or a task's "☐" / "☑".
+        var marker: String? = nil
     }
 
-    static func parse(_ text: String) -> [Block] {
+    static func parse(_ text: String, parser: (String) throws -> AttributedString = parseFull) -> [Block] {
+        // If the markdown can't be parsed, show the raw text.
+        let doc = (try? parser(text)) ?? AttributedString(text)
         var blocks: [Block] = []
-        var para: [String] = []
-        var code: [String]?
-        var table: [[String]] = []
-        var quote: [String] = []
+        // The identity of the block (or table cell, row and table) the last run belonged to.
+        var leaf: Int?
+        var row: Int?
+        var table: Int?
+        var items: Set<Int> = []
 
-        func flushParagraph() {
-            let p = para.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
-            if !p.isEmpty { blocks.append(.paragraph(p)) }
-            para = []
-        }
-
-        func flushTable() {
-            if !table.isEmpty { blocks.append(.table(table)) }
-            table = []
-        }
-
-        func flushQuote() {
-            let q = quote.joined(separator: "\n").replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression)
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !q.isEmpty { blocks.append(.quote(q)) }
-            quote = []
-        }
-
-        for line in text.components(separatedBy: "\n") {
-            let trimmed = line.trimmingCharacters(in: .whitespaces)
-            if code == nil, trimmed.hasPrefix(">") {
-                if quote.isEmpty { flushTable(); flushParagraph() }
-                let inner = trimmed.dropFirst()
-                quote.append(String(inner.hasPrefix(" ") ? inner.dropFirst() : inner))
+        for run in doc.runs {
+            let piece = AttributedString(doc[run.range])
+            let parts = run.presentationIntent?.components ?? []
+            guard let first = parts.first else {
+                // Raw HTML: shown as written.
+                let raw = String(piece.characters).trimmingCharacters(in: .newlines)
+                if !raw.isEmpty { blocks.append(Block(kind: .paragraph(AttributedString(raw)))) }
+                leaf = nil
                 continue
             }
-            flushQuote()
-            if trimmed.hasPrefix("```") {
-                if let c = code {
-                    blocks.append(.code(c.joined(separator: "\n")))
-                    code = nil
+            if first.identity == leaf, let last = blocks.indices.last {
+                blocks[last].kind.append(piece)
+                continue
+            }
+            if case .tableCell = first.kind, parts.count >= 3 {
+                if parts[2].identity != table {
+                    blocks.append(Block(kind: .table([[piece]])))
                 } else {
-                    flushTable()
-                    flushParagraph()
-                    code = []
+                    blocks[blocks.count - 1].kind.addCell(piece, newRow: parts[1].identity != row)
                 }
+                (leaf, row, table) = (first.identity, parts[1].identity, parts[2].identity)
                 continue
             }
-            if code != nil { code!.append(line); continue }
-            if trimmed.hasPrefix("|") {
-                if table.isEmpty { flushParagraph() }
-                let row = cells(trimmed)
-                // Skip the |---|:---:| separator row.
-                if !row.allSatisfy({ !$0.isEmpty && $0.allSatisfy { "-: ".contains($0) } }) {
-                    table.append(row)
-                }
-                continue
+            table = nil
+            leaf = first.identity
+
+            var block = Block(kind: .rule)
+            switch first.kind {
+            case .header(let level): block.kind = .heading(piece, level: level)
+            case .codeBlock: block.kind = .code(String(piece.characters))
+            case .thematicBreak: block.kind = .rule
+            default: block.kind = .paragraph(piece)
             }
-            flushTable()
-            if trimmed.hasPrefix("#") {
-                let level = trimmed.prefix { $0 == "#" }.count
-                flushParagraph()
-                blocks.append(.heading(trimmed.dropFirst(level).trimmingCharacters(in: .whitespaces), level: level))
-            } else if trimmed.isEmpty {
-                flushParagraph()
-            } else if trimmed.hasPrefix("- ") || trimmed.hasPrefix("* ") {
-                let indent = String(repeating: "   ", count: (line.count - line.drop { $0 == " " }.count) / 2)
-                para.append(indent + "•  " + trimmed.dropFirst(2))
-            } else {
-                para.append(line)
+            block.quoteDepth = parts.filter { $0.kind == .blockQuote }.count
+            let listItems = parts.enumerated().compactMap { i, p -> (ordinal: Int, item: Int, ordered: Bool)? in
+                guard case .listItem(let ordinal) = p.kind else { return nil }
+                return (ordinal, p.identity, i + 1 < parts.count && parts[i + 1].kind == .orderedList)
             }
+            block.listDepth = listItems.count
+            if let item = listItems.first, items.insert(item.item).inserted {
+                block.marker = item.ordered ? "\(item.ordinal)." : "•"
+            }
+            blocks.append(block)
         }
-        if let c = code { blocks.append(.code(c.joined(separator: "\n"))) }
-        flushQuote()
-        flushTable()
-        flushParagraph()
-        return blocks
+        return blocks.map(finish)
     }
 
-    private static func cells(_ row: String) -> [String] {
-        var r = Substring(row)
-        if r.hasPrefix("|") { r = r.dropFirst() }
-        if r.hasSuffix("|") { r = r.dropLast() }
-        return r.split(separator: "|", omittingEmptySubsequences: false)
-            .map { $0.trimmingCharacters(in: .whitespaces) }
+    static func parseFull(_ text: String) throws -> AttributedString {
+        try AttributedString(markdown: text, options: .init(interpretedSyntax: .full, failurePolicy: .returnPartiallyParsedIfPossible))
+    }
+
+    /// Trailing newlines off code; `[ ]` / `[x]` at the start of a list item become a checkbox.
+    private static func finish(_ block: Block) -> Block {
+        var b = block
+        switch b.kind {
+        case .code(let c):
+            b.kind = .code(c.replacingOccurrences(of: "\n$", with: "", options: .regularExpression))
+        case .paragraph(let p) where b.marker == "•":
+            let start = String(p.characters.prefix(4))
+            guard ["[ ] ", "[x] ", "[X] "].contains(start) else { break }
+            b.marker = start == "[ ] " ? "☐" : "☑"
+            b.kind = .paragraph(AttributedString(p[p.index(p.startIndex, offsetByCharacters: 4)...]))
+        default: break
+        }
+        return b
+    }
+}
+
+private extension Markdown.Block.Kind {
+    /// More text of the same paragraph, heading or table cell (a run with different styling).
+    /// Code and rules are always one run.
+    mutating func append(_ piece: AttributedString) {
+        if case .paragraph(var p) = self {
+            p.append(piece)
+            self = .paragraph(p)
+        } else if case .heading(var h, let level) = self {
+            h.append(piece)
+            self = .heading(h, level: level)
+        } else if case .table(var rows) = self {
+            rows[rows.count - 1][rows[rows.count - 1].count - 1].append(piece)
+            self = .table(rows)
+        }
+    }
+
+    mutating func addCell(_ piece: AttributedString, newRow: Bool) {
+        if case .table(var rows) = self {
+            if newRow { rows.append([]) }
+            rows[rows.count - 1].append(piece)
+            self = .table(rows)
+        }
     }
 }
