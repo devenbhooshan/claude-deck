@@ -127,16 +127,27 @@ private struct ImageFileView: View {
     var body: some View {
         Group {
             if let image {
-                ScrollView([.horizontal, .vertical]) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .interpolation(.high)
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: actualSize ? image.size.width : nil, maxHeight: actualSize ? image.size.height : nil)
-                        .frame(width: actualSize ? image.size.width : nil, height: actualSize ? image.size.height : nil)
-                        .padding(16)
+                Group {
+                    if actualSize {
+                        ScrollView([.horizontal, .vertical]) {
+                            Image(nsImage: image)
+                                .interpolation(.high)
+                                .frame(width: image.size.width, height: image.size.height)
+                                .padding(16)
+                        }
+                        .defaultScrollAnchor(.center)
+                    } else {
+                        // Fits the window whole: no scrolling either way.
+                        Image(nsImage: image)
+                            .resizable()
+                            .interpolation(.high)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(maxWidth: image.size.width, maxHeight: image.size.height)  // never blown up past actual size
+                            .padding(16)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
                 }
-                .defaultScrollAnchor(.center)
+                .contentShape(Rectangle())
                 .onTapGesture(count: 2) { actualSize.toggle() }
                 .help(actualSize ? "Double-click to fit the window" : "Double-click for actual size")
             } else {
