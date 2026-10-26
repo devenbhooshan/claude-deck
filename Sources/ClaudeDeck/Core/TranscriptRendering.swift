@@ -126,14 +126,19 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
 
     /// Which conversation this is (the session id), so your reading place survives switching away.
     var placeKey: String?
-    /// Where you were reading in each conversation you'd scrolled up in: the text at the top of
-    /// the view and how far into it. Absent: you were at the bottom, following new messages.
-    nonisolated(unsafe) static var places: [String: (text: String, offset: CGFloat)] = [:]
+    /// Where you were reading in each conversation you'd scrolled up in: the text around the top
+    /// line, where in that text the line starts, and how far down the line the view began.
+    /// Absent: you were at the bottom, following new messages.
+    nonisolated(unsafe) static var places: [String: (text: String, lead: Int, offset: CGFloat)] = [:]
     private var restored = false
+    /// Back at a remembered place: held through re-layouts (width settling, messages loading)
+    /// until you scroll yourself.
+    private var anchored = false
 
     @objc func userScrolled() {
         let scroll = textView?.enclosingScrollView
         pinned = isAtBottom(scroll)
+        anchored = false
         savePlace()
         if content?.hasEarlier == true, let scroll, scroll.contentView.bounds.minY < 300 { onReachTop?() }
     }
@@ -144,15 +149,18 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
         let text = tv.string as NSString
         guard !pinned, text.length > 0 else { Self.places[key] = nil; return }
         let top = scroll.contentView.bounds.minY - tv.textContainerOrigin.y
-        let char = layout.characterIndexForGlyph(at: layout.glyphIndex(for: NSPoint(x: 0, y: max(0, top)), in: container))
-        let line = text.lineRange(for: NSRange(location: min(char, text.length - 1), length: 0))
-        let rect = layout.boundingRect(forGlyphRange: layout.glyphRange(forCharacterRange: NSRange(location: line.location, length: 1),
-                                                                       actualCharacterRange: nil), in: container)
-        Self.places[key] = (text.substring(with: NSRange(location: line.location, length: min(line.length, 120))), top - rect.minY)
+        var line = NSRange()
+        let rect = layout.lineFragmentRect(forGlyphAt: layout.glyphIndex(for: NSPoint(x: 0, y: max(0, top)), in: container),
+                                           effectiveRange: &line)
+        let char = layout.characterIndexForGlyph(at: line.location)
+        // Text on both sides of the line's start, so it's found again even if it's short.
+        let start = max(0, char - 60)
+        let around = text.substring(with: NSRange(location: start, length: min(text.length, char + 60) - start))
+        Self.places[key] = (around, char - start, top - rect.minY)
     }
 
-    /// Back in a conversation you'd scrolled up in: the same text at the top again (new messages
-    /// may have arrived below). False when there's no place to go back to.
+    /// Back in a conversation you'd scrolled up in: the same line at the top again (new messages
+    /// may have arrived below, and the text may wrap differently). False when there's no place.
     private func restorePlace() -> Bool {
         guard let key = placeKey, let place = Self.places[key], let tv = textView, let layout = tv.layoutManager,
               let container = tv.textContainer, let scroll = tv.enclosingScrollView else { return false }
@@ -160,12 +168,12 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
         guard found.location != NSNotFound else { return false }
         layout.ensureLayout(for: container)
         tv.sizeToFit()
-        let rect = layout.boundingRect(forGlyphRange: layout.glyphRange(forCharacterRange: NSRange(location: found.location, length: 1),
-                                                                       actualCharacterRange: nil), in: container)
+        let rect = layout.lineFragmentRect(forGlyphAt: layout.glyphIndexForCharacter(at: found.location + place.lead), effectiveRange: nil)
         let y = min(rect.minY + tv.textContainerOrigin.y + place.offset, max(0, tv.frame.height - scroll.contentView.bounds.height))
         scroll.contentView.scroll(to: NSPoint(x: 0, y: max(0, y)))
         scroll.reflectScrolledClipView(scroll.contentView)
         pinned = false
+        anchored = true
         return true
     }
 
@@ -210,7 +218,16 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
         // (unless it was opened from search, which shows the message you searched for).
         if !restored, content.loaded, !content.blocks.isEmpty {
             restored = true
-            if content.focus == nil, restorePlace() { return }
+            _ = content.focus == nil && restorePlace()
+        }
+        if anchored, !pinned, restorePlace() {
+            // Layout can still settle after this pass; stay on the same line.
+            for delay in [0.0, 0.15] {
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                    if self?.anchored == true { _ = self?.restorePlace() }
+                }
+            }
+            return
         }
         if pinned {
             scrollToBottom()

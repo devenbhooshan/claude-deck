@@ -158,6 +158,11 @@ func historyTests() {
         // Back, with new messages below: the same text at the top.
         let (back, scroll2) = open(content(0...69))
         expectEqual(topLine(back, scroll2), reading)
+        // More arrives, and layout settles afterwards: still the same line.
+        back.content = content(0...79)
+        back.render(force: false)
+        _ = waitUntil(0.4) { false }
+        expectEqual(topLine(back, scroll2), reading)
         // At the bottom: forgotten, so it follows the latest again.
         let clip = scroll2.contentView
         clip.scroll(to: NSPoint(x: 0, y: back.textView!.frame.height)); scroll2.reflectScrolledClipView(clip)
@@ -166,10 +171,10 @@ func historyTests() {
         let (latest, scroll3) = open(content(0...69))
         expect(scroll3.contentView.bounds.maxY >= latest.textView!.frame.height - 40, "at the bottom")
         // Text no longer there, opened from search, or no key: nothing to restore.
-        TranscriptTextController.places["s"] = ("gone", 0)
+        TranscriptTextController.places["s"] = ("gone", 0, 0)
         let (_, scroll4) = open(content(0...69))
         expect(scroll4.contentView.bounds.minY > 0, "falls back to the bottom")
-        TranscriptTextController.places["s"] = (reading, 0)
+        TranscriptTextController.places["s"] = (reading, 0, 0)
         _ = open(content(0...69, focus: "message 3"))
         let (none, _) = open(content(0...9), key: nil)
         none.userScrolled()
