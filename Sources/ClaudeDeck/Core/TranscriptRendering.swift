@@ -577,7 +577,7 @@ struct TranscriptRenderer {
                         .font: body, .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style,
                     ]))
                 }
-                let inline = Self.styled(p, font: font, color: color)
+                let inline = Self.styled(p, font: font, color: color, cwd: cwd, thumbnailWidth: min(420, width - textIndent - 30))
                 inline.addAttribute(.paragraphStyle, value: style, range: NSRange(location: 0, length: inline.length))
                 // Lines after the first (e.g. "Sep 2026: 11,900" under "Sep 2025: 950") line up with
                 // the text, not with the ✦ or list marker.
@@ -842,11 +842,25 @@ struct TranscriptRenderer {
 
     /// Parsed markdown text into attributed text. Single line breaks stay line breaks, as Claude
     /// meant them (markdown would join the lines).
-    static func styled(_ parsed: AttributedString, font: NSFont, color: NSColor) -> NSMutableAttributedString {
+    /// Images (`![alt](shot.png)`) that exist on disk, relative to `cwd` or not, become thumbnails
+    /// that open full size; web images are links on their alt text.
+    static func styled(_ parsed: AttributedString, font: NSFont, color: NSColor, cwd: String = "",
+                       thumbnailWidth: CGFloat = 420) -> NSMutableAttributedString {
         let out = NSMutableAttributedString()
         for run in parsed.runs {
             var f = font
             var attrs: [NSAttributedString.Key: Any] = [.foregroundColor: color]
+            if let src = run.imageURL {
+                if let thumb = thumbnail(src, cwd: cwd, width: thumbnailWidth) {
+                    out.append(thumb)
+                    continue
+                }
+                if let scheme = src.scheme?.lowercased(), ["http", "https"].contains(scheme) {
+                    attrs[.link] = src
+                    attrs[.toolTip] = src.absoluteString
+                    attrs[.foregroundColor] = Palette.accent
+                }
+            }
             if let intent = run.inlinePresentationIntent, !intent.isDisjoint(with: [.softBreak, .lineBreak]) {
                 out.append(NSAttributedString(string: "\n", attributes: [.font: font, .foregroundColor: color]))
                 continue
@@ -870,6 +884,28 @@ struct TranscriptRenderer {
             out.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: attrs))
         }
         return out
+    }
+
+    /// Images already read, by path and modification date (replies are re-rendered often).
+    nonisolated(unsafe) private static var images: [String: (date: Date, image: NSImage)] = [:]
+
+    /// A local image as a rounded thumbnail that opens it full size in Deck, or nil.
+    static func thumbnail(_ src: URL, cwd: String, width: CGFloat) -> NSAttributedString? {
+        // A relative or file: address (its path, decoded); never a web or data: one.
+        let path = src.scheme == nil || src.isFileURL ? src.path : ""
+        guard !path.isEmpty, let file = FileLinks.resolve(path, cwd: cwd),
+              let date = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { return nil }
+        if images[file.path]?.date != date {
+            guard let image = NSImage(contentsOf: file) else { return nil }
+            images[file.path] = (date, image)
+        }
+        let att = NSTextAttachment()
+        att.image = rounded(images[file.path]!.image, fitting: NSSize(width: width, height: 300))
+        att.bounds = NSRect(origin: .zero, size: att.image!.size)
+        let thumb = NSMutableAttributedString(attachment: att)
+        thumb.addAttributes([.link: FileLinks.link(to: file.path), .toolTip: "Click to view \(file.lastPathComponent) full size"],
+                            range: NSRange(location: 0, length: thumb.length))
+        return thumb
     }
 
     /// The row at the top that loads earlier history when clicked.

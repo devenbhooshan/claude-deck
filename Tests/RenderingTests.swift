@@ -113,6 +113,30 @@ func rendererTests() {
         let height = draw(r.render(content([.item(item(.assistant(reply)))]))).size.height
         expect(height < 700, "laid out \(height)pt tall")
     }
+    test("images in replies: local ones are thumbnails that open full size") {
+        let box = Sandbox(); defer { box.cleanup() }
+        try pngData().write(to: box.root.appendingPathComponent("shot one.png"))
+        box.write("notes.png", "not an image")
+        let rr = TranscriptRenderer(width: 700, cwd: box.root.path, expanded: [])
+        func render(_ md: String) -> NSAttributedString { rr.render(content([.item(item(.assistant(md)))])) }
+        func links(_ text: NSAttributedString) -> [URL] {
+            var out: [URL] = []
+            text.enumerateAttribute(.link, in: NSRange(location: 0, length: text.length)) { v, _, _ in if let u = v as? URL { out.append(u) } }
+            return out
+        }
+        let local = render("Here:\n\n![the shot](shot%20one.png)")
+        expect(local.containsAttachments(in: NSRange(location: 0, length: local.length)), "a thumbnail")
+        expect(!local.string.contains("the shot"))
+        expect(links(local).contains(FileLinks.link(to: box.root.appendingPathComponent("shot one.png").standardizedFileURL.path)))
+        expect(render("![again](\(box.root.path)/shot%20one.png)").containsAttachments(in: NSRange(location: 0, length: 3)), "cached, by full path")
+        expect(render("![url](file://\(box.root.path)/shot%20one.png)").containsAttachments(in: NSRange(location: 0, length: 3)), "a file: address")
+        let web = render("![logo](https://example.com/logo.png)")
+        expect(web.string.contains("logo") && links(web).contains(URL(string: "https://example.com/logo.png")!))
+        for md in ["![gone](missing.png)", "![fake](notes.png)", "![data](data:image/png;base64,AA)"] {
+            let r = render(md)
+            expect(!r.containsAttachments(in: NSRange(location: 0, length: r.length)) && !links(r).contains { $0.scheme == "deck" }, md)
+        }
+    }
     test("waiting status marks the open tool") {
         let s = r.render(content([.tools([calls[3]])], status: .waiting, openToolId: "t4")).string
         expect(s.contains("Needs approval"))
