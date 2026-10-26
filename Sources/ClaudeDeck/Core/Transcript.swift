@@ -286,8 +286,10 @@ final class TranscriptParser: @unchecked Sendable {
                 let id = block["id"] as? String ?? UUID().uuidString
                 let name = block["name"] as? String ?? "tool"
                 let input = block["input"] as? [String: Any] ?? [:]
-                add(.tool(ToolCall(id: id, name: name, summary: Self.summarize(name: name, input: block["input"]),
-                                   diff: EditDiff.lines(toolName: name, input: input))))
+                let summary = Self.summarize(name: name, input: block["input"])
+                let purpose = (input["description"] as? String).flatMap { $0.isEmpty || $0 == summary ? nil : $0 }
+                add(.tool(ToolCall(id: id, name: name, summary: summary,
+                                   diff: EditDiff.lines(toolName: name, input: input), purpose: purpose)))
             case "tool_result":
                 guard let id = block["tool_use_id"] as? String else { continue }
                 results[id] = ToolResult(text: Self.resultText(block["content"]),

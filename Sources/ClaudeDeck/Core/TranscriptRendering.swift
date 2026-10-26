@@ -732,9 +732,16 @@ struct TranscriptRenderer {
                 .replacingOccurrences(of: cwd + "/", with: "")
                 .replacingOccurrences(of: NSHomeDirectory(), with: "~")
             let more = call.summary.contains("\n") ? " ⏎…" : ""
-            line.append(NSAttributedString(string: String(firstLine.prefix(120)) + more, attributes: [
-                .font: mono, .foregroundColor: NSColor.secondaryLabelColor,
-            ]))
+            if let purpose = call.purpose {
+                // What it's for, in words; the command itself shows on hover and when expanded.
+                line.append(NSAttributedString(string: String(purpose.prefix(120)), attributes: [
+                    .font: NSFont.systemFont(ofSize: 12.5), .foregroundColor: NSColor.secondaryLabelColor,
+                ]))
+            } else {
+                line.append(NSAttributedString(string: String(firstLine.prefix(120)) + more, attributes: [
+                    .font: mono, .foregroundColor: NSColor.secondaryLabelColor,
+                ]))
+            }
             if let diff = call.diff {
                 let (added, removed) = LineDiff.stats(diff)
                 line.append(NSAttributedString(string: "  +\(added)", attributes: [.font: mono, .foregroundColor: Palette.success]))
@@ -745,6 +752,9 @@ struct TranscriptRenderer {
             line.append(NSAttributedString(string: "\n"))
             line.addAttribute(.paragraphStyle, value: rowStyle, range: NSRange(location: 0, length: line.length))
             line.addAttribute(.link, value: url, range: NSRange(location: 0, length: line.length - 1))
+            if call.purpose != nil {
+                line.addAttribute(.toolTip, value: String(call.summary.prefix(600)), range: NSRange(location: 0, length: line.length - 1))
+            }
             out.append(line)
 
             if expanded.contains(call.id) {

@@ -128,6 +128,8 @@ struct ToolCall: Identifiable, Equatable {
     let summary: String
     /// For file edits: the change, as a compact line diff.
     var diff: [DiffLine]? = nil
+    /// What the call is for, in words, when Claude gave one (a Bash command's description).
+    var purpose: String? = nil
 }
 
 struct ToolResult {

@@ -45,6 +45,7 @@ func rendererTests() {
                  ToolCall(id: "t3", name: "Write", summary: NSHomeDirectory() + "/y"), ToolCall(id: "t4", name: "Edit", summary: "e"),
                  ToolCall(id: "t5", name: "Grep", summary: "g"),
                  ToolCall(id: "t6", name: "Glob", summary: ""),
+                 ToolCall(id: "t8", name: "Bash", summary: "git log --oneline", purpose: "Show recent commits"),
                  ToolCall(id: "t7", name: "Edit", summary: "/p/app/f.swift",
                           diff: [DiffLine(kind: .context, text: "a"), DiffLine(kind: .removed, text: "b"),
                                  DiffLine(kind: .added, text: "B"), DiffLine(kind: .gap, text: "⋯ 3 unchanged lines")])]
@@ -89,7 +90,7 @@ func rendererTests() {
         let s = text.string
         for piece in ["hello", "/rename x", "/clear", "✦", "Heading", "bold", "link", "code block", "only", "Interrupted",
                       "✓ Built", "✗ Broke", "Bash", "ls src ⏎…", "~/y", "running…", "–", "(no output)", "… (truncated)",
-                      "queued msg", "Queued until", "Sending…", "Sent", "starts with code", "Starts with heading", "Starts with a quote", "second part", "quoted later", "nested quote", "after a rule", "on two lines", "☑", "real", "x y", "Context: 45% used", "Recap", "We shipped the fix.", "+1", "−1", "− b", "+ B", "⋯ 3 unchanged lines"] {
+                      "queued msg", "Queued until", "Show recent commits", "Sending…", "Sent", "starts with code", "Starts with heading", "Starts with a quote", "second part", "quoted later", "nested quote", "after a rule", "on two lines", "☑", "real", "x y", "Context: 45% used", "Recap", "We shipped the fix.", "+1", "−1", "− b", "+ B", "⋯ 3 unchanged lines"] {
             expect(s.contains(piece), "missing \(piece)")
         }
         for marker in ["> Starts", "> second", "\n>\n"] {
@@ -101,6 +102,9 @@ func rendererTests() {
             if (v as? URL)?.scheme == "deck" { links += 1 }
         }
         expect(links > 0)
+        let purpose = (s as NSString).range(of: "Show recent commits")
+        expectEqual(text.attribute(.toolTip, at: purpose.location, effectiveRange: nil) as? String, "git log --oneline")
+        expect(!s.contains("git log --oneline\t"), "the command itself isn't on the row")
         draw(text)
     }
     test("replies lay out at full width (nothing wraps letter by letter)") {

@@ -94,7 +94,7 @@ func parserTests() {
                 ["type": "text", "text": "Let me look."],
                 ["type": "text", "text": "   "],
                 ["type": "text"],
-                ["type": "tool_use", "id": "t1", "name": "Bash", "input": ["command": "ls -la"]],
+                ["type": "tool_use", "id": "t1", "name": "Bash", "input": ["command": "ls -la", "description": "List files"]],
                 ["type": "tool_use", "id": "t2", "name": "Read", "input": ["file_path": "/x"]],
                 ["type": "tool_use", "name": "Custom", "input": ["a": 1]],
                 ["type": "tool_use", "id": "t4", "name": "NoInput"],
@@ -143,7 +143,7 @@ func parserTests() {
             case let .user(t, imgs): kinds.append("user:\(t):\(imgs.count)")
             case .command(let c): kinds.append("cmd:\(c)")
             case .assistant(let t): kinds.append("asst:\(t)")
-            case .tool(let c): kinds.append("tool:\(c.name):\(c.summary)")
+            case .tool(let c): kinds.append("tool:\(c.name):\(c.summary)" + (c.purpose.map { " (\($0))" } ?? ""))
             case .notice(let t): kinds.append("notice:\(t)")
             case .commandOutput(let t): kinds.append("out:\(t)")
             case .recap(let t): kinds.append("recap:\(t)")
@@ -154,7 +154,7 @@ func parserTests() {
             "user:first:0", "cmd:/rename New", "cmd:", "out:Renamed", "task:Build broke:false",
             "task:Background task completed:true", "notice:Interrupted", "user:merge it:0", "user:no close:0",
             "user:look at this:1",
-            "user:blocks only text:0", "asst:plain reply", "asst:Let me look.", "tool:Bash:ls -la", "tool:Read:/x",
+            "user:blocks only text:0", "asst:plain reply", "asst:Let me look.", "tool:Bash:ls -la (List files)", "tool:Read:/x",
             "tool:Custom:{\"a\":1}", "tool:NoInput:", "tool:tool:", "user:third:0",
             "cmd:/cost", "out:Total cost: $1", "recap:We fixed the bug.", "notice:Unknown command: /mco", "notice:Conversation compacted",
         ])
