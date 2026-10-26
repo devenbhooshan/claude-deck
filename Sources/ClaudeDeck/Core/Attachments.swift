@@ -114,6 +114,31 @@ enum AttachmentStore {
         return (try? data.write(to: dest)) != nil ? dest : nil
     }
 
+    /// A file dropped on the message box's text is typed in as its path. If the text between `old`
+    /// and `new` is nothing but the paths (or file URLs) of `dragged` files, returns the text
+    /// without them and the files to attach instead; nil when it's ordinary typing.
+    static func droppedFiles(old: String, new: String, dragged: [URL]) -> (text: String, files: [URL])? {
+        guard !dragged.isEmpty, new.count > old.count else { return nil }
+        let start = zip(old, new).prefix { $0 == $1 }.count
+        let maxEnd = min(old.count, new.count) - start
+        let end = zip(old.reversed(), new.reversed()).prefix(maxEnd).prefix { $0 == $1 }.count
+        let a = new.index(new.startIndex, offsetBy: start), b = new.index(new.endIndex, offsetBy: -end)
+        var inserted = String(new[a..<b])
+        var files: [URL] = []
+        for url in dragged {
+            for form in [url.absoluteString, url.path] where inserted.contains(form) {
+                inserted = inserted.replacingOccurrences(of: form, with: "")
+                files.append(url)
+                break
+            }
+        }
+        guard !files.isEmpty, inserted.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+        return (String(new[..<a]) + String(new[b...]), files)
+    }
+
+    /// The files on a pasteboard (the drag pasteboard, for a drop).
+    static func files(on pb: NSPasteboard) -> [URL] { fileURLs(pb) }
+
     /// Files on the pasteboard first, then raw image data (screenshots).
     static func from(pasteboard pb: NSPasteboard) -> [Attachment] {
         let found = fileURLs(pb).compactMap(from(fileURL:))

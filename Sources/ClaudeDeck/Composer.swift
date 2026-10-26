@@ -73,8 +73,17 @@ struct Composer: View {
         // Switching sessions (click, ⌘K, ⌘1–9, ⌥⌘↑/↓) lands you in the message box.
         .onChange(of: store.selectedId) { focusSoon() }
         .onChange(of: store.showSwitcher) { if !store.showSwitcher { focusSoon() } }
-        .onChange(of: draft) {
+        .onChange(of: draft) { before, after in
             menuIndex = 0
+            // Dropping a file on the text types its path: attach the file instead. (Never while
+            // typing or pasting, which are key presses.)
+            if NSApp.currentEvent?.type != .keyDown,
+               let drop = AttachmentStore.droppedFiles(old: before, new: after,
+                                                       dragged: AttachmentStore.files(on: NSPasteboard(name: .drag))) {
+                attachments += drop.files.compactMap(AttachmentStore.from(fileURL:))
+                draft = drop.text
+                return
+            }
             Drafts.update(session.sessionId) { $0.text = draft }
         }
         .onChange(of: store.composerInsert) {

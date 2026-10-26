@@ -283,6 +283,26 @@ func attachmentTests() {
         AttachmentStore.dir = box.write("a-file", "x").appendingPathComponent("sub")
         expect(AttachmentStore.from(fileURL: csv) == nil, "unwritable cache")
     }
+    test("drops: a dragged file's path typed into the text becomes an attachment") {
+        let shot = URL(fileURLWithPath: "/tmp/Screenshot 1.png"), doc = URL(fileURLWithPath: "/tmp/a.pdf")
+        let one = AttachmentStore.droppedFiles(old: "look at ", new: "look at /tmp/Screenshot 1.png", dragged: [shot])
+        expectEqual(one?.text, "look at ")
+        expectEqual(one?.files, [shot])
+        let two = AttachmentStore.droppedFiles(old: "ab", new: "a/tmp/Screenshot 1.png /tmp/a.pdf\nb", dragged: [shot, doc])
+        expectEqual(two?.text, "ab")
+        expectEqual(two?.files, [shot, doc])
+        expectEqual(AttachmentStore.droppedFiles(old: "", new: "file:///tmp/a.pdf", dragged: [doc])?.files, [doc])
+        expect(AttachmentStore.droppedFiles(old: "", new: "see /tmp/a.pdf", dragged: [doc]) == nil, "more than the path was added")
+        expect(AttachmentStore.droppedFiles(old: "", new: "/tmp/other.pdf", dragged: [doc]) == nil, "not the dragged file")
+        expect(AttachmentStore.droppedFiles(old: "", new: "/tmp/a.pdf", dragged: []) == nil, "nothing dragged")
+        expect(AttachmentStore.droppedFiles(old: "/tmp/a.pdf x", new: "/tmp/a.pdf", dragged: [doc]) == nil, "text removed")
+        expect(AttachmentStore.droppedFiles(old: "aa", new: "aaa", dragged: [doc]) == nil, "repeated letters")
+        let pb = NSPasteboard(name: NSPasteboard.Name("deck-tests-\(UUID().uuidString)"))
+        pb.clearContents()
+        pb.writeObjects([doc as NSURL])
+        expectEqual(AttachmentStore.files(on: pb), [doc])
+        pb.releaseGlobally()
+    }
     test("message: files listed after the text") {
         let a = Attachment(url: URL(fileURLWithPath: "/c/a.csv"), thumbnail: nil)
         let b = Attachment(url: URL(fileURLWithPath: "/c/b.pdf"), thumbnail: nil)
