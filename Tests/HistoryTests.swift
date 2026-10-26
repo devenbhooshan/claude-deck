@@ -129,4 +129,53 @@ func historyTests() {
         ctl.userScrolled()
         expectEqual(asked, 2)
     }
+    test("transcript view: switching away and back keeps your reading place") {
+        TranscriptTextController.places = [:]
+        func content(_ range: ClosedRange<Int>, focus: String? = nil) -> TranscriptContent {
+            TranscriptContent(blocks: range.map { .item(item(.assistant("message \($0)"), "m\($0)")) }, results: [:], queued: [],
+                              outgoing: [], cwd: "", status: .idle, openToolId: nil, loaded: true, focus: focus)
+        }
+        func open(_ c: TranscriptContent, key: String? = "s") -> (TranscriptTextController, NSScrollView) {
+            let ctl = TranscriptTextController(openURL: { _ in true })
+            ctl.placeKey = key
+            let scroll = ctl.makeScrollView()
+            scroll.frame = NSRect(x: 0, y: 0, width: 900, height: 300)
+            scroll.tile()
+            ctl.content = c
+            ctl.render(force: false)
+            return (ctl, scroll)
+        }
+        func topLine(_ ctl: TranscriptTextController, _ scroll: NSScrollView) -> String {
+            let tv = ctl.textView!, lm = tv.layoutManager!
+            let i = lm.characterIndexForGlyph(at: lm.glyphIndex(for: NSPoint(x: 40, y: scroll.contentView.bounds.minY + 30), in: tv.textContainer!))
+            return (tv.string as NSString).substring(with: (tv.string as NSString).lineRange(for: NSRange(location: i, length: 0)))
+        }
+        // Read partway up, then leave.
+        let (first, scroll) = open(content(0...59))
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 400)); scroll.reflectScrolledClipView(scroll.contentView)
+        first.userScrolled()
+        let reading = topLine(first, scroll)
+        // Back, with new messages below: the same text at the top.
+        let (back, scroll2) = open(content(0...69))
+        expectEqual(topLine(back, scroll2), reading)
+        // At the bottom: forgotten, so it follows the latest again.
+        let clip = scroll2.contentView
+        clip.scroll(to: NSPoint(x: 0, y: back.textView!.frame.height)); scroll2.reflectScrolledClipView(clip)
+        back.userScrolled()
+        expect(TranscriptTextController.places["s"] == nil)
+        let (latest, scroll3) = open(content(0...69))
+        expect(scroll3.contentView.bounds.maxY >= latest.textView!.frame.height - 40, "at the bottom")
+        // Text no longer there, opened from search, or no key: nothing to restore.
+        TranscriptTextController.places["s"] = ("gone", 0)
+        let (_, scroll4) = open(content(0...69))
+        expect(scroll4.contentView.bounds.minY > 0, "falls back to the bottom")
+        TranscriptTextController.places["s"] = (reading, 0)
+        _ = open(content(0...69, focus: "message 3"))
+        let (none, _) = open(content(0...9), key: nil)
+        none.userScrolled()
+        let (empty, _) = open(TranscriptContent(blocks: [], results: [:], queued: [], outgoing: [], cwd: "", status: .idle,
+                                                openToolId: nil, loaded: true))
+        empty.userScrolled()
+        TranscriptTextController.places = [:]
+    }
 }

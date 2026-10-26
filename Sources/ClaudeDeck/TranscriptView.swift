@@ -6,6 +6,8 @@ import SwiftUI
 /// view, so a SwiftUI list of messages can't do that.
 struct TranscriptView: View {
     let model: TranscriptModel
+    /// The session, for remembering where you were reading.
+    var placeKey: String? = nil
     let cwd: String
     let status: SessionStatus
     let statusSince: Date?
@@ -39,7 +41,7 @@ struct TranscriptView: View {
             cwd: cwd, status: status,
             openToolId: status == .busy || status == .waiting ? openTool?.id : nil,
             loaded: model.loaded, focus: model.focusText, hasEarlier: model.hasEarlier),
-                           onReachTop: { model.loadEarlier() })
+                           placeKey: placeKey, onReachTop: { model.loadEarlier() })
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 // The row's space is always reserved, so the transcript never jumps when it appears;
@@ -82,6 +84,7 @@ struct TranscriptView: View {
 
 struct TranscriptTextView: NSViewRepresentable {
     let content: TranscriptContent
+    var placeKey: String? = nil
     var onReachTop: (() -> Void)? = nil
     @Environment(SessionStore.self) private var store
 
@@ -101,6 +104,7 @@ struct TranscriptTextView: NSViewRepresentable {
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
         context.coordinator.content = content
+        context.coordinator.placeKey = placeKey
         context.coordinator.onReachTop = onReachTop
         context.coordinator.render(force: false)
     }

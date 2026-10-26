@@ -192,7 +192,7 @@ struct SessionDetailView: View {
 
     private var conversation: some View {
         VStack(spacing: 0) {
-            TranscriptView(model: model, cwd: session.cwd, status: session.status, statusSince: session.statusSince,
+            TranscriptView(model: model, placeKey: session.sessionId, cwd: session.cwd, status: session.status, statusSince: session.statusSince,
                            onStop: session.isLive ? { store.interrupt(session) } : nil,
                            background: session.background,
                            onStopTask: session.isLive ? { store.stopTask($0, in: session) } : nil)
