@@ -114,6 +114,17 @@ final class RoutineStore {
         do { try p.run() } catch { lastError = "Couldn't start the run: \(error.localizedDescription)" }
     }
 
+    /// Your message to a finished run: Claude continues that conversation in the background.
+    func reply(to run: RoutineRun, _ message: String) {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: helper)
+        p.arguments = ["reply", run.routine, run.id, message]
+        p.standardInput = FileHandle.nullDevice
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do { try p.run() } catch { lastError = "Couldn't send it: \(error.localizedDescription)" }
+    }
+
     /// Daily routines that were due while the Mac was off run once now.
     private func catchUp() {
         for r in routines where Routines.missed(r, lastRun: runs(of: r.id).first?.started) {

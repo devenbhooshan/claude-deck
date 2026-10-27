@@ -14,7 +14,7 @@ struct ContentView: View {
         } detail: {
             if let s = store.session(store.selectedId) {
                 SessionDetailView(session: s).id(s.id)
-            } else if let id = store.selectedId, id.hasPrefix("routine:") {
+            } else if let id = store.selectedId, id.hasPrefix("routine:"), store.routines.routine(String(id.dropFirst(8))) != nil {
                 RoutineDetailView(routineId: String(id.dropFirst(8))).id(id)
             } else {
                 EmptyDetail(running: store.live.count, waiting: waiting.count)
@@ -64,6 +64,15 @@ struct ContentView: View {
                     }
                 }
             }
+            if !store.recent.isEmpty {
+                Section {
+                    ForEach(store.recent) { s in
+                        SessionRow(session: s).modifier(SelectableRow(id: s.id)).contextMenu { rowMenu(s) }
+                    }
+                } header: {
+                    SectionHeader(title: "Recent", count: nil, tint: nil)
+                }
+            }
             if !store.routines.routines.isEmpty {
                 Section {
                     ForEach(store.routines.routines) { r in
@@ -84,15 +93,6 @@ struct ContentView: View {
                             .buttonStyle(.deckBorderless)
                             .help("New or manage routines (⇧⌘R)")
                     }
-                }
-            }
-            if !store.recent.isEmpty {
-                Section {
-                    ForEach(store.recent) { s in
-                        SessionRow(session: s).modifier(SelectableRow(id: s.id)).contextMenu { rowMenu(s) }
-                    }
-                } header: {
-                    SectionHeader(title: "Recent", count: nil, tint: nil)
                 }
             }
         }

@@ -204,16 +204,38 @@ enum Routines {
         }
     }
 
-    /// The `claude` arguments for one run. Each value is its own argument (never through a shell).
-    /// The session id is chosen up front, so Deck can follow the conversation while it runs.
-    static func arguments(for routine: Routine, sessionId: String? = nil) -> [String] {
-        var args = ["-p", routine.prompt, "--output-format", "json", "--permission-mode", "dontAsk",
-                    "--name", "Routine: \(routine.name)"]
-        if let sessionId { args += ["--session-id", sessionId] }
+    /// The `claude` arguments for one run, or for a reply that continues it (`resume`). Each value
+    /// is its own argument (never through a shell). A new run's session id is chosen up front, so
+    /// Deck can follow the conversation while it runs. `connectors` are MCP servers to allow.
+    static func arguments(for routine: Routine, prompt: String? = nil, sessionId: String? = nil, resume: String? = nil,
+                          connectors: [String] = []) -> [String] {
+        var args = ["-p", prompt ?? routine.prompt, "--output-format", "json", "--permission-mode", "dontAsk"]
+        if let resume {
+            args += ["--resume", resume]
+        } else {
+            args += ["--name", "Routine: \(routine.name)"]
+            if let sessionId { args += ["--session-id", sessionId] }
+        }
         if let budget = routine.budget { args += ["--max-budget-usd", String(format: "%.2f", budget)] }
         if !routine.model.isEmpty { args += ["--model", routine.model] }
         // Last: the tool list takes every argument after it.
-        return args + ["--allowedTools"] + allowedTools(routine.access)
+        return args + ["--allowedTools"] + allowedTools(routine.access) + connectors.map { "mcp__" + $0 }
+    }
+
+    /// MCP server names from `claude mcp list` ("claude.ai Slack: https://… - ✔ Connected"), as
+    /// their tools are named (`claude_ai_Slack`). Only "Can run commands" routines get them.
+    static func connectors(fromList text: String) -> [String] {
+        text.components(separatedBy: "\n").compactMap { line in
+            guard line.contains(" - "), let colon = line.range(of: ": ") else { return nil }
+            let name = String(line[..<colon.lowerBound])
+            return String(name.map { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" ? $0 : "_" })
+        }
+    }
+
+    private static func connectors(for routine: Routine, claude: String) -> [String] {
+        guard routine.access == .runCommands else { return [] }
+        let list = execute(claude, ["mcp", "list"], in: routine.folder, timeout: 60)
+        return connectors(fromList: String(decoding: list.output, as: UTF8.self))
     }
 
     /// Reads `claude -p --output-format json`'s summary into the run.
@@ -307,11 +329,36 @@ enum Routines {
         }
         run.sessionId = UUID().uuidString.lowercased()
         write(run)
-        let r = execute(claude, arguments(for: routine, sessionId: run.sessionId), in: routine.folder,
-                        timeout: TimeInterval(routine.timeoutMinutes * 60))
+        let r = execute(claude, arguments(for: routine, sessionId: run.sessionId, connectors: connectors(for: routine, claude: claude)),
+                        in: routine.folder, timeout: TimeInterval(routine.timeoutMinutes * 60))
         finish(&run, output: r.output, exitStatus: r.status, stderr: r.stderr, timedOut: r.timedOut)
         write(run)
         prune(id)
+        return run
+    }
+
+    /// Your message to a finished run: Claude continues the same conversation with the routine's
+    /// access, and the run shows the new outcome (cost and turns add up). Nil when it can't.
+    @discardableResult
+    static func reply(_ id: String, run runId: String, message: String, claude: String? = ClaudeCLI.locate(),
+                      pid: Int32 = getpid()) -> RoutineRun? {
+        guard let routine = routine(id), let claude, var run = runs(of: id).first(where: { $0.id == runId }),
+              let session = run.sessionId else { return nil }
+        let lock = open(runsDir.appendingPathComponent("\(id).lock").path, O_CREAT | O_RDWR, 0o600)
+        guard lock >= 0, flock(lock, LOCK_EX | LOCK_NB) == 0 else { return nil }
+        defer { close(lock) }
+        let before = run
+        run.status = .running
+        run.finished = nil
+        run.pid = pid
+        write(run)
+        let r = execute(claude, arguments(for: routine, prompt: message, resume: session, connectors: connectors(for: routine, claude: claude)),
+                        in: routine.folder, timeout: TimeInterval(routine.timeoutMinutes * 60))
+        finish(&run, output: r.output, exitStatus: r.status, stderr: r.stderr, timedOut: r.timedOut)
+        run.cost = [before.cost, run.cost].compactMap { $0 }.reduce(0, +)
+        run.turns = [before.turns, run.turns].compactMap { $0 }.reduce(0, +)
+        run.denied += before.denied
+        write(run)
         return run
     }
 

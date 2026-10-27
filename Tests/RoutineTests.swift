@@ -180,4 +180,53 @@ func routineTests() {
         do { try Routines.install(r, helper: "/A/deck-routine") } catch { threw = true }
         expect(threw)
     }
+    test("connectors: names from claude mcp list, as their tools are named") {
+        let list = """
+            Checking MCP server health…
+
+            claude.ai Slack: https://mcp.slack.com/mcp - ✔ Connected
+            claude.ai Google Drive: https://drivemcp.googleapis.com/mcp/v1 - ✔ Connected
+            plugin:cloudflare:cloudflare: https://mcp.cloudflare.com/mcp (HTTP) - ! Needs authentication
+            nook: /Apps/Nook.app/Contents/MacOS/nook-mcp  - ✔ Connected
+            """
+        expectEqual(Routines.connectors(fromList: list), ["claude_ai_Slack", "claude_ai_Google_Drive", "plugin_cloudflare_cloudflare", "nook"])
+        var r = Routine(name: "x", folder: "/", prompt: "p")
+        r.access = .runCommands
+        let args = Routines.arguments(for: r, connectors: ["claude_ai_Slack"])
+        expectEqual(args.last, "mcp__claude_ai_Slack")
+        let reply = Routines.arguments(for: r, prompt: "and now?", resume: "s1")
+        expectEqual(Array(reply.prefix(2)), ["-p", "and now?"])
+        expectEqual(reply[reply.firstIndex(of: "--resume")! + 1], "s1")
+        expect(!reply.contains("--name") && !reply.contains("--session-id"), "a reply continues the run")
+    }
+    test("replying to a run: continues it, adds up cost and turns") {
+        let box = Sandbox(); defer { box.cleanup() }
+        let folder = box.root.appendingPathComponent("work"); try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        var r = Routine(name: "Check", folder: folder.path, prompt: "hi")
+        r.access = .runCommands
+        try Routines.save(r)
+        // Answers `mcp list` with one connector, and a run with a summary; records what it was asked.
+        let fake = box.write("bin/claude", """
+            #!/bin/sh
+            echo "$@" >> "\(box.root.path)/calls"
+            if [ "$1" = "mcp" ]; then echo 'claude.ai Slack: https://x - ✔ Connected'; exit 0; fi
+            echo '{"session_id":"same","total_cost_usd":0.5,"num_turns":2,"result":"Answered.","is_error":false}'
+            """)
+        chmod(fake.path, 0o755)
+        let first = Routines.run(r.id, claude: fake.path)!
+        expect(try String(contentsOf: box.root.appendingPathComponent("calls"), encoding: .utf8).contains("mcp__claude_ai_Slack"))
+        let replied = Routines.reply(r.id, run: first.id, message: "why?", claude: fake.path)
+        expectEqual(replied?.result, "Answered.")
+        expectEqual(replied?.cost, 1.0)
+        expectEqual(replied?.turns, 4)
+        expectEqual(Routines.runs(of: r.id).count, 1)  // the same run, not a new one
+        expect(try String(contentsOf: box.root.appendingPathComponent("calls"), encoding: .utf8).contains("-p why? --output-format json --permission-mode dontAsk --resume same"))
+        // Can't: unknown run, no claude, or busy.
+        expect(Routines.reply(r.id, run: "nope", message: "x", claude: fake.path) == nil)
+        expect(Routines.reply(r.id, run: first.id, message: "x", claude: nil) == nil)
+        let lock = open(Routines.runsDir.appendingPathComponent("\(r.id).lock").path, O_RDWR)
+        flock(lock, LOCK_EX)
+        expect(Routines.reply(r.id, run: first.id, message: "x", claude: fake.path) == nil)
+        close(lock)
+    }
 }
