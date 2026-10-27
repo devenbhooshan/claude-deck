@@ -72,4 +72,21 @@ func unreadTests() {
         expectEqual(SessionNav.nextWaiting(live, after: "w2"), "w1") // without unread counts: waiting only
         expect(SessionNav.nextWaiting([s("b", .busy)], after: nil, unread: unread) == nil)
     }
+    test("the first unread reply's text, to open there") {
+        let lines = [
+            user("go"),
+            assistant([["type": "text", "text": "## Plan\n- **one** `x`"]], at: "2026-10-20T10:00:00.000Z"),
+            assistant([["type": "text", "text": "> Done."]], at: "2026-10-20T10:05:00.000Z"),
+        ]
+        let texts = SessionLoader.replyTexts(in: lines)
+        expectEqual(texts, ["Plan\none x", "Done."])
+        let iso = ISO8601DateFormatter.withFractions
+        var s = Session(sessionId: "s", pid: 1, cwd: "/", name: nil, title: nil, status: .idle, waitingFor: nil,
+                        updatedAt: Date(), transcriptURL: nil, replies: SessionLoader.replies(in: lines), replyTexts: texts)
+        expectEqual(SessionNav.firstUnread(s, seen: iso.date(from: "2026-10-20T10:01:00.000Z")!), "Done.")
+        expectEqual(SessionNav.firstUnread(s, seen: .distantPast), "Plan\none x")
+        expect(SessionNav.firstUnread(s, seen: .distantFuture) == nil)
+        s.replyTexts = []
+        expect(SessionNav.firstUnread(s, seen: .distantPast) == nil, "texts not loaded")
+    }
 }

@@ -101,6 +101,21 @@ struct ContentView: View {
             }
             ToolbarItem {
                 Button {
+                    store.showRoutines = true
+                } label: {
+                    Label("Routines", systemImage: "alarm")
+                        .overlay(alignment: .topTrailing) {
+                            if store.routines.unread > 0 {
+                                Circle().fill(Theme.accent).frame(width: 7, height: 7).offset(x: 3, y: -2)
+                            }
+                        }
+                }
+                .help(store.routines.unread > 0
+                      ? "Routines: \(store.routines.unread) new \(store.routines.unread == 1 ? "run" : "runs") (⇧⌘R)"
+                      : "Prompts Claude runs on a schedule on this Mac (⇧⌘R)")
+            }
+            ToolbarItem {
+                Button {
                     store.showNewSession = true
                 } label: {
                     Label("New Session", systemImage: "plus")
@@ -111,6 +126,7 @@ struct ContentView: View {
         .sheet(isPresented: $store.showNewSession) { NewSessionSheet() }
         .sheet(isPresented: $store.showUsage) { UsageSheet() }
         .sheet(isPresented: $store.showPolicies) { PoliciesSheet() }
+        .sheet(isPresented: $store.showRoutines) { RoutinesSheet() }
         .sheet(item: $store.viewing) { file in
             if FileLinks.kind(of: file.url) == .markdown { MarkdownEditor(url: file.url) } else { FileViewer(url: file.url) }
         }

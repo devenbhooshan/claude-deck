@@ -74,6 +74,7 @@ When Claude replies in a session you're not looking at, its row shows a count of
 (and a bold title), and the total shows on Deck's Dock icon and in the menu bar ("3 new"). A
 session counts as read once you open it with Deck in front, or when you send it a message (from
 Deck or its terminal). Notices like background task results and subagents' messages don't count.
+Opening a session from the floating dock or a reply notification takes you to the first new reply.
 
 ## Links and files
 
@@ -130,6 +131,24 @@ folders. **Try it** shows whether a command or path would be caught, for one rul
 
 Rules and switches live in `~/Library/Application Support/ClaudeDeck/policies.json`, decisions in
 `policy-log.jsonl` next to it.
+
+## Routines: ⇧⌘R
+
+Prompts Claude runs on a schedule in a folder, headless: e.g. every weekday at 9:00 in your
+app, "check CI and open PRs and tell me what needs me".
+
+- **Schedule:** at a time of day (every day or chosen weekdays), or every few hours. Each routine
+  is a launchd job, so it runs even when Deck is closed. Missed while the Mac slept: it runs on
+  wake. Missed while the Mac was off: Deck runs it when it opens (if it was due in the last 12 hours).
+- **Access:** read-only (reading, searching, git and gh commands that only look), can edit files,
+  or can run commands, where your policies are the guard. Runs use `dontAsk`: anything outside
+  the routine's access is refused, never left waiting for an approval.
+- **Limits:** model, an optional spending cap per run, and a time limit. One run at a time.
+- **Results:** each run's status, cost, Claude's final message and what was refused, on the
+  Routines screen, with a notification when it finishes. Open a run for the whole conversation, or
+  continue it in the terminal.
+- Routines and runs are files in `~/Library/Application Support/ClaudeDeck/routines` (the newest
+  50 runs per routine are kept); the jobs are in `~/Library/LaunchAgents`.
 
 ## Themes
 

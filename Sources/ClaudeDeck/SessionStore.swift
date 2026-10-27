@@ -25,6 +25,10 @@ final class SessionStore {
     var showNewSession = false
     var showUsage = false
     var showPolicies = false
+    var showRoutines = false
+    /// A routine run to open (from its notification).
+    var openRun: String?
+    let routines = RoutineStore()
     /// A PDF, image, web page or markdown file opened from the transcript, shown over the session.
     var viewing: ViewedFile?
     /// A session we just started (and the terminal it's in): select it as soon as it appears.
@@ -118,6 +122,15 @@ final class SessionStore {
 
     var unreadTotal: Int { live.reduce(0) { $0 + unread($1) } }
 
+    /// Opens a session at the first reply you haven't read (or as usual when there's none).
+    func openAtUnread(_ s: Session) {
+        if s.isLive, let text = SessionNav.firstUnread(s, seen: max(seenAt[s.sessionId] ?? countingSince, countingSince)) {
+            focus = FocusTarget(sessionId: s.sessionId, offset: nil, text: text)
+        }
+        selectedId = s.id
+        bringToFront()
+    }
+
     /// The open session counts as read while Deck is in front.
     func markSeen() {
         guard NSApp?.isActive == true, let s = session(selectedId), s.isLive, unread(s) > 0 || seenAt[s.sessionId] == nil else { return }
@@ -129,7 +142,7 @@ final class SessionStore {
     }
 
     private func updateBadge() {
-        let n = waitingCount + unreadTotal
+        let n = waitingCount + unreadTotal + routines.unread
         NSApp?.dockTile.badgeLabel = n > 0 ? "\(n)" : nil
     }
 
@@ -357,6 +370,8 @@ final class SessionStore {
 
     func start() {
         AttachmentStore.purge()
+        routines.onChange = { [weak self] in self?.updateBadge() }
+        routines.start()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             DebugLog.write("notifications granted=\(granted) error=\(String(describing: error))")
             if CommandLine.arguments.contains("--test-notification") {

@@ -49,6 +49,8 @@ final class TranscriptModel {
             }
             return
         }
+        // Opened at a reply (an unread one): the latest part, pointing that reply out.
+        focusText = focus?.text
         poll(force: true)
         // React to appends immediately; the timer is a fallback (e.g. the file was replaced).
         watcher = FileWatcher(url: url, events: [.extend, .write]) { [weak self] in
@@ -172,12 +174,15 @@ struct SessionDetailView: View {
             model.stop()
             model = TranscriptModel()
             model.start(url: session.transcriptURL, focus: focus)
+            if focus?.offset == nil, focus != nil { store.focus = nil }
         }
         .navigationTitle(session.displayTitle)
         .navigationSubtitle(subtitle)
         .toolbar { toolbar }
         .onAppear {
             model.start(url: session.transcriptURL, focus: store.focus?.sessionId == session.sessionId ? store.focus : nil)
+            // Pointing at a reply is done once; switching back later returns to where you were.
+            if store.focus?.sessionId == session.sessionId, store.focus?.offset == nil { store.focus = nil }
             attachments = Drafts.draft(for: session.sessionId).files.compactMap(AttachmentStore.restore)
             if session.isLive { Task { await Ghostty.prewarm(session) } }
         }

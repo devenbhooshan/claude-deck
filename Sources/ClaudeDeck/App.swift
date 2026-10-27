@@ -100,6 +100,8 @@ struct SessionCommands: Commands {
             Button("Plan Usage…") { store.showUsage = true }
                 .keyboardShortcut("u", modifiers: [.command, .shift])
             Button("Policies…") { store.showPolicies = true; store.bringToFront() }
+            Button("Routines…") { store.showRoutines = true; store.bringToFront() }
+                .keyboardShortcut("r", modifiers: [.command, .shift])
                 .keyboardShortcut("p", modifiers: [.command, .shift])
             Button("Show / Hide Floating Dock") { FloatingDock.shared.toggle(store: store, usage: usage) }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
@@ -197,9 +199,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let id = response.notification.request.content.userInfo["sessionId"] as? String
+        let run = response.notification.request.content.userInfo["routineRun"] as? String
         let action = response.actionIdentifier
         await MainActor.run {
             guard let store else { return }
+            if let run {
+                store.openRun = run
+                store.showRoutines = true
+                store.bringToFront()
+                return
+            }
             switch action {
             case Notifications.allow, Notifications.deny:
                 // Answer in place; don't pull you away from what you're doing. Only the exact
@@ -209,8 +218,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
                     store.respond(s, key: action == Notifications.allow ? "enter" : "escape", expectedSince: since)
                 }
             default:
-                store.selectedId = id
-                store.bringToFront()
+                if let s = store.live.first(where: { $0.id == id }) { store.openAtUnread(s) } else {
+                    store.selectedId = id
+                    store.bringToFront()
+                }
             }
         }
     }

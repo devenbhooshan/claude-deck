@@ -233,8 +233,7 @@ struct DockView: View {
     }
 
     private func open(_ s: Session) {
-        store.selectedId = s.id
-        store.bringToFront()
+        store.openAtUnread(s)
     }
 }
 

@@ -5,11 +5,14 @@ cd "$(dirname "$0")"
 swift build -c release
 # The policy checker Claude Code runs before each tool call: small, so it starts in a few ms.
 swiftc -O -o .build/release/deck-policy Sources/ClaudeDeck/Core/Policies.swift Sources/PolicyCheck/main.swift
+# The routine runner launchd starts on each routine's schedule, even when Deck isn't open.
+swiftc -O -o .build/release/deck-routine Sources/ClaudeDeck/Core/Routines.swift Sources/ClaudeDeck/Core/ClaudeCLI.swift Sources/RoutineRun/main.swift
 APP=build/"Claude Deck.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp .build/release/ClaudeDeck "$APP/Contents/MacOS/ClaudeDeck"
 cp .build/release/deck-policy "$APP/Contents/MacOS/deck-policy"
+cp .build/release/deck-routine "$APP/Contents/MacOS/deck-routine"
 cp Info.plist "$APP/Contents/Info.plist"
 cp Icon/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 codesign --force --sign - "$APP"

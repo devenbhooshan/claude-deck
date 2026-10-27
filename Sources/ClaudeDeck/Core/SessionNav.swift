@@ -41,6 +41,12 @@ enum SessionNav {
         s.replies.filter { $0 > seen }.count
     }
 
+    /// The text of the first reply you haven't seen, to open the session there.
+    static func firstUnread(_ s: Session, seen: Date) -> String? {
+        guard let i = s.replies.firstIndex(where: { $0 > seen }), i < s.replyTexts.count else { return nil }
+        return s.replyTexts[i]
+    }
+
     /// Permission prompts can be answered with Allow / Deny; other waits (questions) need the terminal.
     static func isPermission(_ s: Session) -> Bool {
         s.waitingFor?.localizedCaseInsensitiveContains("permission") ?? false

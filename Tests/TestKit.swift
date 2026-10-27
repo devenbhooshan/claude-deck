@@ -49,6 +49,8 @@ struct Sandbox {
         ActivityIndex.dir = root.appendingPathComponent("activity")
         Policies.dir = root.appendingPathComponent("policies")
         Drafts.dir = root.appendingPathComponent("drafts")
+        Routines.dir = root.appendingPathComponent("routines")
+        Routines.agentsDir = root.appendingPathComponent("LaunchAgents")
         try! FileManager.default.createDirectory(at: ClaudePaths.sessions, withIntermediateDirectories: true)
         try! FileManager.default.createDirectory(at: ClaudePaths.projects, withIntermediateDirectories: true)
     }
