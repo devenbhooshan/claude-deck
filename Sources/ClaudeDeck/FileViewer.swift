@@ -16,6 +16,7 @@ struct FileViewer: View {
     @State private var version = 0
     @State private var watcher: FileWatcher?
     @State private var exists = true
+    @State private var copied = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -54,6 +55,17 @@ struct FileViewer: View {
                 .buttonStyle(.deck(size: .small))
                 .keyboardShortcut("r")
                 .help("Reload (⌘R)")
+            Button {
+                Clipboard.copy(file: url)
+                copied = true
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { copied = false }
+            } label: {
+                Image(systemName: copied ? "checkmark" : "doc.on.doc")
+                    .foregroundStyle(copied ? Theme.success : Color.primary)
+            }
+            .buttonStyle(.deck(size: .small))
+            .disabled(!exists)
+            .help(copied ? "Copied" : "Copy the file, to paste anywhere")
             Button { NSWorkspace.shared.activateFileViewerSelecting([url]) } label: { Image(systemName: "folder") }
                 .buttonStyle(.deck(size: .small))
                 .help("Show in Finder")

@@ -116,6 +116,14 @@ enum Clipboard {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
     }
+
+    /// The file itself, so it pastes into Finder, Slack or Mail; an image also pastes as a picture.
+    static func copy(file url: URL) {
+        var items: [NSPasteboardWriting] = [url as NSURL]
+        if FileLinks.kind(of: url) == .image, let image = NSImage(contentsOf: url) { items.append(image) }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.writeObjects(items)
+    }
 }
 
 /// A small copy icon that confirms with a checkmark.
