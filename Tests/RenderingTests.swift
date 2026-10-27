@@ -104,7 +104,8 @@ func rendererTests() {
         expect(links > 0)
         let purpose = (s as NSString).range(of: "Show recent commits")
         expectEqual(text.attribute(.toolTip, at: purpose.location, effectiveRange: nil) as? String, "git log --oneline")
-        expect(!s.contains("git log --oneline\t"), "the command itself isn't on the row")
+        expect(s.contains("Show recent commits\t") && s.contains("\ngit log --oneline\n"), "the command on the line under its description")
+        expect(!s.contains("Bash  Show recent commits"), "no tool name before a description")
         draw(text)
     }
     test("replies lay out at full width (nothing wraps letter by letter)") {

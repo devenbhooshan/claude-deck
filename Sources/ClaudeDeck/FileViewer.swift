@@ -122,34 +122,55 @@ private struct ImageFileView: View {
     let url: URL
     let version: Int
     @State private var image: NSImage?
-    @State private var actualSize = false
+    /// Nil: fitted to the window. Otherwise the scale you zoomed to (1 = actual size).
+    @State private var zoom: CGFloat?
+    /// The scale when a pinch began, and the fitted scale (for zooming from the wheel).
+    @State private var pinchStart: CGFloat?
+    @State private var fitScale: CGFloat = 1
+    @State private var wheelMonitor: Any?
 
     var body: some View {
         Group {
             if let image {
-                Group {
-                    if actualSize {
-                        ScrollView([.horizontal, .vertical]) {
+                GeometryReader { geo in
+                    let fit = ImageZoom.fit(image.size, in: geo.size)
+                    let scale = zoom ?? fit
+                    Group {
+                        if zoom == nil {
+                            // Fits the window whole: no scrolling either way.
                             Image(nsImage: image)
+                                .resizable()
                                 .interpolation(.high)
-                                .frame(width: image.size.width, height: image.size.height)
-                                .padding(16)
+                                .frame(width: image.size.width * fit, height: image.size.height * fit)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        } else {
+                            // Zoomed: scroll around when it's bigger than the window; centred when smaller.
+                            ScrollView([.horizontal, .vertical]) {
+                                Image(nsImage: image)
+                                    .resizable()
+                                    .interpolation(.high)
+                                    .frame(width: image.size.width * scale, height: image.size.height * scale)
+                                    .padding(16)
+                                    .frame(minWidth: geo.size.width, minHeight: geo.size.height)
+                            }
+                            .defaultScrollAnchor(.center)
                         }
-                        .defaultScrollAnchor(.center)
-                    } else {
-                        // Fits the window whole: no scrolling either way.
-                        Image(nsImage: image)
-                            .resizable()
-                            .interpolation(.high)
-                            .aspectRatio(contentMode: .fit)
-                            .frame(maxWidth: image.size.width, maxHeight: image.size.height)  // never blown up past actual size
-                            .padding(16)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
+                    .contentShape(Rectangle())
+                    .onTapGesture(count: 2) { zoom = zoom == nil && fit < 1 ? 1 : nil }
+                    .help(zoom == nil ? "Double-click for actual size" : "Double-click to fit the window")
+                    .overlay(alignment: .bottom) { zoomBar(scale: scale, fit: fit) }
+                    // Pinch on the trackpad.
+                    .simultaneousGesture(MagnifyGesture()
+                        .onChanged { g in
+                            let start = pinchStart ?? scale
+                            pinchStart = start
+                            zoom = ImageZoom.scaled(start, by: g.magnification)
+                        }
+                        .onEnded { _ in pinchStart = nil })
+                    .onAppear { fitScale = fit }
+                    .onChange(of: fit) { fitScale = fit }
                 }
-                .contentShape(Rectangle())
-                .onTapGesture(count: 2) { actualSize.toggle() }
-                .help(actualSize ? "Double-click to fit the window" : "Double-click for actual size")
             } else {
                 ContentUnavailableView("Can't read this image", systemImage: "photo")
             }
@@ -158,6 +179,45 @@ private struct ImageFileView: View {
             let url = url
             image = await Task.detached { NSImage(contentsOf: url) }.value
         }
+        // ⌘ or ⌥ with the scroll wheel zooms, as in Preview; plain scrolling moves around.
+        .onAppear {
+            wheelMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { e in
+                guard image != nil, !e.modifierFlags.isDisjoint(with: [.command, .option]), e.scrollingDeltaY != 0 else { return e }
+                zoom = ImageZoom.scaled(zoom ?? fitScale, by: ImageZoom.wheelFactor(e.scrollingDeltaY))
+                return nil
+            }
+        }
+        .onDisappear { if let m = wheelMonitor { NSEvent.removeMonitor(m) } }
+    }
+
+    private func zoomBar(scale: CGFloat, fit: CGFloat) -> some View {
+        HStack(spacing: 2) {
+            Button { zoom = ImageZoom.step(scale, in: false) } label: { Image(systemName: "minus").frame(width: 24, height: 22) }
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(scale <= ImageZoom.range.lowerBound)
+                .help("Zoom out (⌘−)")
+            Button { zoom = 1 } label: {
+                Text(ImageZoom.percent(scale)).monospacedDigit().frame(minWidth: 46, minHeight: 22)
+            }
+            .help("Actual size")
+            Button { zoom = ImageZoom.step(scale, in: true) } label: { Image(systemName: "plus").frame(width: 24, height: 22) }
+                .keyboardShortcut("=", modifiers: .command)
+                .disabled(scale >= ImageZoom.range.upperBound)
+                .help("Zoom in (⌘+)")
+            Divider().frame(height: 14).padding(.horizontal, 4)
+            Button { zoom = nil } label: {
+                Label("Fit", systemImage: "arrow.down.right.and.arrow.up.left").frame(minHeight: 22).padding(.horizontal, 4)
+            }
+            .keyboardShortcut("0", modifiers: .command)
+            .disabled(zoom == nil)
+            .help("Fit the window (⌘0)")
+        }
+        .font(.callout)
+        .buttonStyle(.deckPlain)
+        .padding(.horizontal, 6).padding(.vertical, 4)
+        .background(Capsule().fill(.regularMaterial))
+        .overlay(Capsule().strokeBorder(Color.primary.opacity(0.12)))
+        .padding(.bottom, 14)
     }
 }
 

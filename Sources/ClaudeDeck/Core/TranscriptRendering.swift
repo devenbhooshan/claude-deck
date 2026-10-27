@@ -715,7 +715,7 @@ struct TranscriptRenderer {
                 s.textBlocks = [card]
                 s.tabStops = [NSTextTab(textAlignment: .left, location: 22), NSTextTab(textAlignment: .right, location: inner)]
                 s.lineBreakMode = .byTruncatingTail
-                s.paragraphSpacing = 3
+                s.paragraphSpacing = call.purpose != nil && !expanded.contains(call.id) ? 0 : 3  // tight above its command
             }
             let line = NSMutableAttributedString()
             if let icon = NSImage(systemSymbolName: ToolStyle.symbol(call.name), accessibilityDescription: nil)?
@@ -725,7 +725,8 @@ struct TranscriptRenderer {
                 att.bounds = NSRect(x: 0, y: -1.5, width: icon.size.width, height: icon.size.height)
                 line.append(NSAttributedString(attachment: att))
             }
-            line.append(NSAttributedString(string: "\t" + ToolStyle.displayName(call.name) + "  ", attributes: [
+            // With a description, it says what the step is (the icon already says it's a command).
+            line.append(NSAttributedString(string: "\t" + (call.purpose == nil ? ToolStyle.displayName(call.name) + "  " : ""), attributes: [
                 .font: NSFont.systemFont(ofSize: 12.5, weight: .medium), .foregroundColor: NSColor.labelColor,
             ]))
             let firstLine = (call.summary.split(separator: "\n", maxSplits: 1).first.map(String.init) ?? "")
@@ -733,9 +734,9 @@ struct TranscriptRenderer {
                 .replacingOccurrences(of: NSHomeDirectory(), with: "~")
             let more = call.summary.contains("\n") ? " ⏎…" : ""
             if let purpose = call.purpose {
-                // What it's for, in words; the command itself shows on hover and when expanded.
-                line.append(NSAttributedString(string: String(purpose.prefix(120)), attributes: [
-                    .font: NSFont.systemFont(ofSize: 12.5), .foregroundColor: NSColor.secondaryLabelColor,
+                // What it's for, in words; the command goes on the line below.
+                line.append(NSAttributedString(string: String(purpose.prefix(160)), attributes: [
+                    .font: NSFont.systemFont(ofSize: 12.5), .foregroundColor: NSColor.labelColor,
                 ]))
             } else {
                 line.append(NSAttributedString(string: String(firstLine.prefix(120)) + more, attributes: [
@@ -756,6 +757,24 @@ struct TranscriptRenderer {
                 line.addAttribute(.toolTip, value: String(call.summary.prefix(600)), range: NSRange(location: 0, length: line.length - 1))
             }
             out.append(line)
+            // The command itself, dimmed, under its description (in full when expanded).
+            if call.purpose != nil, !expanded.contains(call.id) {
+                let commandStyle = paragraph { s in
+                    s.textBlocks = [card]
+                    s.headIndent = 22
+                    s.firstLineHeadIndent = 22
+                    s.lineBreakMode = .byTruncatingTail
+                    s.paragraphSpacing = 4
+                    s.lineSpacing = 0
+                }
+                let command = NSMutableAttributedString(string: String(firstLine.prefix(300)) + more + "\n", attributes: [
+                    .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular), .foregroundColor: NSColor.tertiaryLabelColor,
+                    .paragraphStyle: commandStyle,
+                ])
+                command.addAttributes([.link: url, .toolTip: String(call.summary.prefix(600))],
+                                      range: NSRange(location: 0, length: command.length - 1))
+                out.append(command)
+            }
 
             if expanded.contains(call.id) {
                 let detailStyle = paragraph { s in

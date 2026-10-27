@@ -487,3 +487,26 @@ func watcherTests() {
         expect(FileWatcher(url: box.root.appendingPathComponent("nope"), events: [.write]) {} == nil)
     }
 }
+
+func imageZoomTests() {
+    test("image zoom: fit, steps, limits") {
+        expectEqual(ImageZoom.fit(CGSize(width: 2000, height: 1000), in: CGSize(width: 1032, height: 1032)), 0.5)
+        expectEqual(ImageZoom.fit(CGSize(width: 100, height: 400), in: CGSize(width: 1032, height: 232)), 0.5)
+        expectEqual(ImageZoom.fit(CGSize(width: 100, height: 100), in: CGSize(width: 1000, height: 1000)), 1)  // small images stay actual size
+        expectEqual(ImageZoom.fit(.zero, in: CGSize(width: 10, height: 10)), 1)
+        expectEqual(ImageZoom.step(1, in: true), 1.25)
+        expectEqual(ImageZoom.step(1, in: false), 0.8)
+        expectEqual(ImageZoom.step(7, in: true), 8)
+        expectEqual(ImageZoom.step(0.11, in: false), 0.1)
+        expectEqual(ImageZoom.percent(1.25), "125%")
+    }
+}
+
+func imageZoomInputTests() {
+    test("image zoom: pinch and wheel") {
+        expectEqual(ImageZoom.scaled(2, by: 1.5), 3)
+        expectEqual(ImageZoom.scaled(2, by: 100), 8)
+        expectEqual(ImageZoom.scaled(0.2, by: 0.1), 0.1)
+        expect(ImageZoom.wheelFactor(10) > 1 && ImageZoom.wheelFactor(-10) < 1 && ImageZoom.wheelFactor(0) == 1)
+    }
+}
