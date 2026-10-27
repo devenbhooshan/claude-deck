@@ -303,11 +303,15 @@ final class TranscriptParser: @unchecked Sendable {
     }
 
     private func ingestSystem(_ obj: [String: Any]) {
-        guard obj["isSidechain"] as? Bool != true, let content = obj["content"] as? String else { return }
+        guard obj["isSidechain"] as? Bool != true else { return }
+        let content = obj["content"] as? String ?? ""
         let ts = (obj["timestamp"] as? String).flatMap { Self.iso.date(from: $0) }
         let uuid = obj["uuid"] as? String ?? UUID().uuidString
         let kind: TranscriptItem.Kind?
         switch obj["subtype"] as? String {
+        case "turn_duration":
+            // How long Claude worked on your message, written when it finishes.
+            kind = (obj["durationMs"] as? Double).map { .notice("Worked for " + Self.duration(ms: $0)) }
         case "local_command":
             // A slash command typed in the terminal (the command, then its output).
             kind = Self.userKind(content)
@@ -315,14 +319,22 @@ final class TranscriptParser: @unchecked Sendable {
             let text = content.replacingOccurrences(of: #"\s*\(disable recaps in /config\)\s*$"#, with: "", options: .regularExpression)
             kind = text.isEmpty ? nil : .recap(text)
         case "informational", "compact_boundary", "bridge_status":
-            kind = .notice(Safety.stripANSI(content))
+            kind = content.isEmpty ? nil : .notice(Safety.stripANSI(content))
         default:
-            kind = nil // turn timing and other bookkeeping
+            kind = nil // other bookkeeping
         }
         guard let kind else { return }
         counter += 1
         items.append(TranscriptItem(id: "\(uuid)-\(counter)", kind: kind, timestamp: ts))
         itemOffsets.append(lineOffset)
+    }
+
+    /// A turn's length the way the terminal says it: 38s, 1m 3s, 1h 2m.
+    static func duration(ms: Double) -> String {
+        let s = Int((ms / 1000).rounded())
+        if s < 60 { return "\(s)s" }
+        if s < 3600 { return "\(s / 60)m \(s % 60)s" }
+        return "\(s / 3600)h \(s % 3600 / 60)m"
     }
 
     /// A user prompt is either a string or blocks of text and images.

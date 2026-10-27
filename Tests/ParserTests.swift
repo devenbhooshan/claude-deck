@@ -121,7 +121,9 @@ func parserTests() {
             ["type": "system", "subtype": "informational", "content": "Unknown command: /mco", "timestamp": "2026-10-01T03:13:03.971Z"],
             ["type": "system", "subtype": "compact_boundary", "content": "Conversation compacted"],
             ["type": "system", "subtype": "turn_duration"],
-            ["type": "system", "subtype": "turn_duration", "content": "12s"],
+            ["type": "system", "subtype": "turn_duration", "durationMs": 38158],
+            ["type": "system", "subtype": "informational"],
+            ["type": "system", "subtype": "agents_killed"],
             ["type": "system", "subtype": "informational", "content": "sub", "isSidechain": true],
             ["type": "custom-title", "customTitle": "Mine"],
             ["type": "ai-title", "aiTitle": "Auto again"],
@@ -158,7 +160,7 @@ func parserTests() {
             "user:look at this:1",
             "user:blocks only text:0", "asst:plain reply", "asst:Let me look.", "tool:Bash:ls -la (List files)", "tool:Read:/x",
             "tool:Custom:{\"a\":1}", "tool:NoInput:", "tool:tool:", "asst:Checking the job first.", "user:third:0",
-            "cmd:/cost", "out:Total cost: $1", "recap:We fixed the bug.", "notice:Unknown command: /mco", "notice:Conversation compacted",
+            "cmd:/cost", "out:Total cost: $1", "recap:We fixed the bug.", "notice:Unknown command: /mco", "notice:Conversation compacted", "notice:Worked for 38s",
         ])
         expect(p.items[0].timestamp != nil)
         expectEqual(p.results["t1"]?.text, "out")
@@ -167,6 +169,13 @@ func parserTests() {
         expectEqual(p.results["t5"]?.text, "")
         // NoInput (t4) is the latest call without a result.
         expectEqual(p.pendingTool?.name, "tool")
+    }
+
+    test("turn lengths read like the terminal") {
+        expectEqual(TranscriptParser.duration(ms: 400), "0s")
+        expectEqual(TranscriptParser.duration(ms: 59_600), "1m 0s")
+        expectEqual(TranscriptParser.duration(ms: 63_000), "1m 3s")
+        expectEqual(TranscriptParser.duration(ms: 3_725_000), "1h 2m")
     }
 
     test("pending tool is nil once the last call has a result, or with no calls") {
