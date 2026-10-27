@@ -477,28 +477,33 @@ struct RoutineEditor: View {
 
 // MARK: - A run
 
-/// One run: how it went, and the whole conversation; continue it in the terminal to follow up.
+/// One run: how it went, and the whole conversation (followed live while it runs); continue it
+/// in the terminal to follow up.
 struct RunSheet: View {
     @Environment(SessionStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let run: RoutineRun
     @State private var model = TranscriptModel()
+    @State private var following = false
     @State private var error: String?
 
+    /// The run as it is now (it updates while running).
+    private var live: RoutineRun { store.routines.runs.first { $0.id == run.id && $0.routine == run.routine } ?? run }
     private var routine: Routine? { store.routines.routine(run.routine) }
-    private var transcript: URL? { run.sessionId.flatMap { ClaudePaths.transcript(for: $0, cwd: routine?.folder) } }
+    private var running: Bool { live.status == .running && !store.routines.isCutOff(live) }
+    private var transcript: URL? { live.sessionId.flatMap { ClaudePaths.transcript(for: $0, cwd: routine?.folder) } }
 
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
-                RunStatusIcon(run: run)
+                RunStatusIcon(run: live)
                 VStack(alignment: .leading, spacing: 2) {
                     Text(routine?.name ?? "Routine").font(.headline)
-                    Text(run.started.formatted(date: .abbreviated, time: .shortened) + RunRow.details(run))
+                    Text(live.started.formatted(date: .abbreviated, time: .shortened) + (running ? " · running" : RunRow.details(live)))
                         .font(.caption).foregroundStyle(.secondary)
                 }
                 Spacer()
-                if let routine, let id = run.sessionId {
+                if let routine, let id = live.sessionId, !running {
                     Button {
                         Task {
                             do {
@@ -516,20 +521,35 @@ struct RunSheet: View {
             }
             .padding(16)
             Divider()
-            if transcript != nil {
-                TranscriptView(model: model, cwd: routine?.folder ?? "", status: .ended, statusSince: nil)
+            if following {
+                TranscriptView(model: model, cwd: routine?.folder ?? "", status: running ? .busy : .ended, statusSince: live.started)
             } else {
                 ScrollView {
-                    Text(run.result ?? (run.status == .running ? "Still running…" : "No conversation was recorded."))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(20)
+                    HStack(spacing: 8) {
+                        if running { ProgressView().controlSize(.small) }
+                        Text(running ? "Starting Claude…" : live.result ?? "No conversation was recorded.")
+                            .textSelection(.enabled)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(20)
                 }
             }
         }
         .frame(minWidth: 820, minHeight: 640)
         .background(Theme.surface)
-        .onAppear { model.start(url: transcript) }
+        // The conversation's file appears once Claude starts writing; follow it from then.
+        .task {
+            while !following && !Task.isCancelled {
+                if let url = transcript {
+                    model.start(url: url)
+                    following = true
+                } else if !running {
+                    return
+                } else {
+                    try? await Task.sleep(for: .seconds(1))
+                }
+            }
+        }
         .onDisappear { model.stop() }
         .alert("Couldn't open the terminal", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }

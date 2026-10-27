@@ -205,9 +205,11 @@ enum Routines {
     }
 
     /// The `claude` arguments for one run. Each value is its own argument (never through a shell).
-    static func arguments(for routine: Routine) -> [String] {
+    /// The session id is chosen up front, so Deck can follow the conversation while it runs.
+    static func arguments(for routine: Routine, sessionId: String? = nil) -> [String] {
         var args = ["-p", routine.prompt, "--output-format", "json", "--permission-mode", "dontAsk",
                     "--name", "Routine: \(routine.name)"]
+        if let sessionId { args += ["--session-id", sessionId] }
         if let budget = routine.budget { args += ["--max-budget-usd", String(format: "%.2f", budget)] }
         if !routine.model.isEmpty { args += ["--model", routine.model] }
         // Last: the tool list takes every argument after it.
@@ -218,7 +220,7 @@ enum Routines {
     static func finish(_ run: inout RoutineRun, output: Data, exitStatus: Int32, stderr: String, timedOut: Bool, at: Date = Date()) {
         run.finished = at
         let summary = (try? JSONSerialization.jsonObject(with: output)) as? [String: Any]
-        run.sessionId = summary?["session_id"] as? String
+        run.sessionId = summary?["session_id"] as? String ?? run.sessionId
         run.cost = summary?["total_cost_usd"] as? Double
         run.turns = summary?["num_turns"] as? Int
         run.denied = (summary?["permission_denials"] as? [Any])?.count ?? 0
@@ -303,8 +305,10 @@ enum Routines {
             write(run)
             return run
         }
+        run.sessionId = UUID().uuidString.lowercased()
         write(run)
-        let r = execute(claude, arguments(for: routine), in: routine.folder, timeout: TimeInterval(routine.timeoutMinutes * 60))
+        let r = execute(claude, arguments(for: routine, sessionId: run.sessionId), in: routine.folder,
+                        timeout: TimeInterval(routine.timeoutMinutes * 60))
         finish(&run, output: r.output, exitStatus: r.status, stderr: r.stderr, timedOut: r.timedOut)
         write(run)
         prune(id)

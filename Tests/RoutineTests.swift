@@ -55,7 +55,9 @@ func routineTests() {
         var r = Routine(name: "Morning", folder: "/w", prompt: "check; rm -rf /")
         let args = Routines.arguments(for: r)
         expectEqual(Array(args.prefix(8)), ["-p", "check; rm -rf /", "--output-format", "json", "--permission-mode", "dontAsk", "--name", "Routine: Morning"])
-        expect(!args.contains("--max-budget-usd") && !args.contains("--model"), "no cap, default model")
+        expect(!args.contains("--max-budget-usd") && !args.contains("--model") && !args.contains("--session-id"), "no cap, default model")
+        let withId = Routines.arguments(for: r, sessionId: "abc")
+        expectEqual(withId[withId.firstIndex(of: "--session-id")! + 1], "abc")
         expect(args.contains("Bash(git log:*)") && !args.contains("Edit") && !args.contains("Bash"))
         r.access = .canEdit; r.budget = 2.5; r.model = "sonnet"
         let edit = Routines.arguments(for: r)
@@ -76,8 +78,10 @@ func routineTests() {
         expectEqual(run.result, "All green.")
         Routines.finish(&run, output: Data(#"{"is_error":true,"result":"Budget exceeded"}"#.utf8), exitStatus: 1, stderr: "", timedOut: false)
         expectEqual(run.status, .failed); expectEqual(run.result, "Budget exceeded")
+        run.sessionId = "chosen"
         Routines.finish(&run, output: Data(), exitStatus: 1, stderr: " boom \n", timedOut: false)
         expectEqual(run.result, "boom")
+        expectEqual(run.sessionId, "chosen")  // no summary: the id chosen up front stays
         Routines.finish(&run, output: Data(), exitStatus: 3, stderr: "", timedOut: false)
         expectEqual(run.result, "Claude exited with status 3.")
         Routines.finish(&run, output: Data(#"{"result":""}"#.utf8), exitStatus: 143, stderr: "", timedOut: true)
@@ -106,7 +110,8 @@ func routineTests() {
         expectEqual(run?.status, .succeeded)
         expectEqual(run?.result, "Done.")
         expect(try String(contentsOf: box.root.appendingPathComponent("where"), encoding: .utf8).hasSuffix("/work\n"), "ran in the routine's folder")
-        expect(try String(contentsOf: box.root.appendingPathComponent("args"), encoding: .utf8).hasPrefix("-p hi --output-format json"))
+        let passed = try String(contentsOf: box.root.appendingPathComponent("args"), encoding: .utf8)
+        expect(passed.hasPrefix("-p hi --output-format json") && passed.contains("--session-id "))
         expectEqual(Routines.runs(of: r.id).map(\.status), [.succeeded])
         expectEqual(Routines.runs().count, 1)
         // Already running: skipped.
