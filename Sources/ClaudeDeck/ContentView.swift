@@ -14,6 +14,8 @@ struct ContentView: View {
         } detail: {
             if let s = store.session(store.selectedId) {
                 SessionDetailView(session: s).id(s.id)
+            } else if let id = store.selectedId, id.hasPrefix("routine:") {
+                RoutineDetailView(routineId: String(id.dropFirst(8))).id(id)
             } else {
                 EmptyDetail(running: store.live.count, waiting: waiting.count)
             }
@@ -59,6 +61,28 @@ struct ContentView: View {
                             .padding(.horizontal, 6).padding(.vertical, 1)
                             .background(Capsule().fill(Theme.waiting.opacity(0.18)))
                             .foregroundStyle(Theme.waiting)
+                    }
+                }
+            }
+            if !store.routines.routines.isEmpty {
+                Section {
+                    ForEach(store.routines.routines) { r in
+                        RoutineSidebarRow(routine: r)
+                            .modifier(SelectableRow(id: "routine:" + r.id))
+                            .contextMenu {
+                                Button("Run Now") { store.routines.runNow(r) }
+                                Toggle("On", isOn: Binding(get: { r.enabled }, set: { store.routines.setEnabled(r, $0) }))
+                                Divider()
+                                Button("Manage Routines…") { store.showRoutines = true }
+                            }
+                    }
+                } header: {
+                    HStack {
+                        SectionHeader(title: "Routines", count: nil, tint: nil)
+                        Spacer()
+                        Button { store.showRoutines = true } label: { Image(systemName: "plus").font(.caption.weight(.semibold)) }
+                            .buttonStyle(.deckBorderless)
+                            .help("New or manage routines (⇧⌘R)")
                     }
                 }
             }

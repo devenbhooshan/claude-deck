@@ -110,7 +110,7 @@ struct RoutinesSheet: View {
 }
 
 /// One routine: switch, name, when, where and what it may do; its last result; Run Now and Edit.
-private struct RoutineCard: View {
+struct RoutineCard: View {
     @Environment(SessionStore.self) private var store
     let routine: Routine
     let expanded: Bool
@@ -192,7 +192,7 @@ private struct RoutineCard: View {
     }
 }
 
-private struct RunStatusIcon: View {
+struct RunStatusIcon: View {
     @Environment(SessionStore.self) private var store
     let run: RoutineRun
 
@@ -214,7 +214,7 @@ private struct RunStatusIcon: View {
 }
 
 /// One run in a routine's history; click to read the whole conversation.
-private struct RunRow: View {
+struct RunRow: View {
     let run: RoutineRun
     let unread: Bool
     let cutOff: Bool
@@ -477,12 +477,25 @@ struct RoutineEditor: View {
 
 // MARK: - A run
 
-/// One run: how it went, and the whole conversation (followed live while it runs); continue it
-/// in the terminal to follow up.
+/// A run over the Routines screen.
 struct RunSheet: View {
-    @Environment(SessionStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     let run: RoutineRun
+
+    var body: some View {
+        RunView(run: run) {
+            Button("Done") { dismiss() }.buttonStyle(.deck(.primary)).keyboardShortcut(.defaultAction)
+        }
+        .frame(minWidth: 820, minHeight: 640)
+    }
+}
+
+/// One run: how it went, and the whole conversation (followed live while it runs); continue it
+/// in the terminal to follow up.
+struct RunView<Trailing: View>: View {
+    @Environment(SessionStore.self) private var store
+    let run: RoutineRun
+    @ViewBuilder var trailing: () -> Trailing
     @State private var model = TranscriptModel()
     @State private var following = false
     @State private var error: String?
@@ -498,7 +511,7 @@ struct RunSheet: View {
             HStack(spacing: 12) {
                 RunStatusIcon(run: live)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(routine?.name ?? "Routine").font(.headline)
+                    Text(RunRow.headline(live, cutOff: store.routines.isCutOff(live))).font(.headline).lineLimit(1)
                     Text(live.started.formatted(date: .abbreviated, time: .shortened) + (running ? " · running" : RunRow.details(live)))
                         .font(.caption).foregroundStyle(.secondary)
                 }
@@ -517,9 +530,9 @@ struct RunSheet: View {
                     .buttonStyle(.deck())
                     .help("Resume this conversation in Ghostty to follow up")
                 }
-                Button("Done") { dismiss() }.buttonStyle(.deck(.primary)).keyboardShortcut(.defaultAction)
+                trailing()
             }
-            .padding(16)
+            .padding(.horizontal, 16).padding(.vertical, 12)
             Divider()
             if following {
                 TranscriptView(model: model, cwd: routine?.folder ?? "", status: running ? .busy : .ended, statusSince: live.started)
@@ -535,10 +548,9 @@ struct RunSheet: View {
                 }
             }
         }
-        .frame(minWidth: 820, minHeight: 640)
         .background(Theme.surface)
         // The conversation's file appears once Claude starts writing; follow it from then.
-        .task {
+        .task(id: run.id) {
             while !following && !Task.isCancelled {
                 if let url = transcript {
                     model.start(url: url)
@@ -555,6 +567,146 @@ struct RunSheet: View {
             Button("OK") { error = nil }
         } message: {
             Text(error ?? "")
+        }
+    }
+}
+
+// MARK: - In the main window
+
+/// A routine opened from the sidebar: what it is, its runs, and the chosen run's conversation.
+struct RoutineDetailView: View {
+    @Environment(SessionStore.self) private var store
+    let routineId: String
+    @State private var selectedRun: String?
+    @State private var editing: Routine?
+
+    private var routines: RoutineStore { store.routines }
+    private var routine: Routine? { routines.routine(routineId) }
+    private var runs: [RoutineRun] { routines.runs(of: routineId) }
+
+    var body: some View {
+        if let routine {
+            VStack(spacing: 0) {
+                header(routine)
+                Divider()
+                if runs.isEmpty {
+                    ContentUnavailableView {
+                        Label("No runs yet", systemImage: "alarm")
+                    } description: {
+                        Text(routine.enabled ? "Next run: \(RoutineCard.when(routine.schedule.next(after: Date()), now: Date())). Or run it now."
+                                             : "It's paused. Switch it on, or run it now.")
+                    }
+                } else {
+                    HStack(spacing: 0) {
+                        ScrollView {
+                            VStack(spacing: 2) {
+                                ForEach(runs) { run in
+                                    RunRow(run: run, unread: routines.isUnread(run), cutOff: routines.isCutOff(run)) { selectedRun = run.id }
+                                        .background(RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
+                                            .fill(run.id == shownRun?.id ? Theme.accent.opacity(0.14) : .clear))
+                                }
+                            }
+                            .padding(8)
+                        }
+                        .frame(width: 280)
+                        Divider()
+                        if let run = shownRun {
+                            RunView(run: run) { EmptyView() }.id(run.id)
+                        }
+                    }
+                }
+            }
+            .navigationTitle(routine.name)
+            .navigationSubtitle("Routine · \(routine.schedule.summary)")
+            .background(Theme.surface)
+            .onAppear { routines.markSeen(routineId) }
+            .onChange(of: routines.unread(of: routineId)) { routines.markSeen(routineId) }
+            .sheet(item: $editing) { r in
+                RoutineEditor(routine: r, isNew: false, onSave: { routines.save($0) },
+                              onDelete: { routines.delete(r); store.selectedId = nil })
+            }
+        } else {
+            ContentUnavailableView("Routine not found", systemImage: "alarm")
+        }
+    }
+
+    /// The run picked in the list, or the newest.
+    private var shownRun: RoutineRun? { runs.first { $0.id == selectedRun } ?? runs.first }
+
+    private func header(_ routine: Routine) -> some View {
+        HStack(spacing: 12) {
+            Toggle("", isOn: Binding(get: { routine.enabled }, set: { routines.setEnabled(routine, $0) }))
+                .toggleStyle(.switch).controlSize(.small).labelsHidden()
+                .help(routine.enabled ? "On: runs on schedule. Switch off to pause." : "Paused. Switch on to run on schedule.")
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(routine.schedule.summary) · \(Theme.shortPath(routine.folder)) · \(RoutineEditor.accessName(routine.access))")
+                    .font(.callout).lineLimit(1)
+                Text(routine.prompt).font(.caption).foregroundStyle(.secondary).lineLimit(1).help(routine.prompt)
+            }
+            Spacer()
+            Button { routines.runNow(routine) } label: { Label("Run Now", systemImage: "play.fill") }
+                .buttonStyle(.deck())
+                .disabled(runs.first.map { $0.status == .running && !routines.isCutOff($0) } ?? false)
+                .help("Run it once now, in the background")
+            Button("Edit…") { editing = routine }.buttonStyle(.deck())
+        }
+        .padding(.horizontal, 16).padding(.vertical, 10)
+    }
+}
+
+/// A routine in the sidebar: its state, name, when it runs, and new runs.
+struct RoutineSidebarRow: View {
+    @Environment(SessionStore.self) private var store
+    let routine: Routine
+
+    private var last: RoutineRun? { store.routines.runs(of: routine.id).first }
+    private var unread: Int { store.routines.unread(of: routine.id) }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("").frame(width: 12)
+            ZStack {
+                RoundedRectangle(cornerRadius: 6, style: .continuous).fill(tint.opacity(0.14))
+                if let last, last.status == .running, !store.routines.isCutOff(last) {
+                    ProgressView().controlSize(.small).scaleEffect(0.6)
+                } else {
+                    Image(systemName: "alarm").font(.system(size: 11, weight: .semibold)).foregroundStyle(tint)
+                }
+            }
+            .frame(width: 22, height: 22)
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(routine.name).font(.body.weight(unread > 0 ? .semibold : .regular)).lineLimit(1)
+                    Spacer(minLength: 4)
+                    if unread > 0 {
+                        Text("\(unread)")
+                            .font(.caption2.weight(.bold)).monospacedDigit()
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(Theme.accent))
+                            .help("\(unread) new \(unread == 1 ? "run" : "runs")")
+                    } else if let last {
+                        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                            Text(Theme.ago(last.started, now: ctx.date)).font(.caption).monospacedDigit().foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                Text(routine.enabled ? routine.schedule.summary : "Paused · \(routine.schedule.summary)")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
+        }
+        .padding(.vertical, 4)
+        .opacity(routine.enabled ? 1 : 0.7)
+        .help(last.map { RunRow.headline($0, cutOff: store.routines.isCutOff($0)) } ?? "No runs yet")
+    }
+
+    /// Green after a good run, red after a failed one, grey before any.
+    private var tint: Color {
+        switch last?.status {
+        case .succeeded: Theme.success
+        case .failed, .timedOut: Theme.danger
+        case .running: Theme.accent
+        case nil: .secondary
         }
     }
 }

@@ -10,11 +10,16 @@ final class RoutineStore {
     /// Every run, newest first.
     private(set) var runs: [RoutineRun] = []
     var lastError: String?
-    /// Runs that finished after this were not seen yet.
+    /// Runs that finished after this were not seen yet (everything before Deck had routines is seen).
     private(set) var seenUpTo: Date = {
         if let t = UserDefaults.standard.object(forKey: "routineRunsSeen") as? Double { return Date(timeIntervalSince1970: t) }
-        return Date()
+        let now = Date()
+        UserDefaults.standard.set(now.timeIntervalSince1970, forKey: "routineRunsSeen")
+        return now
     }()
+    /// When you last looked at each routine's runs, by routine id.
+    private var seen: [String: Date] = (UserDefaults.standard.dictionary(forKey: "routineSeen") as? [String: Double] ?? [:])
+        .mapValues { Date(timeIntervalSince1970: $0) }
     /// Called when unread runs change (for the Dock badge).
     var onChange: (() -> Void)?
 
@@ -40,7 +45,7 @@ final class RoutineStore {
         runs = Routines.runs()
         if let known {
             for run in runs where run.status != .running && known[run.id] != run.status
-                && (known[run.id] == .running || known[run.id] == nil) && run.finished.map({ $0 > seenUpTo }) == true {
+                && (known[run.id] == .running || known[run.id] == nil) && isUnread(run) {
                 notify(run)
             }
         }
@@ -52,12 +57,24 @@ final class RoutineStore {
     func routine(_ id: String) -> Routine? { routines.first { $0.id == id } }
 
     /// Finished runs you haven't looked at.
-    var unread: Int { runs.filter { ($0.finished ?? .distantPast) > seenUpTo }.count }
-    func isUnread(_ run: RoutineRun) -> Bool { (run.finished ?? .distantPast) > seenUpTo }
+    var unread: Int { runs.filter(isUnread).count }
+    func unread(of id: String) -> Int { runs(of: id).filter(isUnread).count }
+    func isUnread(_ run: RoutineRun) -> Bool {
+        (run.finished ?? .distantPast) > max(seenUpTo, seen[run.routine] ?? .distantPast)
+    }
 
+    /// Every run seen (closing the Routines screen).
     func markSeen() {
         seenUpTo = Date()
         UserDefaults.standard.set(seenUpTo.timeIntervalSince1970, forKey: "routineRunsSeen")
+        onChange?()
+    }
+
+    /// One routine's runs seen (it's open in the main window).
+    func markSeen(_ id: String) {
+        guard unread(of: id) > 0 else { return }
+        seen[id] = Date()
+        UserDefaults.standard.set(seen.mapValues(\.timeIntervalSince1970), forKey: "routineSeen")
         onChange?()
     }
 
