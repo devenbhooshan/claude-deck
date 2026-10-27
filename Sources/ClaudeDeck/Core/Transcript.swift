@@ -278,8 +278,10 @@ final class TranscriptParser: @unchecked Sendable {
         guard let blocks = message["content"] as? [[String: Any]] else { return }
         for block in blocks {
             switch block["type"] as? String {
-            case "text":
-                guard type == "assistant", let text = block["text"] as? String,
+            // Claude's visible thinking is a line it says as it works, shown like its text
+            // (the terminal shows it too); thinking that was kept private comes empty.
+            case "text", "thinking":
+                guard type == "assistant", let text = (block["text"] ?? block["thinking"]) as? String,
                       !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { continue }
                 add(.assistant(text))
             case "tool_use":

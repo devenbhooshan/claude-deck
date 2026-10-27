@@ -100,6 +100,8 @@ func parserTests() {
                 ["type": "tool_use", "id": "t4", "name": "NoInput"],
                 ["type": "tool_use", "id": "t6"],
                 ["type": "thinking"],
+                ["type": "thinking", "thinking": "", "signature": "x"],
+                ["type": "thinking", "thinking": "Checking the job first."],
             ]]],
             ["type": "assistant", "message": ["content": 5]],
             ["type": "user", "message": ["content": [
@@ -155,7 +157,7 @@ func parserTests() {
             "task:Background task completed:true", "notice:Interrupted", "user:merge it:0", "user:no close:0",
             "user:look at this:1",
             "user:blocks only text:0", "asst:plain reply", "asst:Let me look.", "tool:Bash:ls -la (List files)", "tool:Read:/x",
-            "tool:Custom:{\"a\":1}", "tool:NoInput:", "tool:tool:", "user:third:0",
+            "tool:Custom:{\"a\":1}", "tool:NoInput:", "tool:tool:", "asst:Checking the job first.", "user:third:0",
             "cmd:/cost", "out:Total cost: $1", "recap:We fixed the bug.", "notice:Unknown command: /mco", "notice:Conversation compacted",
         ])
         expect(p.items[0].timestamp != nil)
