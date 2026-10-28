@@ -223,16 +223,11 @@ enum Routines {
         return args + ["--allowedTools"] + allowedTools(routine.access) + connectors.map { "mcp__" + $0 }
     }
 
-    /// Told to every run. Nobody is there to approve, and Claude Code asks before any shell
-    /// command that changes folder (`cd app && …`), however the tools are allowed, so those
-    /// would all be refused.
+    /// Told to every run: nobody is there to approve, so Claude should finish with what it may do.
     static let unattended = """
         This is a scheduled routine running unattended: nobody can approve anything, so any action \
-        that would ask for permission is refused. Shell commands that change folder (cd, pushd, \
-        or a subshell that does) are always refused here. Stay in the starting folder and reach \
-        other folders by path or by the tool's own option instead: ls app/bin, git -C app log, \
-        npm --prefix app, make -C app. If a command can only run from another folder, say so in \
-        your answer rather than trying ways around it.
+        that would ask for permission is refused. If something you need is refused, don't look for \
+        ways around it: do what you can, and say in your answer what was refused and what it would take.
         """
 
     /// MCP server names from `claude mcp list` ("claude.ai Slack: https://… - ✔ Connected"), as

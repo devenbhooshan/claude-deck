@@ -57,7 +57,7 @@ func routineTests() {
         expectEqual(Array(args.prefix(8)), ["-p", "check; rm -rf /", "--output-format", "json", "--permission-mode", "dontAsk", "--name", "Routine: Morning"])
         expect(!args.contains("--max-budget-usd") && !args.contains("--model") && !args.contains("--session-id"), "no cap, default model")
         expectEqual(args[args.firstIndex(of: "--append-system-prompt")! + 1], Routines.unattended)
-        expect(Routines.unattended.contains("cd") && !Routines.unattended.contains("\\"))
+        expect(Routines.unattended.contains("unattended") && !Routines.unattended.contains("\\"))
         let withId = Routines.arguments(for: r, sessionId: "abc")
         expectEqual(withId[withId.firstIndex(of: "--session-id")! + 1], "abc")
         expect(args.contains("Bash(git log:*)") && !args.contains("Edit") && !args.contains("Bash"))
