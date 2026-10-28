@@ -216,11 +216,24 @@ enum Routines {
             args += ["--name", "Routine: \(routine.name)"]
             if let sessionId { args += ["--session-id", sessionId] }
         }
+        args += ["--append-system-prompt", unattended]
         if let budget = routine.budget { args += ["--max-budget-usd", String(format: "%.2f", budget)] }
         if !routine.model.isEmpty { args += ["--model", routine.model] }
         // Last: the tool list takes every argument after it.
         return args + ["--allowedTools"] + allowedTools(routine.access) + connectors.map { "mcp__" + $0 }
     }
+
+    /// Told to every run. Nobody is there to approve, and Claude Code asks before any shell
+    /// command that changes folder (`cd app && …`), however the tools are allowed, so those
+    /// would all be refused.
+    static let unattended = """
+        This is a scheduled routine running unattended: nobody can approve anything, so any action \
+        that would ask for permission is refused. Shell commands that change folder (cd, pushd, \
+        or a subshell that does) are always refused here. Stay in the starting folder and reach \
+        other folders by path or by the tool's own option instead: ls app/bin, git -C app log, \
+        npm --prefix app, make -C app. If a command can only run from another folder, say so in \
+        your answer rather than trying ways around it.
+        """
 
     /// MCP server names from `claude mcp list` ("claude.ai Slack: https://… - ✔ Connected"), as
     /// their tools are named (`claude_ai_Slack`). Only "Can run commands" routines get them.
