@@ -182,6 +182,26 @@ func routineTests() {
         do { try Routines.install(r, helper: "/A/deck-routine") } catch { threw = true }
         expect(threw)
     }
+    test("announcing runs: finished since last checked, or since Deck last looked") {
+        func run(_ routine: String, _ status: RoutineRun.Status, finished: Date? = nil) -> RoutineRun {
+            var r = RoutineRun(id: "2026-10-30T100000", routine: routine, started: at("2026-10-30T10:00:00Z"))
+            r.status = status
+            r.finished = finished
+            return r
+        }
+        let end = at("2026-10-30T10:05:00Z")
+        // Same second, different routines: only the one that was running has just finished.
+        let a = run("a", .succeeded, finished: end), b = run("b", .failed, finished: end)
+        expectEqual(a.key, "a/2026-10-30T100000")
+        let known: [String: RoutineRun.Status] = ["a/2026-10-30T100000": .running, "b/2026-10-30T100000": .failed]
+        expectEqual(Routines.justFinished([a, b, run("c", .running)], known: known, since: .distantPast).map(\.routine), ["a"])
+        // A run that appears already finished counts too.
+        expectEqual(Routines.justFinished([a], known: [:], since: .distantPast).map(\.routine), ["a"])
+        // Deck just opened: whatever finished while it was closed.
+        expectEqual(Routines.justFinished([a, run("c", .running)], known: nil, since: end.addingTimeInterval(-60)).map(\.routine), ["a"])
+        expect(Routines.justFinished([a], known: nil, since: end).isEmpty, "already looked")
+    }
+
     test("connectors: names from claude mcp list, as their tools are named") {
         let list = """
             Checking MCP server health…

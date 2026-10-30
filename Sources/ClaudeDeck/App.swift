@@ -199,16 +199,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
         let id = response.notification.request.content.userInfo["sessionId"] as? String
-        let run = response.notification.request.content.userInfo["routineRun"] as? String
         let action = response.actionIdentifier
         await MainActor.run {
             guard let store else { return }
-            if let run {
-                store.openRun = run
-                store.showRoutines = true
-                store.bringToFront()
-                return
-            }
             switch action {
             case Notifications.allow, Notifications.deny:
                 // Answer in place; don't pull you away from what you're doing. Only the exact
@@ -365,5 +358,6 @@ enum DeckThemes {
         Palette.theme = DeckTheme(rawValue: raw) ?? .classic
         NSApp.appearance = Palette.theme.appearance.flatMap(NSAppearance.init(named:))
         FloatingDock.shared.reload()
+        RoutinePopup.shared.reload()
     }
 }

@@ -121,6 +121,9 @@ struct RoutineRun: Codable, Identifiable, Equatable {
     /// The helper running it; a "running" run whose helper is gone was cut off.
     var pid: Int32?
 
+    /// Unique across routines: two routines due at the same second get the same id.
+    var key: String { "\(routine)/\(id)" }
+
     /// Running, but its helper has gone (the Mac slept through it, or it was killed).
     func isCutOff(alive: (Int32) -> Bool) -> Bool {
         status == .running && !(pid.map(alive) ?? false)
@@ -144,6 +147,13 @@ enum Routines {
         return e
     }()
     private static let decoder = JSONDecoder()
+
+    /// Runs to announce: those that finished since `known` was taken or, with no `known` yet
+    /// (Deck just opened), since Deck last looked.
+    static func justFinished(_ runs: [RoutineRun], known: [String: RoutineRun.Status]?, since: Date) -> [RoutineRun] {
+        guard let known else { return runs.filter { ($0.finished ?? .distantPast) > since } }
+        return runs.filter { $0.status != .running && (known[$0.key] == .running || known[$0.key] == nil) }
+    }
 
     // MARK: Routines and runs on disk
 

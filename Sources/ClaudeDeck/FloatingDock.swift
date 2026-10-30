@@ -12,6 +12,8 @@ final class FloatingDock {
     private nonisolated static let originKey = "dockTopLeft"
 
     var isShown: Bool { panel?.isVisible ?? false }
+    /// Where it is on screen, while showing.
+    var frame: NSRect? { isShown ? panel?.frame : nil }
 
     /// Re-opens the dock on launch if it was open when Deck quit.
     func restore(store: SessionStore, usage: UsageModel) {
@@ -86,6 +88,47 @@ final class FloatingDock {
     }
 }
 
+/// A routine finishing: a card in the top-right corner, above every app and on every Space, that
+/// stays until you open or dismiss it, like a Nook reminder. Several stack downwards.
+@MainActor
+final class RoutinePopup {
+    static let shared = RoutinePopup()
+
+    private var panel: DockPanel?
+    private weak var store: SessionStore?
+
+    /// Shows or hides the panel to match what's left to announce.
+    func update(store: SessionStore) {
+        self.store = store
+        guard !store.routines.popups.isEmpty else { panel?.orderOut(nil); return }
+        if panel == nil {
+            let panel = DockPanel()
+            self.panel = panel
+            let host = FirstClickHostingView(rootView: AnyView(RoutinePopupView().environment(store)))
+            host.sizingOptions = []
+            panel.contentView = host
+        }
+        if let host = panel?.contentView { fit(host.fittingSize) }
+        panel?.orderFrontRegardless()
+    }
+
+    /// Rebuilds it (if it's showing) so it picks up a new theme.
+    func reload() {
+        panel?.close()
+        panel = nil
+        if let store { update(store: store) }
+    }
+
+    fileprivate func fit(_ size: CGSize) {
+        guard let panel, size.width > 0, size.height > 0 else { return }
+        let area = NSScreen.screens.first?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+        var frame = NSRect(x: area.maxX - size.width - 12, y: area.maxY - size.height - 12, width: size.width, height: size.height)
+        // The dock lives in the same corner: sit beside it, not on it.
+        if let dock = FloatingDock.shared.frame, frame.intersects(dock) { frame.origin.x = dock.minX - size.width - 10 }
+        panel.setFrame(frame, display: true)
+    }
+}
+
 /// Floats above other apps on every Space (including full-screen ones) and never activates
 /// Deck, so clicking it doesn't pull you out of what you're watching.
 private final class DockPanel: NSPanel {
@@ -126,7 +169,7 @@ struct DockView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             bar
-            if !waiting.isEmpty || !unread.isEmpty {
+            if !compactContent {
                 Divider().opacity(0.5)
                 VStack(spacing: 2) {
                     ForEach(waiting) { s in WaitingCard(session: s, number: number(of: s)) }
@@ -135,6 +178,10 @@ struct DockView: View {
                             UnreadCard(session: s, number: number(of: s), count: store.unread(s))
                         }
                         .buttonStyle(DockRowStyle())
+                    }
+                    ForEach(store.routines.unreadRoutines) { r in
+                        Button { store.openRoutine(r.id) } label: { RoutineDoneCard(item: r) }
+                            .buttonStyle(DockRowStyle())
                     }
                 }
                 .padding(6)
@@ -153,8 +200,10 @@ struct DockView: View {
         .tint(Theme.accent)
     }
 
-    /// Just the pill: nothing waiting or unread, and not expanded.
-    private var compact: Bool { waiting.isEmpty && unread.isEmpty && !expanded }
+    /// Nothing waiting or unread.
+    private var compactContent: Bool { waiting.isEmpty && unread.isEmpty && store.routines.unreadRoutines.isEmpty }
+    /// Just the pill.
+    private var compact: Bool { compactContent && !expanded }
 
     /// The pill: a spinner per session that's working (idle ones stay out of the way). Expand
     /// and hide appear on hover, or always while expanded.
@@ -303,6 +352,114 @@ private struct UnreadCard: View {
             .fill(Theme.accent.opacity(0.08)))
         .contentShape(Rectangle())
         .help("\(count) new \(count == 1 ? "reply" : "replies") from Claude. Click to open.")
+    }
+}
+
+/// A routine that finished: which one and what it said. Clicking opens it.
+private struct RoutineDoneCard: View {
+    let item: UnreadRoutine
+
+    var body: some View {
+        HStack(spacing: 8) {
+            RunStatusIcon(run: item.run)
+                .frame(width: 20, height: 20)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(item.routine.name)
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1)
+                Text(RunRow.headline(item.run, cutOff: false))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 6)
+            Text(item.count > 99 ? "99+" : "\(item.count) new")
+                .font(.caption2.weight(.bold)).monospacedDigit()
+                .foregroundStyle(.white)
+                .padding(.horizontal, 6).padding(.vertical, 1)
+                .background(Capsule().fill(Theme.accent))
+        }
+        .padding(.horizontal, 6).padding(.vertical, 5)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
+            .fill(Theme.accent.opacity(0.08)))
+        .contentShape(Rectangle())
+        .help("\(item.routine.name): \(RoutineStore.outcome(item.run).lowercased()). Click to open.")
+    }
+}
+
+/// The finished routines still waiting for you, newest at the top.
+private struct RoutinePopupView: View {
+    @Environment(SessionStore.self) private var store
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ForEach(store.routines.popups) { r in RoutinePopupCard(item: r) }
+        }
+        .fixedSize()
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { RoutinePopup.shared.fit($0) }
+        .tint(Theme.accent)
+    }
+}
+
+private struct RoutinePopupCard: View {
+    @Environment(SessionStore.self) private var store
+    let item: UnreadRoutine
+
+    private var look: (symbol: String, color: Color) {
+        switch item.run.status {
+        case .succeeded: ("checkmark", Theme.success)
+        case .failed, .running: ("exclamationmark", Theme.danger)
+        case .timedOut: ("clock", Theme.waiting)
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: look.symbol)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .background(look.color, in: Circle())
+            VStack(alignment: .leading, spacing: 3) {
+                Text(RoutineStore.outcome(item.run) + RunRow.details(item.run))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(look.color)
+                    .lineLimit(1)
+                Text(item.routine.name)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(2)
+                Text(RunRow.headline(item.run, cutOff: false))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                // Drawn by hand: a panel that never becomes key would show a prominent button greyed out.
+                Button { store.openRoutine(item.id) } label: {
+                    Text(item.count > 1 ? "Open · \(item.count) new" : "Open")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12).padding(.vertical, 4)
+                        .background(Theme.accent, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.deckPlain)
+                .help("Open this routine's run")
+                .padding(.top, 6)
+            }
+            Spacer(minLength: 0)
+            Button { store.routines.dismissPopup(item.id) } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.deckPlain)
+            .help("Dismiss. It stays unread in the dock and the sidebar.")
+        }
+        .padding(16)
+        .frame(width: 360)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous).strokeBorder(Color.primary.opacity(0.08)))
     }
 }
 

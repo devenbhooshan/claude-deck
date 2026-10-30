@@ -26,8 +26,6 @@ final class SessionStore {
     var showUsage = false
     var showPolicies = false
     var showRoutines = false
-    /// A routine run to open (from its notification).
-    var openRun: String?
     let routines = RoutineStore()
     /// A PDF, image, web page or markdown file opened from the transcript, shown over the session.
     var viewing: ViewedFile?
@@ -128,6 +126,13 @@ final class SessionStore {
             focus = FocusTarget(sessionId: s.sessionId, offset: nil, text: text)
         }
         selectedId = s.id
+        bringToFront()
+    }
+
+    /// Opens a routine in the main window, at its newest run.
+    func openRoutine(_ id: String) {
+        showRoutines = false
+        selectedId = "routine:\(id)"
         bringToFront()
     }
 
@@ -370,7 +375,12 @@ final class SessionStore {
 
     func start() {
         AttachmentStore.purge()
-        routines.onChange = { [weak self] in self?.updateBadge() }
+        routines.onChange = { [weak self] in
+            guard let self else { return }
+            updateBadge()
+            RoutinePopup.shared.update(store: self)
+        }
+        routines.isOpen = { [weak self] in NSApp?.isActive == true && self?.selectedId == "routine:\($0)" }
         routines.start()
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             DebugLog.write("notifications granted=\(granted) error=\(String(describing: error))")

@@ -1,6 +1,14 @@
 import AppKit
 import Observation
-import UserNotifications
+
+/// A routine with finished runs you haven't looked at.
+struct UnreadRoutine: Identifiable {
+    let routine: Routine
+    /// The newest of them.
+    let run: RoutineRun
+    let count: Int
+    var id: String { routine.id }
+}
 
 /// Your routines and their runs, kept current from the files the helper writes. Owned by the
 /// session store, which shows unread runs in the Dock badge.
@@ -20,8 +28,12 @@ final class RoutineStore {
     /// When you last looked at each routine's runs, by routine id.
     private var seen: [String: Date] = (UserDefaults.standard.dictionary(forKey: "routineSeen") as? [String: Double] ?? [:])
         .mapValues { Date(timeIntervalSince1970: $0) }
-    /// Called when unread runs change (for the Dock badge).
+    /// Routines still showing the popup, by id.
+    private var announced: Set<String> = []
+    /// Called when unread runs change (for the Dock badge and the popup).
     var onChange: (() -> Void)?
+    /// Whether you're looking at a routine right now, so its runs aren't announced.
+    var isOpen: (String) -> Bool = { _ in false }
 
     @ObservationIgnored private var watcher: FileWatcher?
     /// What each run's status was last time, to notify once when one finishes.
@@ -43,13 +55,15 @@ final class RoutineStore {
     func reload() {
         routines = Routines.load()
         runs = Routines.runs()
-        if let known {
-            for run in runs where run.status != .running && known[run.id] != run.status
-                && (known[run.id] == .running || known[run.id] == nil) && isUnread(run) {
-                notify(run)
-            }
+        let since = Date(timeIntervalSince1970: UserDefaults.standard.double(forKey: "routinesLooked"))
+        let done = Routines.justFinished(runs, known: known, since: since).filter { isUnread($0) && !isOpen($0.routine) }
+        if !done.isEmpty {
+            announced.formUnion(done.map(\.routine))
+            NSSound(named: "Glass")?.play()
+            NSApp?.requestUserAttention(.informationalRequest)
         }
-        known = Dictionary(runs.map { ($0.id, $0.status) }, uniquingKeysWith: { a, _ in a })
+        known = Dictionary(runs.map { ($0.key, $0.status) }, uniquingKeysWith: { a, _ in a })
+        UserDefaults.standard.set(Date().timeIntervalSince1970, forKey: "routinesLooked")
         onChange?()
     }
 
@@ -63,8 +77,27 @@ final class RoutineStore {
         (run.finished ?? .distantPast) > max(seenUpTo, seen[run.routine] ?? .distantPast)
     }
 
+    /// Newest first, for the floating dock.
+    var unreadRoutines: [UnreadRoutine] {
+        routines.compactMap { r in
+            let new = runs(of: r.id).filter(isUnread)
+            return new.first.map { UnreadRoutine(routine: r, run: $0, count: new.count) }
+        }
+        .sorted { ($0.run.finished ?? .distantPast) > ($1.run.finished ?? .distantPast) }
+    }
+
+    /// What the popup shows.
+    var popups: [UnreadRoutine] { unreadRoutines.filter { announced.contains($0.id) } }
+
+    /// Closes the popup; the run stays unread in the dock and the sidebar.
+    func dismissPopup(_ id: String) {
+        announced.remove(id)
+        onChange?()
+    }
+
     /// Every run seen (closing the Routines screen).
     func markSeen() {
+        announced = []
         seenUpTo = Date()
         UserDefaults.standard.set(seenUpTo.timeIntervalSince1970, forKey: "routineRunsSeen")
         onChange?()
@@ -73,6 +106,7 @@ final class RoutineStore {
     /// One routine's runs seen (it's open in the main window).
     func markSeen(_ id: String) {
         guard unread(of: id) > 0 else { return }
+        announced.remove(id)
         seen[id] = Date()
         UserDefaults.standard.set(seen.mapValues(\.timeIntervalSince1970), forKey: "routineSeen")
         onChange?()
@@ -133,18 +167,12 @@ final class RoutineStore {
         }
     }
 
-    private func notify(_ run: RoutineRun) {
-        guard let routine = routine(run.routine) else { return }
-        let content = UNMutableNotificationContent()
-        content.title = routine.name
-        content.subtitle = switch run.status {
+    static func outcome(_ run: RoutineRun) -> String {
+        switch run.status {
         case .succeeded: "Routine finished"
         case .failed: "Routine failed"
         case .timedOut: "Routine hit its time limit"
         case .running: ""
         }
-        content.body = String((run.result ?? "").prefix(300))
-        content.userInfo = ["routineRun": run.id]
-        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "routine-" + run.id, content: content, trigger: nil))
     }
 }

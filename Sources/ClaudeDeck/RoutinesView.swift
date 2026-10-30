@@ -46,10 +46,6 @@ struct RoutinesSheet: View {
         .background(Theme.surface)
         .onAppear {
             routines.reload()
-            if let id = store.openRun, let run = routines.runs.first(where: { $0.id == id }) {
-                store.openRun = nil
-                openRun = run
-            }
             // New runs (with their own unread dot) stay visible; the count goes once you've looked.
             expanded = Set(routines.runs.filter(routines.isUnread).map(\.routine))
         }
@@ -665,8 +661,9 @@ struct RoutineDetailView: View {
             .navigationTitle(routine.name)
             .navigationSubtitle("Routine · \(routine.schedule.summary)")
             .background(Theme.surface)
-            .onAppear { routines.markSeen(routineId) }
-            .onChange(of: routines.unread(of: routineId)) { routines.markSeen(routineId) }
+            .onAppear(perform: markSeen)
+            .onChange(of: routines.unread(of: routineId)) { markSeen() }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in markSeen() }
             .sheet(item: $editing) { r in
                 RoutineEditor(routine: r, isNew: false, onSave: { routines.save($0) },
                               onDelete: { routines.delete(r); store.selectedId = nil })
@@ -674,6 +671,11 @@ struct RoutineDetailView: View {
         } else {
             ContentUnavailableView("Routine not found", systemImage: "alarm")
         }
+    }
+
+    /// Like a session, a routine only counts as read while Deck is in front.
+    private func markSeen() {
+        if NSApp.isActive { routines.markSeen(routineId) }
     }
 
     /// The run picked in the list, or the newest.
