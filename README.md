@@ -1,16 +1,31 @@
 # Claude Deck
 
-A Mac app that lists your local Claude Code sessions, shows which ones are waiting on you,
-lets you read each transcript live, send messages, and jump to the session's terminal.
+**Mission control for Claude Code on your Mac.**
+
+You keep working in the terminal. Deck shows you every session at once: who's busy, who's waiting
+on you, and what each one said while you were looking at something else. Approve a prompt from
+any app, reply without switching windows, and leave Claude working on a schedule while you're away.
+
+## What it does
+
+- **See everything.** Every running session with its live status, the full conversation as it
+  happens, unread counts, and the task, ticket and PR each one is working on.
+- **Answer from anywhere.** ⌥⌘↩ approves the next prompt from any app, even over a full-screen
+  video, and Deck checks it's the prompt you meant. There's also a floating dock, the menu bar,
+  notifications with Allow / Deny, and a Dock badge.
+- **Put Claude on a schedule.** Routines run a prompt in a folder every morning or every few hours,
+  even with Deck closed. When one finishes, a pop-up waits for you, and you can reply to the run.
+- **Set the rules once.** Policies are checked before every tool call in every session, and Deck
+  can suggest new ones from your own history.
+- **Stay in the app.** PDFs, images, web pages and a markdown editor open right in Deck. Search all
+  your sessions, get a standup digest, and hand a session to your phone with Remote Control.
 
 ## Why Claude Deck
 
 - **You stay terminal-first.** Deck sits on top of the Claude Code sessions you already run in
   Ghostty, with no change in how you start or use them.
-- **Fast keyboard approvals from any app.** ⌥⌘↩ approves the next waiting prompt while you're
-  working in another session, with a check that it's the prompt you meant. Plus the menu bar,
-  notifications with Allow / Deny, and a Dock badge.
-- **Everything stays local.** It reads files on your Mac and talks to nothing on the network.
+- **Everything stays local.** Deck has no server and no account. It reads files on your Mac and
+  uses the Claude Code you already have.
 - **It's yours to shape.** Your skills, project commands, plan usage and shortcuts are all built
   around how you work, and you can change anything in an afternoon.
 
