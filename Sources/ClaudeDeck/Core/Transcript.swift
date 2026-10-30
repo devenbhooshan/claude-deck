@@ -260,16 +260,19 @@ final class TranscriptParser: @unchecked Sendable {
         }
 
         if type == "attachment" {
-            if let att = obj["attachment"] as? [String: Any], att["type"] as? String == "queued_command",
-               (att["origin"] as? [String: Any])?["kind"] as? String == "human" {
-                addUser(att["prompt"], add)
+            if let att = obj["attachment"] as? [String: Any], att["type"] as? String == "queued_command" {
+                if (att["origin"] as? [String: Any])?["kind"] as? String == "human" {
+                    addUser(att["prompt"], add)
+                } else {
+                    addPeer(att["origin"], add)
+                }
             }
             return
         }
         guard let message = obj["message"] as? [String: Any] else { return }
 
         if type == "user" {
-            if !isMeta { addUser(message["content"], add) }
+            if isMeta { addPeer(obj["origin"], add) } else { addUser(message["content"], add) }
             // Tool results ride along in user messages; fall through to collect them.
         } else if let text = message["content"] as? String {
             add(.assistant(text))
@@ -338,6 +341,12 @@ final class TranscriptParser: @unchecked Sendable {
     }
 
     /// A user prompt is either a string or blocks of text and images.
+    /// Claude Code marks another session's message as meta, but it's part of the conversation.
+    private func addPeer(_ origin: Any?, _ add: (TranscriptItem.Kind) -> Void) {
+        guard let origin = origin as? [String: Any], origin["kind"] as? String == "peer", let body = origin["body"] as? String else { return }
+        add(.peer(from: origin["name"] as? String ?? "unnamed", text: body))
+    }
+
     private func addUser(_ content: Any?, _ add: (TranscriptItem.Kind) -> Void) {
         if !historical, let text = content as? String, let i = queue.firstIndex(of: text) { queue.remove(at: i) }
         if let text = content as? String {

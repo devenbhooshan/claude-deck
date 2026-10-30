@@ -79,7 +79,7 @@ func rendererTests() {
             .item(item(.assistant("---\nafter a rule\n\n- a list item\n  on two lines\n- [x] ticked"))),
             .item(item(.assistant("| real | table |\n|---|---|\n| **x** y | z |"))),
             .item(item(.notice("Interrupted"))), .item(item(.commandOutput("Context: 45% used"))),
-            .item(item(.recap("We shipped the fix."))),
+            .item(item(.recap("We shipped the fix."))), .item(item(.peer(from: "warmdogo", text: "Handover\nsecond line"))),
             .item(item(.taskEvent("Built", ok: true))), .item(item(.taskEvent("Broke", ok: false))),
             .item(item(.tool(calls[0]))),
             .tools(calls),
@@ -90,7 +90,7 @@ func rendererTests() {
         let s = text.string
         for piece in ["hello", "/rename x", "/clear", "✦", "Heading", "bold", "link", "code block", "only", "Interrupted",
                       "✓ Built", "✗ Broke", "Bash", "ls src ⏎…", "~/y", "running…", "–", "(no output)", "… (truncated)",
-                      "queued msg", "Queued until", "Show recent commits", "Sending…", "Sent", "starts with code", "Starts with heading", "Starts with a quote", "second part", "quoted later", "nested quote", "after a rule", "on two lines", "☑", "real", "x y", "Context: 45% used", "Recap", "We shipped the fix.", "+1", "−1", "− b", "+ B", "⋯ 3 unchanged lines"] {
+                      "queued msg", "Queued until", "Show recent commits", "Sending…", "Sent", "starts with code", "Starts with heading", "Starts with a quote", "second part", "quoted later", "nested quote", "after a rule", "on two lines", "☑", "real", "x y", "Context: 45% used", "Recap", "We shipped the fix.", "Message from another Claude session", "warmdogo", "Handover\nsecond line", "+1", "−1", "− b", "+ B", "⋯ 3 unchanged lines"] {
             expect(s.contains(piece), "missing \(piece)")
         }
         for marker in ["> Starts", "> second", "\n>\n"] {

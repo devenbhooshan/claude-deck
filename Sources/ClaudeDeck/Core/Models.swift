@@ -115,6 +115,8 @@ struct TranscriptItem: Identifiable {
         case commandOutput(String)
         /// Claude Code's "※ recap" of where a session stands, shown when you come back to it.
         case recap(String)
+        /// A message from another Claude session, e.g. a handover.
+        case peer(from: String, text: String)
         /// A background task finished (from a <task-notification>).
         case taskEvent(String, ok: Bool)
     }

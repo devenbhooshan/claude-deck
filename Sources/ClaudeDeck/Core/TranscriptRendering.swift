@@ -437,6 +437,7 @@ struct TranscriptRenderer {
                 case .notice(let text): out.append(notice(text, symbol: nil, color: .secondaryLabelColor))
                 case .commandOutput(let text): out.append(codeBlock(text, spacingBefore: 12))
                 case .recap(let text): out.append(recap(text))
+                case let .peer(from, text): out.append(peerMessage(from: from, text: text, at: item.timestamp))
                 case let .taskEvent(text, ok):
                     out.append(notice(text, symbol: ok ? "✓" : "✗", color: ok ? Palette.success : Palette.danger))
                 case .tool: break
@@ -546,6 +547,33 @@ struct TranscriptRenderer {
         }
         out.append(NSAttributedString(string: text + "\n", attributes: [
             .font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: style,
+        ]))
+        return out
+    }
+
+    /// A message from another Claude session: a card in its own colour, since neither you nor this
+    /// session's Claude wrote it.
+    private func peerMessage(from: String, text: String, at time: Date?) -> NSAttributedString {
+        let color = NSColor.systemBlue
+        let block = RoundedTextBlock()
+        block.fill = color.withAlphaComponent(0.1)
+        block.radius = Palette.Radius.medium
+        block.setWidth(12, type: .absoluteValueType, for: .padding)
+        block.setContentWidth(width - indent - 24, type: .absoluteValueType)
+        block.setWidth(indent, type: .absoluteValueType, for: .margin, edge: .minX)
+        block.setWidth(16, type: .absoluteValueType, for: .margin, edge: .minY)
+        block.setWidth(6, type: .absoluteValueType, for: .margin, edge: .maxY)
+        let header = paragraph { $0.textBlocks = [block]; $0.paragraphSpacing = 6 }
+        let body = paragraph { $0.textBlocks = [block]; $0.paragraphSpacing = 0; $0.lineSpacing = 2 }
+        let out = NSMutableAttributedString(string: "⇄ Message from another Claude session", attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: color, .paragraphStyle: header,
+        ])
+        let details = [from, time?.formatted(date: .omitted, time: .shortened)].compactMap { $0 }.joined(separator: " · ")
+        out.append(NSAttributedString(string: " · " + details + "\n", attributes: [
+            .font: NSFont.systemFont(ofSize: 12), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: header,
+        ]))
+        out.append(NSAttributedString(string: text + "\n", attributes: [
+            .font: NSFont.systemFont(ofSize: 13), .foregroundColor: NSColor.labelColor, .paragraphStyle: body,
         ]))
         return out
     }

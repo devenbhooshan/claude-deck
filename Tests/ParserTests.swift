@@ -113,6 +113,10 @@ func parserTests() {
             ]]],
             ["type": "attachment", "attachment": ["type": "queued_command", "origin": ["kind": "human"], "prompt": "third"]],
             ["type": "attachment", "attachment": ["type": "queued_command", "origin": ["kind": "system"], "prompt": "ignored"]],
+            ["type": "attachment", "attachment": ["type": "queued_command", "origin": ["kind": "peer", "name": "warmdogo", "body": "mid-turn"], "prompt": "<x>"]],
+            ["type": "user", "isMeta": true, "origin": ["kind": "peer", "name": "warmdogo", "body": "Handover"], "message": ["role": "user", "content": "wrapped"]],
+            ["type": "user", "isMeta": true, "origin": ["kind": "peer", "body": "Unnamed"], "message": ["role": "user", "content": "wrapped"]],
+            ["type": "user", "isMeta": true, "origin": ["kind": "task"], "message": ["role": "user", "content": "hidden"]],
             ["type": "attachment", "attachment": ["type": "other"]],
             ["type": "system", "subtype": "local_command", "content": "<command-name>/cost</command-name><command-args></command-args>"],
             ["type": "system", "subtype": "local_command", "content": "<local-command-stdout>Total cost: $1</local-command-stdout>"],
@@ -151,6 +155,7 @@ func parserTests() {
             case .notice(let t): kinds.append("notice:\(t)")
             case .commandOutput(let t): kinds.append("out:\(t)")
             case .recap(let t): kinds.append("recap:\(t)")
+            case let .peer(from, t): kinds.append("peer:\(from):\(t)")
             case let .taskEvent(t, ok): kinds.append("task:\(t):\(ok)")
             }
         }
@@ -160,6 +165,7 @@ func parserTests() {
             "user:look at this:1",
             "user:blocks only text:0", "asst:plain reply", "asst:Let me look.", "tool:Bash:ls -la (List files)", "tool:Read:/x",
             "tool:Custom:{\"a\":1}", "tool:NoInput:", "tool:tool:", "asst:Checking the job first.", "user:third:0",
+            "peer:warmdogo:mid-turn", "peer:warmdogo:Handover", "peer:unnamed:Unnamed",
             "cmd:/cost", "out:Total cost: $1", "recap:We fixed the bug.", "notice:Unknown command: /mco", "notice:Conversation compacted", "notice:Worked for 38s",
         ])
         expect(p.items[0].timestamp != nil)
