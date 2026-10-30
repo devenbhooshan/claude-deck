@@ -261,4 +261,69 @@ func textViewTests() {
         expect(small.string.isEmpty, "too narrow to lay out yet")
         _ = small
     }
+    test("a quote copies with one click") {
+        let ctl = TranscriptTextController(openURL: { _ in false })
+        let tv = ColumnTextView(frame: .zero)
+        tv.setFrameSize(NSSize(width: 900, height: 300))
+        ctl.textView = tv
+        let pb = NSPasteboard(name: .init("deck-test-quote"))
+        ctl.pasteboard = pb
+        ctl.content = content([.item(item(.assistant("""
+            Before.
+
+            > The **first** line
+            > - one
+            > > nested
+            > ```
+            > code
+            > ```
+            > ---
+
+            Between.
+
+            > Last quote
+            """)))])
+        ctl.render(force: true)
+        let storage = tv.textStorage!
+        var links: [(Int, String)] = []
+        storage.enumerateAttribute(TranscriptRenderer.copyText, in: NSRange(location: 0, length: storage.length)) { v, r, _ in
+            if let v = v as? String { links.append((r.location, v)) }
+        }
+        expectEqual(links.map(\.1), ["The first line\n\n• one\n\nnested\n\ncode\n\n---", "Last quote"])
+        let cell = { (s: String) in AttributedString(s) }
+        expectEqual(TranscriptRenderer.plain(Markdown.Block(kind: .table([[cell("a"), cell("b")], [cell("1"), cell("2")]]))), "a\tb\n1\t2")
+        expect(storage.string.components(separatedBy: TranscriptRenderer.copyLabel).count == 3, "one link per quote")
+        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.copyLink, at: links[1].0))
+        expectEqual(pb.string(forType: .string), "Last quote")
+        expect(storage.string.contains("✓ Copied"))
+        ctl.copyQuote(in: tv, at: 0)
+        ctl.copyQuote(in: tv, at: storage.length + 5)
+        expectEqual(pb.string(forType: .string), "Last quote") // no quote there
+        pb.releaseGlobally()
+    }
+    test("select to copy: a mouse selection goes to the clipboard") {
+        let tv = ColumnTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
+        tv.string = "Backend goes first   "
+        let pb = NSPasteboard(name: .init("deck-test-select"))
+        pb.clearContents()
+        tv.copyIfSelected(to: pb)
+        expect(pb.string(forType: .string) == nil, "nothing selected, nothing copied")
+        tv.setSelectedRange(NSRange(location: 18, length: 3))
+        tv.copyIfSelected(to: pb)
+        expect(pb.string(forType: .string) == nil, "only spaces selected")
+        tv.setSelectedRange(NSRange(location: 0, length: 7))
+        tv.copyIfSelected(to: pb)
+        expectEqual(pb.string(forType: .string), "Backend")
+        // A click: the text view tracks the mouse until it's released (posted first, so it returns).
+        _ = NSApplication.shared
+        let win = NSWindow(contentRect: tv.frame, styleMask: [], backing: .buffered, defer: true)
+        win.contentView = tv
+        func mouse(_ type: NSEvent.EventType) -> NSEvent {
+            NSEvent.mouseEvent(with: type, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: win.windowNumber,
+                               context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1)!
+        }
+        NSApp.postEvent(mouse(.leftMouseUp), atStart: false)
+        tv.mouseDown(with: mouse(.leftMouseDown))
+        pb.releaseGlobally()
+    }
 }

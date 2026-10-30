@@ -287,11 +287,32 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
         _ = self.textView(textView, clickedOnLink: link, at: charIndex)
     }
 
+    /// Where copied quotes go; tests use their own pasteboard.
+    var pasteboard = NSPasteboard.general
+
+    /// Copies the quote whose link was clicked, and says so on the link for a moment.
+    func copyQuote(in textView: NSTextView, at charIndex: Int) {
+        guard let storage = textView.textStorage, charIndex < storage.length else { return }
+        var range = NSRange()
+        guard let text = storage.attribute(TranscriptRenderer.copyText, at: charIndex, effectiveRange: &range) as? String else { return }
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
+        var attrs = storage.attributes(at: range.location, effectiveRange: nil)
+        attrs[.foregroundColor] = Palette.success
+        attrs[.link] = nil
+        storage.replaceCharacters(in: range, with: NSAttributedString(string: "✓ Copied", attributes: attrs))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in self?.render(force: true) }
+    }
+
     /// Tool rows are links (deck://tool/<id>); clicking one expands or collapses it.
     func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
         guard let url = link as? URL else { return false }
         if url == TranscriptRenderer.earlierLink {
             onReachTop?()
+            return true
+        }
+        if url == TranscriptRenderer.copyLink {
+            copyQuote(in: textView, at: charIndex)
             return true
         }
         if url.scheme == "deck", url.host == "tool" {
@@ -337,6 +358,20 @@ final class ColumnTextView: NSTextView {
             columnWidth = column
             DispatchQueue.main.async { [weak self] in self?.onColumnChange?() }
         }
+    }
+
+    /// Select to copy, as in the terminal: text selected with the mouse goes to the clipboard.
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event) // returns once the mouse is released
+        copyIfSelected()
+    }
+
+    func copyIfSelected(to pasteboard: NSPasteboard = .general) {
+        let range = selectedRange()
+        guard range.length > 0, let text = textStorage?.attributedSubstring(from: range).string,
+              !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 }
 
@@ -540,8 +575,15 @@ struct TranscriptRenderer {
         let out = NSMutableAttributedString()
         // One text block per open quote, shared by its paragraphs so the bar runs unbroken.
         var quotes: [NSTextBlock] = []
+        // The open top-level quote's text, copied by the link at its end.
+        var quoted: [String] = []
         for (i, block) in Markdown.parse(text).enumerated() {
             let first = i == 0
+            if block.quoteDepth == 0, let outer = quotes.first {
+                out.append(copyQuote(quoted, in: outer))
+                quoted = []
+            }
+            if block.quoteDepth > 0 { quoted.append(Self.plain(block)) }
             while quotes.count > block.quoteDepth { quotes.removeLast() }
             while quotes.count < block.quoteDepth { quotes.append(quoteBlock(depth: quotes.count)) }
             // Inside a quote, indents are measured from the quote's text.
@@ -605,6 +647,33 @@ struct TranscriptRenderer {
                 out.append(rule())
             }
         }
+        if let outer = quotes.first { out.append(copyQuote(quoted, in: outer)) }
+        return out
+    }
+
+    /// A block's text as you'd paste it: list markers kept, markdown marks gone.
+    static func plain(_ block: Markdown.Block) -> String {
+        let text: String
+        switch block.kind {
+        case .paragraph(let p), .heading(let p, _): text = String(p.characters)
+        case .code(let code): text = code.hasSuffix("\n") ? String(code.dropLast()) : code
+        case .table(let rows): text = rows.map { $0.map { String($0.characters) }.joined(separator: "\t") }.joined(separator: "\n")
+        case .rule: text = "---"
+        }
+        return block.marker.map { $0 + " " + text } ?? text
+    }
+
+    /// The "Copy" link closing a quote: one click puts the quote's text on the clipboard.
+    private func copyQuote(_ parts: [String], in quote: NSTextBlock) -> NSAttributedString {
+        let style = paragraph { s in
+            s.paragraphSpacingBefore = 2
+            s.textBlocks = [quote]
+        }
+        let out = NSMutableAttributedString(string: Self.copyLabel, attributes: [
+            .font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: NSColor.tertiaryLabelColor,
+            .paragraphStyle: style, .link: Self.copyLink, .toolTip: "Copy the quote", Self.copyText: parts.joined(separator: "\n\n"),
+        ])
+        out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
         return out
     }
 
@@ -929,6 +998,10 @@ struct TranscriptRenderer {
 
     /// The row at the top that loads earlier history when clicked.
     static let earlierLink = URL(string: "deck://earlier")!
+    /// A quote's copy link, and the text it copies.
+    static let copyLink = URL(string: "deck://copy")!
+    static let copyText = NSAttributedString.Key("deckCopyText")
+    static let copyLabel = "⧉ Copy quote"
 
     private static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
