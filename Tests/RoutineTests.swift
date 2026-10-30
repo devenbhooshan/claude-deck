@@ -70,6 +70,15 @@ func routineTests() {
         r.access = .runCommands
         let all = Routines.allowedTools(.runCommands)
         expect(all.contains("Bash") && all.contains("Write") && !all.contains { $0.hasPrefix("Bash(") })
+        expect(all.contains("WebFetch"), "running commands can reach the web anyway")
+    }
+    test("what a routine reads can't talk it into writing to GitHub or sending data out") {
+        for access in [Routine.Access.readOnly, .canEdit] {
+            let tools = Routines.allowedTools(access)
+            expect(!tools.contains("WebFetch"), "WebFetch can send anything to any address")
+            expect(!tools.contains { $0.hasPrefix("Bash(gh api") }, "gh api writes as easily as it reads")
+            expect(tools.contains("Bash(gh pr view:*)") && tools.contains("WebSearch") && tools.contains("Read"))
+        }
     }
     test("finishing a run from claude's summary") {
         var run = RoutineRun(id: "1", routine: "r", started: Date())

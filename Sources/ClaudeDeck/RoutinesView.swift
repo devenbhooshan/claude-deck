@@ -295,7 +295,7 @@ struct RoutineEditor: View {
 
     private static func accessDetail(_ a: Routine.Access) -> String {
         switch a {
-        case .readOnly: "Reads and searches files and the web, and runs git and gh commands that only look. Anything else is refused."
+        case .readOnly: "Reads and searches files, searches the web, and runs git and gh commands that only look. Anything else is refused."
         case .canEdit: "Also edits and writes files in the folder. Other commands are refused."
         case .runCommands: "Also runs any command, like tests and builds. Your policies are the guard: anything they block or would ask about is refused."
         }

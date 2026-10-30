@@ -204,13 +204,15 @@ enum Routines {
     static func allowedTools(_ access: Routine.Access) -> [String] {
         let looking = ["git status", "git log", "git diff", "git show", "git branch", "git fetch",
                        "gh pr list", "gh pr view", "gh pr checks", "gh pr diff", "gh run list", "gh run view",
-                       "gh issue list", "gh issue view", "gh api", "ls", "cat", "head", "tail", "wc", "find", "grep", "rg"]
-        let read = ["Read", "Grep", "Glob", "LS", "WebFetch", "WebSearch", "TodoWrite"] + looking.map { "Bash(\($0):*)" }
+                       "gh issue list", "gh issue view", "ls", "cat", "head", "tail", "wc", "find", "grep", "rg"]
+        // Not `gh api` or WebFetch: a routine reads things other people wrote, and either one lets
+        // that text write to GitHub or send data out with nobody there to refuse.
+        let read = ["Read", "Grep", "Glob", "LS", "WebSearch", "TodoWrite"] + looking.map { "Bash(\($0):*)" }
         let edit = ["Edit", "MultiEdit", "Write", "NotebookEdit"]
         return switch access {
         case .readOnly: read
         case .canEdit: read + edit
-        case .runCommands: ["Bash"] + read.filter { !$0.hasPrefix("Bash(") } + edit
+        case .runCommands: ["Bash", "WebFetch"] + read.filter { !$0.hasPrefix("Bash(") } + edit
         }
     }
 
