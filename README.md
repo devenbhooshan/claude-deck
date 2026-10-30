@@ -145,10 +145,14 @@ app, "check CI and open PRs and tell me what needs me".
   the routine's access is refused, never left waiting for an approval.
 - **Limits:** model, an optional spending cap per run, and a time limit. One run at a time.
 - **Results:** each run's status, cost, Claude's final message and what was refused, on the
-  Routines screen, with a notification when it finishes. Open a run for the whole conversation, or
+  Routines screen, with a pop-up that stays until you open or dismiss it, and a row in the floating
+  dock. Open a run for the whole conversation, or
   continue it in the terminal.
 - Routines and runs are files in `~/Library/Application Support/ClaudeDeck/routines` (the newest
   50 runs per routine are kept); the jobs are in `~/Library/LaunchAgents`.
+- **From a terminal:** `deck-routine list`, `show <id>`, `update <id> [--name …] [--prompt … | --prompt-file …]`
+  and `delete <id>` keep the files and the job in step, and an open Deck picks the change up. It's
+  at `/Applications/Claude Deck.app/Contents/MacOS/deck-routine`.
 
 ## Themes
 

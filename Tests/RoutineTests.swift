@@ -211,6 +211,55 @@ func routineTests() {
         expect(Routines.justFinished([a], known: nil, since: end).isEmpty, "already looked")
     }
 
+    test("command line: list, show, update, delete") {
+        let box = Sandbox(); defer { box.cleanup() }
+        let saved = Routines.launchctl; defer { Routines.launchctl = saved }
+        let log = box.root.appendingPathComponent("launchctl.log").path
+        let fake = box.write("bin/launchctl", "#!/bin/sh\necho \"$@\" >> \"\(log)\"\n")
+        chmod(fake.path, 0o755)
+        Routines.launchctl = fake.path
+        var r = Routine(name: "Check", folder: "/w", prompt: "hi")
+        try Routines.save(r)
+        try Routines.install(r, helper: "/A/deck-routine")
+        var paused = Routine(name: "Off", folder: "/w", prompt: "hi", created: r.created.addingTimeInterval(1))
+        paused.enabled = false
+        try Routines.save(paused)
+
+        expectEqual(Routines.command(["list"]).output, "\(r.id)\ton\tEvery day at 9:00\tCheck\n\(paused.id)\tpaused\tEvery day at 9:00\tOff")
+        expect(Routines.command(["show", r.id]).output.contains("\"prompt\" : \"hi\""))
+
+        // Name and prompt change on disk; the launchd job isn't touched.
+        let before = try String(contentsOfFile: log, encoding: .utf8)
+        expectEqual(Routines.command(["update", r.id, "--name", "Renamed", "--prompt", "new"]).status, 0)
+        r = Routines.routine(r.id)!
+        expectEqual([r.name, r.prompt], ["Renamed", "new"])
+        let file = box.write("prompt.txt", "from a file\n")
+        expectEqual(Routines.command(["update", r.id, "--prompt-file", file.path]).output, "Updated Renamed")
+        expectEqual(Routines.routine(r.id)?.prompt, "from a file")
+        expectEqual(try String(contentsOfFile: log, encoding: .utf8), before)
+
+        // Refused, and nothing changes.
+        expectEqual(Routines.command(["update", r.id, "--name", " "]).status, 1)
+        expectEqual(Routines.command(["update", r.id, "--prompt-file", "/no/such"]).status, 1)
+        expectEqual(Routines.command(["update", "r-none", "--name", "x"]).output, "No routine r-none")
+        expectEqual(Routines.routine(r.id)?.name, "Renamed")
+        for bad in [[], ["nope"], ["list", "x"], ["show"], ["update", r.id], ["update", r.id, "--name"], ["update", r.id, "--color", "red"]] {
+            expectEqual(Routines.command(bad).status, 2)
+        }
+        // Can't be written.
+        let dir = Routines.dir
+        chmod(dir.path, 0o500)
+        expect(Routines.command(["update", r.id, "--name", "x"]).output.hasPrefix("Couldn't save it"))
+        chmod(dir.path, 0o700)
+
+        // Delete goes through launchctl and takes the job, the routine and its runs.
+        Routines.write(RoutineRun(id: "run", routine: r.id, started: Date()))
+        expectEqual(Routines.command(["delete", r.id]).output, "Deleted Renamed")
+        expect(Routines.routine(r.id) == nil && Routines.runs(of: r.id).isEmpty)
+        expect(!FileManager.default.fileExists(atPath: Routines.plistURL(r.id).path))
+        expect(try String(contentsOfFile: log, encoding: .utf8).components(separatedBy: "bootout").count == 3)
+    }
+
     test("connectors: names from claude mcp list, as their tools are named") {
         let list = """
             Checking MCP server health…

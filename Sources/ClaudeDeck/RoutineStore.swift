@@ -36,6 +36,7 @@ final class RoutineStore {
     var isOpen: (String) -> Bool = { _ in false }
 
     @ObservationIgnored private var watcher: FileWatcher?
+    @ObservationIgnored private var routinesWatcher: FileWatcher?
     /// What each run's status was last time, to notify once when one finishes.
     @ObservationIgnored private var known: [String: RoutineRun.Status]?
 
@@ -47,6 +48,10 @@ final class RoutineStore {
         reload()
         // Runs are written as files: a new or finished run changes the folder.
         watcher = FileWatcher(url: Routines.runsDir, events: [.write]) { [weak self] in
+            MainActor.assumeIsolated { self?.reload() }
+        }
+        // Routines change here too when `deck-routine` edits them.
+        routinesWatcher = FileWatcher(url: Routines.dir, events: [.write]) { [weak self] in
             MainActor.assumeIsolated { self?.reload() }
         }
         catchUp()
@@ -71,7 +76,7 @@ final class RoutineStore {
     func routine(_ id: String) -> Routine? { routines.first { $0.id == id } }
 
     /// Finished runs you haven't looked at.
-    var unread: Int { runs.filter(isUnread).count }
+    var unread: Int { unreadRoutines.reduce(0) { $0 + $1.count } }
     func unread(of id: String) -> Int { runs(of: id).filter(isUnread).count }
     func isUnread(_ run: RoutineRun) -> Bool {
         (run.finished ?? .distantPast) > max(seenUpTo, seen[run.routine] ?? .distantPast)

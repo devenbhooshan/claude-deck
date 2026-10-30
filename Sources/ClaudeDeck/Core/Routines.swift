@@ -428,6 +428,66 @@ enum Routines {
         _ = execute(launchctl, ["bootout", "\(domain)/\(label(id))"], in: "/", timeout: 20)
         try? FileManager.default.removeItem(at: plistURL(id))
     }
+
+    // MARK: The command line
+
+    static let usage = """
+        usage: deck-routine run <routine id>
+               deck-routine reply <routine id> <run id> <message>
+               deck-routine list
+               deck-routine show <routine id>
+               deck-routine update <routine id> [--name <name>] [--prompt <text> | --prompt-file <path>]
+               deck-routine delete <routine id>
+        """
+
+    /// Manages routines without the app, through the same files and launchd job, so nobody edits
+    /// them by hand. A running Deck sees the change. Returns what to print and the exit status.
+    static func command(_ args: [String]) -> (output: String, status: Int32) {
+        switch (args.first, args.count) {
+        case ("list"?, 1):
+            let lines = load().map { "\($0.id)\t\($0.enabled ? "on" : "paused")\t\($0.schedule.summary)\t\($0.name)" }
+            return (lines.joined(separator: "\n"), 0)
+        case ("show"?, 2), ("delete"?, 2), ("update"?, 3...):
+            guard let found = routine(args[1]) else { return ("No routine \(args[1])", 1) }
+            switch args[0] {
+            case "show": return (String(decoding: try! encoder.encode(found), as: UTF8.self), 0)
+            case "delete":
+                uninstall(found.id)
+                delete(found.id)
+                return ("Deleted \(found.name)", 0)
+            default: return update(found, Array(args.dropFirst(2)))
+            }
+        default:
+            return (usage, 2)
+        }
+    }
+
+    /// Only the name and the prompt, which the launchd job doesn't hold, so a run in progress
+    /// isn't stopped by rescheduling it.
+    private static func update(_ routine: Routine, _ flags: [String]) -> (output: String, status: Int32) {
+        var changed = routine
+        var rest = ArraySlice(flags)
+        while let flag = rest.popFirst() {
+            guard let value = rest.popFirst() else { return (usage, 2) }
+            switch flag {
+            case "--name": changed.name = value
+            case "--prompt": changed.prompt = value
+            case "--prompt-file":
+                guard let text = try? String(contentsOfFile: value, encoding: .utf8) else { return ("Couldn't read \(value)", 1) }
+                changed.prompt = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            default: return (usage, 2)
+            }
+        }
+        guard ![changed.name, changed.prompt].contains(where: { $0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }) else {
+            return ("A routine needs a name and a prompt", 1)
+        }
+        do {
+            try save(changed)
+            return ("Updated \(changed.name)", 0)
+        } catch {
+            return ("Couldn't save it: \(error.localizedDescription)", 1)
+        }
+    }
 }
 
 /// A thread-safe "it happened" flag.
