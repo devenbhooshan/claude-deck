@@ -287,11 +287,11 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
         _ = self.textView(textView, clickedOnLink: link, at: charIndex)
     }
 
-    /// Where copied quotes go; tests use their own pasteboard.
+    /// Where copied quotes and code go; tests use their own pasteboard.
     var pasteboard = NSPasteboard.general
 
-    /// Copies the quote whose link was clicked, and says so on the link for a moment.
-    func copyQuote(in textView: NSTextView, at charIndex: Int) {
+    /// Copies the quote or code whose link was clicked, and says so on the link for a moment.
+    func copyBlock(in textView: NSTextView, at charIndex: Int) {
         guard let storage = textView.textStorage, charIndex < storage.length else { return }
         var range = NSRange()
         guard let text = storage.attribute(TranscriptRenderer.copyText, at: charIndex, effectiveRange: &range) as? String else { return }
@@ -312,7 +312,7 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
             return true
         }
         if url == TranscriptRenderer.copyLink {
-            copyQuote(in: textView, at: charIndex)
+            copyBlock(in: textView, at: charIndex)
             return true
         }
         if url.scheme == "deck", url.host == "tool" {
@@ -638,7 +638,8 @@ struct TranscriptRenderer {
                 out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
             case .code(let code):
                 if first { out.append(marker()) }
-                out.append(codeBlock(code, spacingBefore: first ? 0 : 6))
+                // A quote's own link already copies the code inside it.
+                out.append(codeBlock(code, spacingBefore: first ? 0 : 6, copyable: quotes.isEmpty))
             case .table(let rows):
                 if first { out.append(marker()) }
                 out.append(table(rows))
@@ -669,9 +670,13 @@ struct TranscriptRenderer {
             s.paragraphSpacingBefore = 2
             s.textBlocks = [quote]
         }
-        let out = NSMutableAttributedString(string: Self.copyLabel, attributes: [
+        return copyLine(Self.copyLabel, tip: "Copy the quote", text: parts.joined(separator: "\n\n"), style: style)
+    }
+
+    private func copyLine(_ label: String, tip: String, text: String, style: NSParagraphStyle) -> NSAttributedString {
+        let out = NSMutableAttributedString(string: label, attributes: [
             .font: NSFont.systemFont(ofSize: 11, weight: .medium), .foregroundColor: NSColor.tertiaryLabelColor,
-            .paragraphStyle: style, .link: Self.copyLink, .toolTip: "Copy the quote", Self.copyText: parts.joined(separator: "\n\n"),
+            .paragraphStyle: style, .link: Self.copyLink, .toolTip: tip, Self.copyText: text,
         ])
         out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
         return out
@@ -712,7 +717,7 @@ struct TranscriptRenderer {
         ])
     }
 
-    private func codeBlock(_ code: String, spacingBefore: CGFloat) -> NSAttributedString {
+    private func codeBlock(_ code: String, spacingBefore: CGFloat, copyable: Bool = true) -> NSAttributedString {
         let block = RoundedTextBlock()
         block.fill = NSColor.labelColor.withAlphaComponent(0.05)
         block.radius = Palette.Radius.medium
@@ -722,9 +727,16 @@ struct TranscriptRenderer {
         block.setWidth(spacingBefore, type: .absoluteValueType, for: .margin, edge: .minY)
         block.setWidth(6, type: .absoluteValueType, for: .margin, edge: .maxY)
         let style = paragraph { $0.textBlocks = [block]; $0.paragraphSpacing = 0; $0.lineSpacing = 1.5 }
-        return NSAttributedString(string: code + "\n", attributes: [
+        let out = NSMutableAttributedString()
+        // At the top, so a long block's link is there without scrolling.
+        if copyable {
+            let top = paragraph { $0.textBlocks = [block]; $0.paragraphSpacing = 2; $0.alignment = .right }
+            out.append(copyLine(Self.copyCodeLabel, tip: "Copy the code", text: Self.plain(Markdown.Block(kind: .code(code))), style: top))
+        }
+        out.append(NSAttributedString(string: code + "\n", attributes: [
             .font: mono, .foregroundColor: NSColor.labelColor, .paragraphStyle: style,
-        ])
+        ]))
+        return out
     }
 
     func table(_ rows: [[AttributedString]]) -> NSAttributedString {
@@ -1002,6 +1014,7 @@ struct TranscriptRenderer {
     static let copyLink = URL(string: "deck://copy")!
     static let copyText = NSAttributedString.Key("deckCopyText")
     static let copyLabel = "⧉ Copy quote"
+    static let copyCodeLabel = "⧉ Copy"
 
     private static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 

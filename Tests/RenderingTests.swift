@@ -296,9 +296,26 @@ func textViewTests() {
         expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.copyLink, at: links[1].0))
         expectEqual(pb.string(forType: .string), "Last quote")
         expect(storage.string.contains("✓ Copied"))
-        ctl.copyQuote(in: tv, at: 0)
-        ctl.copyQuote(in: tv, at: storage.length + 5)
+        ctl.copyBlock(in: tv, at: 0)
+        ctl.copyBlock(in: tv, at: storage.length + 5)
         expectEqual(pb.string(forType: .string), "Last quote") // no quote there
+        pb.releaseGlobally()
+    }
+    test("a code block copies with one click") {
+        let ctl = TranscriptTextController(openURL: { _ in false })
+        let tv = ColumnTextView(frame: .zero)
+        tv.setFrameSize(NSSize(width: 900, height: 300))
+        ctl.textView = tv
+        let pb = NSPasteboard(name: .init("deck-test-code"))
+        ctl.pasteboard = pb
+        ctl.content = content([.item(item(.assistant("Paste this:\n\n```\nline one\n  line two\n```\n\nDone.")))])
+        ctl.render(force: true)
+        let storage = tv.textStorage!
+        let at = (storage.string as NSString).range(of: TranscriptRenderer.copyCodeLabel).location
+        expect(at != NSNotFound, "the link is there")
+        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.copyLink, at: at))
+        expectEqual(pb.string(forType: .string), "line one\n  line two")
+        expect(storage.string.contains("✓ Copied"))
         pb.releaseGlobally()
     }
     test("select to copy: a mouse selection goes to the clipboard") {
