@@ -34,6 +34,7 @@ struct ClaudeDeckApp: App {
                 .onAppear {
                     delegate.store = store
                     store.start()
+                    store.openFromArguments()
                     usage.start()
                     activity.start()
                     FloatingDock.shared.restore(store: store, usage: usage)

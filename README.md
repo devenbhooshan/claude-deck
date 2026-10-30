@@ -6,6 +6,11 @@ You keep working in the terminal. Deck shows you every session at once: who's bu
 on you, and what each one said while you were looking at something else. Approve a prompt from
 any app, reply without switching windows, and leave Claude working on a schedule while you're away.
 
+| | |
+|---|---|
+| ![A session in Deck: tool calls, an edit, and a reply with copy links](docs/screenshots/session.png) | ![Policies: rules checked before every tool call](docs/screenshots/policies.png) |
+| ![Floating dock with a prompt to allow or deny, unread replies and a finished routine](docs/screenshots/dock.png) | ![The pop-up when a routine finishes](docs/screenshots/routine-popup.png) |
+
 ## What it does
 
 - **See everything.** Every running session with its live status, the full conversation as it
@@ -214,6 +219,9 @@ All of these are also listed in the **Sessions** menu.
 ## Tests
 
     ./test.sh
+
+`python3 scripts/screenshots.py` regenerates `docs/screenshots` with made-up data, using a copy of the
+built app that has its own bundle id and home folder, so it can't see your real sessions.
 
 All logic lives in `Sources/ClaudeDeck/Core` (transcript parsing, Markdown, session loading,
 navigation and approval targeting, terminal matching, permission-request capture, attachments,

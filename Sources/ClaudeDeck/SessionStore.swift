@@ -129,6 +129,17 @@ final class SessionStore {
         bringToFront()
     }
 
+    /// `--open <id>` and `--policies` start Deck on that screen (for scripts/screenshots.py).
+    func openFromArguments() {
+        let args = CommandLine.arguments
+        guard args.contains("--open") || args.contains("--policies") else { return }
+        NSApp.activate(ignoringOtherApps: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [self] in
+            if let i = args.firstIndex(of: "--open"), args.indices.contains(i + 1) { selectedId = args[i + 1] }
+            showPolicies = args.contains("--policies")
+        }
+    }
+
     /// Opens a routine in the main window, at its newest run.
     func openRoutine(_ id: String) {
         showRoutines = false
@@ -373,15 +384,7 @@ final class SessionStore {
     private var recordWatchers: [Int32: FileWatcher] = [:]
     private var refreshPending = false
 
-    func start() {
-        AttachmentStore.purge()
-        routines.onChange = { [weak self] in
-            guard let self else { return }
-            updateBadge()
-            RoutinePopup.shared.update(store: self)
-        }
-        routines.isOpen = { [weak self] in NSApp?.isActive == true && self?.selectedId == "routine:\($0)" }
-        routines.start()
+    private func askForNotifications() {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             DebugLog.write("notifications granted=\(granted) error=\(String(describing: error))")
             if CommandLine.arguments.contains("--test-notification") {
@@ -393,6 +396,19 @@ final class SessionStore {
                 }
             }
         }
+    }
+
+    func start() {
+        AttachmentStore.purge()
+        routines.onChange = { [weak self] in
+            guard let self else { return }
+            updateBadge()
+            RoutinePopup.shared.update(store: self)
+        }
+        routines.isOpen = { [weak self] in NSApp?.isActive == true && self?.selectedId == "routine:\($0)" }
+        routines.start()
+        // scripts/screenshots.py runs a copy under its own bundle id, which mustn't ask for anything.
+        if Bundle.main.bundleIdentifier?.hasSuffix(".demo") != true { askForNotifications() }
         refresh()
         // The directory changes when sessions start or exit.
         watcher = FileWatcher(url: ClaudePaths.sessions, events: [.write]) { [weak self] in
