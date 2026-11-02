@@ -113,6 +113,10 @@ func parserTests() {
             ]]],
             ["type": "attachment", "attachment": ["type": "queued_command", "origin": ["kind": "human"], "prompt": "third"]],
             ["type": "attachment", "attachment": ["type": "queued_command", "origin": ["kind": "system"], "prompt": "ignored"]],
+            ["type": "attachment", "attachment": ["type": "queued_command", "origin": ["kind": "task-notification"], "commandMode": "task-notification",
+                                                  "prompt": "<task-notification>\n<status>completed</status>\n<summary>Background command \"CI\" completed (exit code 0)</summary>\n</task-notification>"]],
+            ["type": "attachment", "attachment": ["type": "queued_command", "commandMode": "task-notification",
+                                                  "prompt": "<task-notification>\n<status>failed</status>\n<summary>Background command \"Deploy\" failed with exit code 1</summary>\n</task-notification>"]],
             ["type": "attachment", "attachment": ["type": "queued_command", "origin": ["kind": "peer", "name": "warmdogo", "body": "mid-turn"], "prompt": "<x>"]],
             ["type": "user", "isMeta": true, "origin": ["kind": "peer", "name": "warmdogo", "body": "Handover"], "message": ["role": "user", "content": "wrapped"]],
             ["type": "user", "isMeta": true, "origin": ["kind": "peer", "body": "Unnamed"], "message": ["role": "user", "content": "wrapped"]],
@@ -165,6 +169,7 @@ func parserTests() {
             "user:look at this:1",
             "user:blocks only text:0", "asst:plain reply", "asst:Let me look.", "tool:Bash:ls -la (List files)", "tool:Read:/x",
             "tool:Custom:{\"a\":1}", "tool:NoInput:", "tool:tool:", "asst:Checking the job first.", "user:third:0",
+            "task:Background command \"CI\" completed (exit code 0):true", "task:Background command \"Deploy\" failed with exit code 1:false",
             "peer:warmdogo:mid-turn", "peer:warmdogo:Handover", "peer:unnamed:Unnamed",
             "cmd:/cost", "out:Total cost: $1", "recap:We fixed the bug.", "notice:Unknown command: /mco", "notice:Conversation compacted", "notice:Worked for 38s",
         ])

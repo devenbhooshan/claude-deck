@@ -261,7 +261,8 @@ final class TranscriptParser: @unchecked Sendable {
 
         if type == "attachment" {
             if let att = obj["attachment"] as? [String: Any], att["type"] as? String == "queued_command" {
-                if (att["origin"] as? [String: Any])?["kind"] as? String == "human" {
+                // A background task finishing mid-turn arrives here too, with or without an origin.
+                if (att["origin"] as? [String: Any])?["kind"] as? String == "human" || att["commandMode"] as? String == "task-notification" {
                     addUser(att["prompt"], add)
                 } else {
                     addPeer(att["origin"], add)
