@@ -214,6 +214,7 @@ func parserTests() {
         ]))
         p.refresh()
         expect(p.queued.isEmpty)
+        expectEqual(p.pullBacks, 1)
         expectEqual(p.title, "Mine")
     }
 

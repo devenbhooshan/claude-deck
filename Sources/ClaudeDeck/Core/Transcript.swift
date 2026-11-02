@@ -119,6 +119,8 @@ final class TranscriptParser: @unchecked Sendable {
 
     /// Messages typed while Claude was busy and not yet picked up.
     var queued: [String] { queue.filter { !$0.hasPrefix("<") } }
+    /// How many times the queue was pulled back into the input box (↑ in the terminal).
+    private(set) var pullBacks = 0
     private var offset: UInt64?
     private var counter = 0
     let url: URL
@@ -233,6 +235,7 @@ final class TranscriptParser: @unchecked Sendable {
                 if !queue.isEmpty { queue.removeFirst() }
             case "popAll":
                 queue.removeAll()
+                pullBacks += 1
             case "remove":
                 if let content, let i = queue.firstIndex(of: content) { queue.remove(at: i) }
             default:

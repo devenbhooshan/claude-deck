@@ -266,6 +266,14 @@ func safetyTests() {
     test("typed text encoding") {
         expectEqual(Safety.typedTextAction("say \"hi\" \\ ok\nline 2\tx\u{1b}"), #"text:say "hi" \\ ok\nline 2    x"#)
         expectEqual(Safety.typedTextAction(""), "text:")
+        expectEqual(QueuedMessages.without("b", in: ["a", "b", "c", "b"]), ["a", "c", "b"])
+        expectEqual(QueuedMessages.without("gone", in: ["a"]), ["a"])
+        expect(QueuedMessages.hasImage("[Image #3] look"))
+        expect(!QueuedMessages.hasImage("look"))
+        let presses = { (s: String) in s.components(separatedBy: #"\x15\x7f"#).count - 1 }
+        expect(presses(QueuedMessages.clearAction(for: ["short"])) == 200, "enough for a recalled prompt")
+        expect(presses(QueuedMessages.clearAction(for: [String(repeating: "x", count: 10_000), "a\nb"])) == 503, "wrapped rows and lines")
+        expect(QueuedMessages.clearAction(for: []).hasPrefix("text:"))
     }
     test("prompt guard: typing and answering") {
         func rec(_ status: String?, since: Double? = nil) -> SessionRecord {

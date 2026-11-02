@@ -21,6 +21,9 @@ enum Ghostty {
         case notIdle
         case stillRunning
         case wontStop
+        case queueTaken
+        case queuedImage
+        case notPutBack
 
         var errorDescription: String? {
             switch self {
@@ -33,6 +36,9 @@ enum Ghostty {
             case .notIdle: "Claude is working or showing a prompt. Restart once it's idle."
             case .stillRunning: "Claude didn't quit, so it wasn't restarted. Check the terminal."
             case .wontStop: "Claude didn't stop, so the session was left open. Check the terminal."
+            case .queueTaken: "Claude already picked that message up, or is showing a prompt. Nothing was removed."
+            case .queuedImage: "Another queued message has an image, which Deck can't put back. Press ↑ in the terminal to edit the queue there."
+            case .notPutBack: "That message was removed, but your other queued messages couldn't go back, so they're on the clipboard."
             }
         }
     }
@@ -150,6 +156,41 @@ enum Ghostty {
         try await act(on: session, """
               perform action (item 4 of argv) on t
             """, args: [#"text:\x02"#, ""])
+    }
+
+    /// Takes one message out of Claude's queue (see `QueuedMessages`). `pulledBack` says the queue
+    /// really came back: if Claude took it first, ↑ recalled an old prompt, which is cleared without
+    /// retyping anything, or the kept messages would be sent twice.
+    static func removeQueued(_ text: String, from queued: [String], in session: Session,
+                             pulledBack: @MainActor () -> Bool) async throws {
+        let kept = QueuedMessages.without(text, in: queued)
+        guard !kept.contains(where: QueuedMessages.hasImage) else { throw Failure.queuedImage }
+        guard PromptGuard.canInterrupt(session.pid.flatMap(SessionLoader.record(pid:))) else { throw Failure.queueTaken }
+        try await act(on: session, """
+              perform action (item 4 of argv) on t
+            """, args: [#"text:\x1b[A"#, ""])
+        let deadline = Date().addingTimeInterval(2)
+        var pulled = false
+        while !pulled, Date() < deadline {
+            try await Task.sleep(for: .milliseconds(100))
+            pulled = await pulledBack()
+        }
+        try await act(on: session, """
+              perform action (item 4 of argv) on t
+              delay 0.3
+            """, args: [QueuedMessages.clearAction(for: queued), ""])
+        guard pulled else { throw Failure.queueTaken }
+        for (i, message) in kept.enumerated() {
+            do {
+                try await send(text: message, to: session)
+            } catch {
+                await MainActor.run {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(kept[i...].joined(separator: "\n\n"), forType: .string)
+                }
+                throw Failure.notPutBack
+            }
+        }
     }
 
     /// Restarts Claude in the session's own terminal so it picks up new skills, MCP servers and

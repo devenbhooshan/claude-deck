@@ -30,6 +30,7 @@ final class SessionStore {
     /// A PDF, image, web page or markdown file opened from the transcript, shown over the session.
     var viewing: ViewedFile?
     /// A session we just started (and the terminal it's in): select it as soon as it appears.
+    private var removingQueued = false
     private var starting: (folder: String, at: Date, terminal: String?)?
     /// A session being restarted, and the start times that keep restarted sessions in their slot.
     private(set) var restarting: RestartTicket?
@@ -235,6 +236,20 @@ final class SessionStore {
             } catch {
                 lastError = error.localizedDescription
             }
+        }
+    }
+
+    /// Takes one message back out of Claude's queue.
+    func removeQueued(_ text: String, in s: Session, model: TranscriptModel) {
+        guard !removingQueued else { return }
+        removingQueued = true
+        let queued = model.queued, pullBacks = model.pullBacks
+        Task {
+            defer { removingQueued = false }
+            do {
+                try await Ghostty.removeQueued(text, from: queued, in: s) { model.pullBacks > pullBacks }
+                HUD.show("Removed from the queue", detail: s.displayTitle, symbol: "xmark.circle.fill", tint: Theme.accent)
+            } catch { lastError = error.localizedDescription }
         }
     }
 

@@ -71,6 +71,28 @@ enum Safety {
     }
 }
 
+/// Taking a message out of Claude Code's input queue. It has no command for that: ↑ pulls every
+/// queued message back into the input box, so Deck clears the box and retypes the ones to keep.
+enum QueuedMessages {
+    /// `queued` without one copy of `text`.
+    static func without(_ text: String, in queued: [String]) -> [String] {
+        var kept = queued
+        if let i = kept.firstIndex(of: text) { kept.remove(at: i) }
+        return kept
+    }
+
+    /// A pasted image is only a placeholder in the queue, so retyping the message would lose it.
+    static func hasImage(_ message: String) -> Bool { message.contains("[Image #") }
+
+    /// Empties the input box whatever its width: Ctrl+U clears one wrapped row, Backspace joins the
+    /// next one. Spare presses do nothing. If Claude took the queue first, ↑ recalled an old prompt
+    /// instead, hence the floor.
+    static func clearAction(for queued: [String]) -> String {
+        let rows = queued.reduce(0) { $0 + $1.count / 20 + $1.filter(\.isNewline).count + 1 }
+        return "text:" + String(repeating: #"\x15\x7f"#, count: max(200, rows))
+    }
+}
+
 /// When Deck may answer or type into a session, decided from a fresh read of its record.
 enum PromptGuard {
     /// Typing a message is only safe at Claude's prompt: never while a dialog is open, where

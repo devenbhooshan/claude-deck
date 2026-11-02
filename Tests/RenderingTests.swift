@@ -298,6 +298,23 @@ func textViewTests() {
         expect(storage.string.contains("✓ Copied"))
         ctl.copyBlock(in: tv, at: 0)
         ctl.copyBlock(in: tv, at: storage.length + 5)
+
+        // Each queued message can be taken back, only while Claude is working.
+        var removed: [String] = []
+        ctl.onRemoveQueued = { removed.append($0) }
+        let queued = { (status: SessionStatus) in
+            TranscriptContent(blocks: [], results: [:], queued: ["one", "two"], outgoing: [], cwd: "", status: status, openToolId: nil, loaded: true)
+        }
+        ctl.content = queued(.busy)
+        ctl.render(force: true)
+        expect(tv.textStorage!.string.components(separatedBy: TranscriptRenderer.removeLabel).count == 3, "one on each message")
+        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.queuedLink(1), at: 0))
+        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.queuedLink(9), at: 0))
+        expect(ctl.textView(tv, clickedOnLink: URL(string: "deck://queued/x")!, at: 0))
+        expectEqual(removed, ["two"])
+        ctl.content = queued(.waiting)
+        ctl.render(force: true)
+        expect(!tv.textStorage!.string.contains(TranscriptRenderer.removeLabel))
         expectEqual(pb.string(forType: .string), "Last quote") // no quote there
         pb.releaseGlobally()
     }

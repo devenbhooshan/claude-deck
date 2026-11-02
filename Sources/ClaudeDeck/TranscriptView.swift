@@ -14,6 +14,7 @@ struct TranscriptView: View {
     /// Stops the current step (shown as a Stop button while Claude works).
     var onStop: (() -> Void)? = nil
     var onBackground: (() -> Void)? = nil
+    var onRemoveQueued: ((String) -> Void)? = nil
     /// Commands Claude left running in the background, and how to stop one.
     var background: [BackgroundTask] = []
     var onStopTask: ((BackgroundTask) -> Void)? = nil
@@ -42,7 +43,7 @@ struct TranscriptView: View {
             cwd: cwd, status: status,
             openToolId: status == .busy || status == .waiting ? openTool?.id : nil,
             loaded: model.loaded, focus: model.focusText, hasEarlier: model.hasEarlier),
-                           placeKey: placeKey, onReachTop: { model.loadEarlier() })
+                           placeKey: placeKey, onReachTop: { model.loadEarlier() }, onRemoveQueued: onRemoveQueued)
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 // The row's space is always reserved, so the transcript never jumps when it appears;
@@ -96,6 +97,7 @@ struct TranscriptTextView: NSViewRepresentable {
     let content: TranscriptContent
     var placeKey: String? = nil
     var onReachTop: (() -> Void)? = nil
+    var onRemoveQueued: ((String) -> Void)? = nil
     @Environment(SessionStore.self) private var store
 
     func makeCoordinator() -> Coordinator {
@@ -116,6 +118,7 @@ struct TranscriptTextView: NSViewRepresentable {
         context.coordinator.content = content
         context.coordinator.placeKey = placeKey
         context.coordinator.onReachTop = onReachTop
+        context.coordinator.onRemoveQueued = onRemoveQueued
         context.coordinator.render(force: false)
     }
 

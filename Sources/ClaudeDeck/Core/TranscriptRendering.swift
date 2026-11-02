@@ -116,6 +116,7 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
     var content: TranscriptContent?
     /// Called when you scroll to the top and there's earlier history to load.
     var onReachTop: (() -> Void)?
+    var onRemoveQueued: ((String) -> Void)?
     private var firstBlockId: String?
     private var expanded: Set<String> = []
     private var lastSignature = ""
@@ -315,6 +316,10 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
             copyBlock(in: textView, at: charIndex)
             return true
         }
+        if url.scheme == "deck", url.host == "queued" {
+            if let i = Int(url.lastPathComponent), let queued = content?.queued, queued.indices.contains(i) { onRemoveQueued?(queued[i]) }
+            return true
+        }
         if url.scheme == "deck", url.host == "tool" {
             let id = url.lastPathComponent
             if expanded.contains(id) { expanded.remove(id) } else { expanded.insert(id) }
@@ -444,8 +449,10 @@ struct TranscriptRenderer {
                 }
             }
         }
-        for q in c.queued {
-            out.append(bubble(q, images: [], caption: "Queued until Claude finishes its current step", dashed: true))
+        for (i, q) in c.queued.enumerated() {
+            // Only while Claude is working: at a dialog, ↑ would move the highlighted option.
+            out.append(bubble(q, images: [], caption: "Queued until Claude finishes its current step", dashed: true,
+                              remove: c.status == .busy ? Self.queuedLink(i) : nil))
         }
         for o in c.outgoing {
             out.append(bubble(o.text, images: o.images, caption: o.delivered ? "Sent" : "Sending…"))
@@ -468,7 +475,7 @@ struct TranscriptRenderer {
     }
 
     /// Your message: a rounded bubble sized to its text, on the right.
-    private func bubble(_ text: String, images: [NSImage], caption: String? = nil, dashed: Bool = false) -> NSAttributedString {
+    private func bubble(_ text: String, images: [NSImage], caption: String? = nil, dashed: Bool = false, remove: URL? = nil) -> NSAttributedString {
         let out = NSMutableAttributedString()
         let maxWidth = (width * 0.75).rounded()
         let padH: CGFloat = 14, padV: CGFloat = 9
@@ -492,6 +499,13 @@ struct TranscriptRenderer {
             if !text.isEmpty { content.append(NSAttributedString(string: "\n")) }
         }
         content.append(NSAttributedString(string: text, attributes: [.font: body, .foregroundColor: NSColor.labelColor]))
+        if let remove {
+            content.append(NSAttributedString(string: "\n", attributes: [.font: NSFont.systemFont(ofSize: 11)]))
+            content.append(NSAttributedString(string: Self.removeLabel, attributes: [
+                .font: NSFont.systemFont(ofSize: 10.5), .foregroundColor: NSColor.tertiaryLabelColor,
+                .link: remove, .toolTip: "Take this message out of the queue",
+            ]))
+        }
 
         let measured = content.boundingRect(with: NSSize(width: maxWidth, height: .greatestFiniteMagnitude),
                                             options: [.usesLineFragmentOrigin, .usesFontLeading]).width
@@ -1043,6 +1057,9 @@ struct TranscriptRenderer {
     static let copyText = NSAttributedString.Key("deckCopyText")
     static let copyLabel = "⧉ Copy quote"
     static let copyCodeLabel = "⧉ Copy"
+    /// A queued message's link to take it back out.
+    static func queuedLink(_ index: Int) -> URL { URL(string: "deck://queued/\(index)")! }
+    static let removeLabel = "Remove"
 
     private static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 

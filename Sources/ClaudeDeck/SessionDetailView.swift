@@ -10,6 +10,7 @@ final class TranscriptModel {
     private(set) var results: [String: ToolResult] = [:]
     private(set) var pendingTool: (name: String, summary: String)?
     private(set) var queued: [String] = []
+    private(set) var pullBacks = 0
     private(set) var loaded = false
     /// Messages sent from Deck that haven't shown up in the transcript yet.
     private(set) var outgoing: [OutgoingMessage] = []
@@ -135,7 +136,7 @@ final class TranscriptModel {
         queue.async { [weak self] in
             let changed = parser.refresh()
             guard changed || force else { return }
-            let snapshot = (TranscriptBlock.group(parser.items), parser.results, parser.pendingTool, parser.queued, parser.hasEarlier)
+            let snapshot = (TranscriptBlock.group(parser.items), parser.results, parser.pendingTool, parser.queued, parser.hasEarlier, parser.pullBacks)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.blocks = snapshot.0
@@ -143,6 +144,7 @@ final class TranscriptModel {
                 self.pendingTool = snapshot.2
                 self.queued = snapshot.3
                 self.hasEarlier = snapshot.4
+                self.pullBacks = snapshot.5
                 self.loaded = true
                 self.reconcileOutgoing()
             }
@@ -200,6 +202,7 @@ struct SessionDetailView: View {
             TranscriptView(model: model, placeKey: session.sessionId, cwd: session.cwd, status: session.status, statusSince: session.statusSince,
                            onStop: session.isLive ? { store.interrupt(session) } : nil,
                            onBackground: session.isLive ? { store.background(session) } : nil,
+                           onRemoveQueued: session.isLive ? { store.removeQueued($0, in: session, model: model) } : nil,
                            background: session.background,
                            onStopTask: session.isLive ? { store.stopTask($0, in: session) } : nil)
                 .overlay(alignment: .bottom) {
