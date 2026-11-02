@@ -238,6 +238,18 @@ final class SessionStore {
         }
     }
 
+    /// Moves what Claude is waiting on to the background, so it can carry on.
+    func background(_ s: Session) {
+        Task {
+            do {
+                try await Ghostty.background(s)
+                HUD.show("Moved to the background", detail: s.displayTitle, symbol: "arrow.down.right.square.fill", tint: Theme.accent)
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
     /// Quits and resumes the session in its terminal so new skills and MCP servers load. It keeps
     /// its place in the list (and its ⌘ number) throughout.
     func restart(_ s: Session) {

@@ -142,6 +142,16 @@ enum Ghostty {
             """, args: ["", ""])
     }
 
+    /// Moves the command or agent Claude is waiting on to the background (Ctrl+B), only if it's
+    /// still working: at the prompt Ctrl+B would move the cursor. Ghostty's `send key` takes no
+    /// modifiers, so it's typed as its control character, passed in like the ↑ above.
+    static func background(_ session: Session) async throws {
+        guard PromptGuard.canInterrupt(session.pid.flatMap(SessionLoader.record(pid:))) else { throw Failure.notWorking }
+        try await act(on: session, """
+              perform action (item 4 of argv) on t
+            """, args: [#"text:\x02"#, ""])
+    }
+
     /// Restarts Claude in the session's own terminal so it picks up new skills, MCP servers and
     /// settings: types /exit, waits for the process to quit, then runs `claude --resume <id>` in
     /// the same shell (keeping its well-known launch flags).

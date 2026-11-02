@@ -13,6 +13,7 @@ struct TranscriptView: View {
     let statusSince: Date?
     /// Stops the current step (shown as a Stop button while Claude works).
     var onStop: (() -> Void)? = nil
+    var onBackground: (() -> Void)? = nil
     /// Commands Claude left running in the background, and how to stop one.
     var background: [BackgroundTask] = []
     var onStopTask: ((BackgroundTask) -> Void)? = nil
@@ -64,6 +65,15 @@ struct TranscriptView: View {
                         .keyboardShortcut(".", modifiers: .command)
                         .disabled(status != .busy)
                         .help("Stop Claude's current step (⌘.)")
+                    }
+                    if let onBackground, !showsTasks {
+                        Button(action: onBackground) {
+                            Label("Background", systemImage: "arrow.down.right.square")
+                        }
+                        .buttonStyle(.deck(.secondary, size: .small))
+                        .keyboardShortcut("b", modifiers: .control)
+                        .disabled(status != .busy)
+                        .help("Move the running command or agent to the background, so Claude can carry on (⌃B)")
                     }
                     Spacer()
                 }

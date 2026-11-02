@@ -213,6 +213,7 @@ All of these are also listed in the **Sessions** menu.
 | ⌥⌘A | Switch the open session between Conversation and Activity |
 | ⇧⌘H | Activity History: every PR, ticket, push and screenshot across sessions |
 | ⌘. | Stop Claude's current step (also the Stop button on the "Working…" pill) |
+| ⌃B | Move the running command or agent to the background so Claude can carry on, like Ctrl+B in the terminal (also the Background button next to Stop) |
 | ↩ | Send message |
 | ⇧↩ / ⌘↩ | New line in the message |
 

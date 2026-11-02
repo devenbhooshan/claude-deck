@@ -155,6 +155,10 @@ struct SessionCommands: Commands {
                 if let s = store.session(store.selectedId), s.isLive, s.status == .busy { store.interrupt(s) }
             }
             .disabled(store.session(store.selectedId)?.status != .busy)
+            Button("Move to Background") {
+                if let s = store.session(store.selectedId), s.isLive, s.status == .busy { store.background(s) }
+            }
+            .disabled(store.session(store.selectedId)?.status != .busy)
             Button("Open Terminal") {
                 if let s = store.session(store.selectedId), s.isLive {
                     Task {
