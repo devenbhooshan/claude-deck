@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 /// Starts Claude Code in a folder: one you've used before, or any folder you pick. With `forking`,
-/// it starts a fork of that session instead, in its folder, with the same options.
+/// it starts a fork of that session instead (in its folder unless you pick another), with the same options.
 struct NewSessionSheet: View {
     @Environment(SessionStore.self) private var store
     @Environment(\.dismiss) private var dismiss
@@ -11,8 +11,11 @@ struct NewSessionSheet: View {
     @AppStorage("newSessionRemoteControl") private var remoteControl = false
     @State private var name = ""
 
-    /// Where it starts: the forked session's folder, or the one picked.
-    private var folder: String? { forking?.cwd ?? highlighted }
+    /// A fork starts in the original's folder unless you pick another.
+    private var folderChoices: [String] {
+        guard let cwd = forking?.cwd else { return store.projectFolders }
+        return [cwd] + store.projectFolders.filter { $0 != cwd }
+    }
 
     private var launch: SessionLaunch { SessionLaunch(name: name, remoteControl: remoteControl) }
 
@@ -23,11 +26,11 @@ struct NewSessionSheet: View {
                 .lineLimit(2)
             Text(forking == nil
                  ? "Opens a Ghostty window in the folder and starts `\(Safety.launchCommand(launch) ?? "claude")`."
-                 : "Opens a Ghostty window in \(Theme.shortPath(forking!.cwd)) with a copy of this conversation. The original carries on unchanged.")
+                 : "Opens a Ghostty window in the folder with a copy of this conversation. The original carries on unchanged.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            if forking == nil { folders }
+            folders
 
             VStack(alignment: .leading, spacing: 8) {
                 TextField(forking == nil ? "Name (optional)" : "Name", text: $name)
@@ -44,16 +47,14 @@ struct NewSessionSheet: View {
             }
 
             HStack {
-                if forking == nil {
-                    Button("Choose Folder…") {
-                        let panel = NSOpenPanel()
-                        panel.canChooseDirectories = true
-                        panel.canChooseFiles = false
-                        panel.prompt = "Start Claude Here"
-                        if panel.runModal() == .OK, let url = panel.url { start(in: url.path) }
-                    }
-                    .buttonStyle(.deck(.secondary))
+                Button("Choose Folder…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.canChooseFiles = false
+                    panel.prompt = forking == nil ? "Start Claude Here" : "Fork Here"
+                    if panel.runModal() == .OK, let url = panel.url { start(in: url.path) }
                 }
+                .buttonStyle(.deck(.secondary))
                 Spacer()
                 Button("Cancel") { dismiss() }
                     .buttonStyle(.deck(.secondary))
@@ -61,20 +62,20 @@ struct NewSessionSheet: View {
                 Button(forking == nil ? "Start" : "Fork", action: start)
                     .buttonStyle(.deck(.primary))
                     .keyboardShortcut(.defaultAction)
-                    .disabled(folder == nil)
+                    .disabled(highlighted == nil)
             }
         }
         .padding(20)
         .frame(width: 460)
         .tint(Theme.accent)
         .onAppear {
-            highlighted = store.projectFolders.first
+            highlighted = folderChoices.first
             if let forking { name = "Fork of \(forking.displayTitle)" }
         }
     }
 
     private var folders: some View {
-        List(store.projectFolders, id: \.self, selection: $highlighted) { folder in
+        List(folderChoices, id: \.self, selection: $highlighted) { folder in
             VStack(alignment: .leading, spacing: 1) {
                 Text((folder as NSString).lastPathComponent).font(.body)
                 Text(Theme.shortPath(folder)).font(.caption).foregroundStyle(.secondary)
@@ -92,14 +93,14 @@ struct NewSessionSheet: View {
         })
         .frame(minHeight: 220)
         .overlay {
-            if store.projectFolders.isEmpty {
+            if folderChoices.isEmpty {
                 Text("No recent folders").foregroundStyle(.tertiary)
             }
         }
     }
 
     private func start() {
-        if let folder { start(in: folder) }
+        if let highlighted { start(in: highlighted) }
     }
 
     private func start(in folder: String) {
