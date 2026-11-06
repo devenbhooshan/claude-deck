@@ -29,9 +29,9 @@ enum TranscriptExport {
     }
 
     /// Drops "Sending…" bubbles once the transcript shows the real message (queued or sent),
-    /// or after `timeout` so a lost message can't linger forever.
+    /// or after its `timeout` so a lost message can't linger forever.
     static func reconcile(_ outgoing: [OutgoingMessage], queued: [String], blocks: [TranscriptBlock],
-                          now: Date = Date(), timeout: TimeInterval = 20) -> [OutgoingMessage] {
+                          now: Date = Date()) -> [OutgoingMessage] {
         guard !outgoing.isEmpty else { return outgoing }
         var seen = queued
         var imageMessages: [(count: Int, at: Date?)] = []
@@ -53,7 +53,7 @@ enum TranscriptExport {
                     m.count == o.images.count && (m.at.map { $0 >= o.sentAt.addingTimeInterval(-5) } ?? true)
                 }
             }
-            return !arrived && now.timeIntervalSince(o.sentAt) <= timeout
+            return !arrived && now.timeIntervalSince(o.sentAt) <= o.timeout
         }
     }
 }

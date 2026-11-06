@@ -422,6 +422,9 @@ func exportTests() {
         var stale = OutgoingMessage(text: "lost", images: []); stale.sentAt = now.addingTimeInterval(-60)
         var imageOnly = OutgoingMessage(text: "  ", images: [image()]); imageOnly.sentAt = now
         let left = TranscriptExport.reconcile([sent, queuedMsg, stale, imageOnly], queued: ["later please"], blocks: blocks, now: now)
+        // A routine run's reply waits longer for its transcript.
+        let slow = OutgoingMessage(text: "lost", images: [], sentAt: now.addingTimeInterval(-60), timeout: 600)
+        expectEqual(TranscriptExport.reconcile([slow], queued: [], blocks: [], now: now).count, 1)
         // The image-only one clears too: the transcript has a 1-image message from you (no timestamp).
         expect(left.isEmpty, "\(left.map(\.text))")
         // Image-only messages are matched by image count, once one lands after they were sent.

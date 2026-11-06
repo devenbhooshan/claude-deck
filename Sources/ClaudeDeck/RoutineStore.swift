@@ -154,10 +154,12 @@ final class RoutineStore {
     }
 
     /// Your message to a finished run: Claude continues that conversation in the background.
-    func reply(to run: RoutineRun, _ message: String) {
+    /// Attachments, images too, are named by path: there's no terminal to paste them into, and
+    /// Claude reads them with Read.
+    func reply(to run: RoutineRun, _ message: String, attachments: [Attachment] = []) {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: helper)
-        p.arguments = ["reply", run.routine, run.id, message]
+        p.arguments = ["reply", run.routine, run.id, AttachmentStore.message(message, files: attachments)]
         p.standardInput = FileHandle.nullDevice
         p.standardOutput = FileHandle.nullDevice
         p.standardError = FileHandle.nullDevice

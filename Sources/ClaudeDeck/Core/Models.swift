@@ -186,11 +186,15 @@ struct OutgoingMessage: Identifiable {
     let images: [NSImage]
     var sentAt: Date
     var delivered = false
+    /// How long to show it if it never reaches the transcript. A routine run's reply only lands
+    /// once Claude starts, after the run has checked its connectors.
+    var timeout: TimeInterval
 
-    init(text: String, images: [NSImage], sentAt: Date = Date()) {
+    init(text: String, images: [NSImage], sentAt: Date = Date(), timeout: TimeInterval = 20) {
         self.id = UUID()
         self.text = text
         self.images = images
         self.sentAt = sentAt
+        self.timeout = timeout
     }
 }

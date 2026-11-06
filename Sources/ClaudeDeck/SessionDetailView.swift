@@ -78,8 +78,8 @@ final class TranscriptModel {
     private(set) var turnStart: Date?
 
     /// `whileBusy`: Claude is already working, so the message just queues; the current turn goes on.
-    func addOutgoing(text: String, images: [NSImage], whileBusy: Bool = false) -> UUID {
-        let o = OutgoingMessage(text: text, images: images)
+    func addOutgoing(text: String, images: [NSImage], whileBusy: Bool = false, timeout: TimeInterval = 20) -> UUID {
+        let o = OutgoingMessage(text: text, images: images, timeout: timeout)
         outgoing.append(o)
         if whileBusy { return o.id }
         awaitingPickup = true
@@ -157,7 +157,6 @@ struct SessionDetailView: View {
     let session: Session
     @State private var model = TranscriptModel()
     @State private var attachments: [Attachment] = []
-    @State private var dropTargeted = false
     @State private var error: String?
 
     var body: some View {
@@ -185,11 +184,9 @@ struct SessionDetailView: View {
             model.start(url: session.transcriptURL, focus: store.focus?.sessionId == session.sessionId ? store.focus : nil)
             // Pointing at a reply is done once; switching back later returns to where you were.
             if store.focus?.sessionId == session.sessionId, store.focus?.offset == nil { store.focus = nil }
-            attachments = Drafts.draft(for: session.sessionId).files.compactMap(AttachmentStore.restore)
             if session.isLive { Task { await Ghostty.prewarm(session) } }
         }
         .onDisappear { model.stop() }
-        .onChange(of: attachments) { Drafts.update(session.sessionId) { $0.files = attachments.map(\.url.path) } }
         .alert("Couldn't reach the terminal", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
             Button("OK") { error = nil }
         } message: {
@@ -224,22 +221,7 @@ struct SessionDetailView: View {
         .animation(.snappy, value: session.status)
         .onChange(of: session.status) { model.statusChanged(session.status) }
         .background(Theme.surface)
-        .overlay {
-            if dropTargeted && session.isLive {
-                RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
-                    .strokeBorder(Theme.accent, style: StrokeStyle(lineWidth: 2, dash: [8, 5]))
-                    .background(Theme.accent.opacity(0.06))
-                    .overlay(Label("Drop images or files to attach", systemImage: "paperclip")
-                        .font(.title3.weight(.medium)).foregroundStyle(Theme.accent))
-                    .padding(8)
-                    .allowsHitTesting(false)
-            }
-        }
-        .onDrop(of: [.fileURL, .image], isTargeted: $dropTargeted) { providers in
-            guard session.isLive else { return false }
-            loadDropped(providers)
-            return true
-        }
+        .modifier(AttachmentDrop(attachments: $attachments, enabled: session.isLive))
     }
 
     private var subtitle: String {
@@ -302,26 +284,6 @@ struct SessionDetailView: View {
     private func copy(_ s: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(s, forType: .string)
-    }
-
-    private func loadDropped(_ providers: [NSItemProvider]) {
-        for p in providers {
-            if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
-                _ = p.loadObject(ofClass: URL.self) { url, _ in
-                    guard let url else { return }
-                    DispatchQueue.main.async {
-                        if let a = AttachmentStore.from(fileURL: url) { attachments.append(a) }
-                    }
-                }
-            } else {
-                p.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
-                    guard let data else { return }
-                    DispatchQueue.main.async {
-                        if let img = NSImage(data: data), let a = AttachmentStore.from(image: img) { attachments.append(a) }
-                    }
-                }
-            }
-        }
     }
 }
 

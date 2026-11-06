@@ -1,6 +1,8 @@
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
+/// A session's message box: sends by typing into its terminal.
 struct Composer: View {
     @Environment(SessionStore.self) private var store
     @Environment(ToolboxStore.self) private var toolbox
@@ -10,23 +12,115 @@ struct Composer: View {
     let onError: (String) -> Void
 
     @State private var draft = ""
+    @State private var refocus = 0
+
+    /// Typing while a dialog is open would land in the dialog, and Return would pick an option.
+    private var promptOpen: Bool { session.status == .waiting }
+
+    var body: some View {
+        MessageBox(draft: $draft, attachments: $attachments, draftKey: session.sessionId, placeholder: placeholder,
+                   canSend: !promptOpen, commands: toolbox.commands,
+                   hint: "↩ send · ⇧↩ or ⌘↩ new line · / commands · paste or drop images and files",
+                   sendHelp: promptOpen ? "Answer the prompt first" : "Send (↩)", refocus: refocus, onSend: send) {
+            Button { store.openTerminal(session) } label: {
+                FooterLabel(title: "Open Terminal", systemImage: "apple.terminal")
+            }
+            .help("Jump to this session's Ghostty terminal (⇧⌘T)")
+            Button { store.requestEnd(session) } label: {
+                FooterLabel(title: "End Session", systemImage: "stop.circle")
+            }
+            .disabled(store.ending.contains(session.sessionId))
+            .help("Quit Claude and close its terminal; you can resume it later (⇧⌘E)")
+        }
+        // Switching sessions (click, ⌘K, ⌘1–9, ⌥⌘↑/↓) lands you in the message box.
+        .onChange(of: store.selectedId) { refocus += 1 }
+        .onChange(of: store.showSwitcher) { if !store.showSwitcher { refocus += 1 } }
+        .onChange(of: store.composerInsert) {
+            guard let insert = store.composerInsert else { return }
+            store.composerInsert = nil
+            draft = draft.isEmpty ? insert : draft + (draft.hasSuffix(" ") ? "" : " ") + insert
+            refocus += 1
+        }
+    }
+
+    private var placeholder: String {
+        switch session.status {
+        case .busy: "Message Claude — it'll be queued until the current step finishes"
+        case .waiting: "Answer the prompt above first…"
+        default: "Message Claude…"
+        }
+    }
+
+    private func send() {
+        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let staged = attachments
+        let kind = CommandCatalog.kind(of: text)
+        // Commands Deck handles itself (e.g. /usage) never reach the session.
+        if kind == .deck && staged.isEmpty {
+            draft = ""
+            store.showUsage = true
+            return
+        }
+        // Images are pasted as attachments; other files are named by path for Claude to read.
+        let images = staged.filter(\.isImage)
+        let message = AttachmentStore.message(text, files: staged.filter { !$0.isImage })
+        // Show the message immediately; the terminal round trip happens in the background.
+        let thumbs = images.compactMap { (try? Data(contentsOf: $0.url)).flatMap { TranscriptParser.thumbnail($0) } }
+        let outgoingId = model.addOutgoing(text: message, images: thumbs, whileBusy: session.status == .busy)
+        draft = ""
+        attachments = []
+        Task {
+            do {
+                try await Ghostty.send(text: message, images: images.map(\.url), to: session)
+                model.markDelivered(outgoingId)
+                // Commands like /model or /mcp open a menu in the terminal: bring it forward.
+                if kind == .terminal {
+                    try? await Ghostty.focus(session)
+                    HUD.show("\(text.split(separator: " ")[0]) opened in the terminal", symbol: "apple.terminal", tint: Theme.accent)
+                }
+            } catch {
+                model.removeOutgoing(outgoingId)
+                if draft.isEmpty { draft = text }
+                attachments = staged + attachments
+                onError(error.localizedDescription)
+            }
+        }
+    }
+}
+
+/// The message box, the same wherever you talk to Claude: a session or a routine run. Text and
+/// attachments (paperclip, paste, drop), the "/" menu, ⇧↩ for a new line, and the unsent draft
+/// kept under `draftKey`. Only sending differs, so that's `onSend`'s, which reads and clears
+/// `draft` and `attachments`.
+struct MessageBox<Footer: View>: View {
+    @Binding var draft: String
+    @Binding var attachments: [Attachment]
+    let draftKey: String
+    let placeholder: String
+    /// False while Claude can't take a message (a dialog is open, a run is working).
+    var canSend = true
+    var commands: [SlashCommand] = []
+    let hint: String
+    var sendHelp = "Send (↩)"
+    /// Changing it puts the cursor back in the box.
+    var refocus = 0
+    let onSend: () -> Void
+    @ViewBuilder var footer: () -> Footer
+
     @State private var keyMonitor: Any?
     @State private var menuIndex = 0
     /// Esc closes the menu for the text typed so far; typing more reopens it.
     @State private var menuDismissedFor: String?
     @FocusState private var focused: Bool
 
-    /// Typing while a dialog is open would land in the dialog, and Return would pick an option.
-    private var promptOpen: Bool { session.status == .waiting }
-
     /// Commands matching what's typed after "/", or none when the menu shouldn't show.
     private var menuItems: [SlashCommand] {
-        guard focused, let q = CommandCatalog.query(in: draft), menuDismissedFor != draft else { return [] }
-        return CommandCatalog.matches(q, in: toolbox.commands)
+        guard focused, !commands.isEmpty, let q = CommandCatalog.query(in: draft), menuDismissedFor != draft else { return [] }
+        return CommandCatalog.matches(q, in: commands)
     }
 
-    private var canSend: Bool {
-        !promptOpen && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
+    private var sendable: Bool {
+        canSend && (!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty)
     }
 
     var body: some View {
@@ -44,19 +138,11 @@ struct Composer: View {
         .frame(maxWidth: .infinity)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack(spacing: 12) {
-                Text("↩ send · ⇧↩ or ⌘↩ new line · / commands · paste or drop images and files")
+                Text(hint)
                     .font(.caption2).foregroundStyle(.tertiary)
                     .lineLimit(1)
                 Spacer(minLength: 8)
-                Button { store.openTerminal(session) } label: {
-                    FooterLabel(title: "Open Terminal", systemImage: "apple.terminal")
-                }
-                .help("Jump to this session's Ghostty terminal (⇧⌘T)")
-                Button { store.requestEnd(session) } label: {
-                    FooterLabel(title: "End Session", systemImage: "stop.circle")
-                }
-                .disabled(store.ending.contains(session.sessionId))
-                .help("Quit Claude and close its terminal; you can resume it later (⇧⌘E)")
+                footer()
             }
             .font(.caption)
             .buttonStyle(.deckBorderless)
@@ -66,13 +152,13 @@ struct Composer: View {
             .padding(.bottom, 8)
         }
         .onAppear {
-            draft = Drafts.draft(for: session.sessionId).text
+            let saved = Drafts.draft(for: draftKey)
+            draft = saved.text
+            attachments = saved.files.compactMap(AttachmentStore.restore)
             focusSoon()
             installKeyMonitor()
         }
-        // Switching sessions (click, ⌘K, ⌘1–9, ⌥⌘↑/↓) lands you in the message box.
-        .onChange(of: store.selectedId) { focusSoon() }
-        .onChange(of: store.showSwitcher) { if !store.showSwitcher { focusSoon() } }
+        .onChange(of: refocus) { focusSoon() }
         .onChange(of: draft) { before, after in
             menuIndex = 0
             // Dropping a file on the text types its path: attach the file instead. (Never while
@@ -84,14 +170,9 @@ struct Composer: View {
                 draft = drop.text
                 return
             }
-            Drafts.update(session.sessionId) { $0.text = draft }
+            Drafts.update(draftKey) { $0.text = draft }
         }
-        .onChange(of: store.composerInsert) {
-            guard let insert = store.composerInsert else { return }
-            store.composerInsert = nil
-            draft = draft.isEmpty ? insert : draft + (draft.hasSuffix(" ") ? "" : " ") + insert
-            focusSoon()
-        }
+        .onChange(of: attachments) { Drafts.update(draftKey) { $0.files = attachments.map(\.url.path) } }
         .onDisappear {
             if let m = keyMonitor { NSEvent.removeMonitor(m) }
         }
@@ -133,16 +214,16 @@ struct Composer: View {
 
                 Button(action: send) {
                     ZStack {
-                        Circle().fill(canSend ? Theme.accent : Color.primary.opacity(0.1))
+                        Circle().fill(sendable ? Theme.accent : Color.primary.opacity(0.1))
                         Image(systemName: "arrow.up")
                             .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(canSend ? .white : .secondary)
+                            .foregroundStyle(sendable ? .white : .secondary)
                     }
                     .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.deckPlain)
-                .disabled(!canSend)
-                .help(promptOpen ? "Answer the prompt first" : "Send (↩)")
+                .disabled(!sendable)
+                .help(sendHelp)
             }
             .padding(.horizontal, 8).padding(.vertical, 6)
         }
@@ -155,6 +236,11 @@ struct Composer: View {
             RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous)
                 .strokeBorder(focused ? Theme.accent.opacity(0.6) : Color.primary.opacity(0.12), lineWidth: 1)
         }
+    }
+
+    private func send() {
+        guard sendable else { return }
+        onSend()
     }
 
     /// Handles keys before the text field sees them (it would otherwise swallow Esc and the arrows):
@@ -209,48 +295,50 @@ struct Composer: View {
             }
         }
     }
+}
 
-    private var placeholder: String {
-        switch session.status {
-        case .busy: "Message Claude — it'll be queued until the current step finishes"
-        case .waiting: "Answer the prompt above first…"
-        default: "Message Claude…"
-        }
+/// Drop images or files anywhere on the conversation to attach them.
+struct AttachmentDrop: ViewModifier {
+    @Binding var attachments: [Attachment]
+    var enabled = true
+    @State private var targeted = false
+
+    func body(content: Content) -> some View {
+        content
+            .overlay {
+                if targeted && enabled {
+                    RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous)
+                        .strokeBorder(Theme.accent, style: StrokeStyle(lineWidth: 2, dash: [8, 5]))
+                        .background(Theme.accent.opacity(0.06))
+                        .overlay(Label("Drop images or files to attach", systemImage: "paperclip")
+                            .font(.title3.weight(.medium)).foregroundStyle(Theme.accent))
+                        .padding(8)
+                        .allowsHitTesting(false)
+                }
+            }
+            .onDrop(of: [.fileURL, .image], isTargeted: $targeted) { providers in
+                guard enabled else { return false }
+                load(providers)
+                return true
+            }
     }
 
-    private func send() {
-        guard canSend else { return }
-        let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let staged = attachments
-        let kind = CommandCatalog.kind(of: text)
-        // Commands Deck handles itself (e.g. /usage) never reach the session.
-        if kind == .deck && staged.isEmpty {
-            draft = ""
-            store.showUsage = true
-            return
-        }
-        // Images are pasted as attachments; other files are named by path for Claude to read.
-        let images = staged.filter(\.isImage)
-        let message = AttachmentStore.message(text, files: staged.filter { !$0.isImage })
-        // Show the message immediately; the terminal round trip happens in the background.
-        let thumbs = images.compactMap { (try? Data(contentsOf: $0.url)).flatMap { TranscriptParser.thumbnail($0) } }
-        let outgoingId = model.addOutgoing(text: message, images: thumbs, whileBusy: session.status == .busy)
-        draft = ""
-        attachments = []
-        Task {
-            do {
-                try await Ghostty.send(text: message, images: images.map(\.url), to: session)
-                model.markDelivered(outgoingId)
-                // Commands like /model or /mcp open a menu in the terminal: bring it forward.
-                if kind == .terminal {
-                    try? await Ghostty.focus(session)
-                    HUD.show("\(text.split(separator: " ")[0]) opened in the terminal", symbol: "apple.terminal", tint: Theme.accent)
+    private func load(_ providers: [NSItemProvider]) {
+        for p in providers {
+            if p.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                _ = p.loadObject(ofClass: URL.self) { url, _ in
+                    guard let url else { return }
+                    DispatchQueue.main.async {
+                        if let a = AttachmentStore.from(fileURL: url) { attachments.append(a) }
+                    }
                 }
-            } catch {
-                model.removeOutgoing(outgoingId)
-                if draft.isEmpty { draft = text }
-                attachments = staged + attachments
-                onError(error.localizedDescription)
+            } else {
+                p.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, _ in
+                    guard let data else { return }
+                    DispatchQueue.main.async {
+                        if let img = NSImage(data: data), let a = AttachmentStore.from(image: img) { attachments.append(a) }
+                    }
+                }
             }
         }
     }

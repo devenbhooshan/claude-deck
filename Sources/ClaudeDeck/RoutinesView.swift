@@ -496,7 +496,7 @@ struct RunView<Trailing: View>: View {
     @State private var following = false
     @State private var error: String?
     @State private var message = ""
-    @FocusState private var typing: Bool
+    @State private var attachments: [Attachment] = []
 
     /// The run as it is now (it updates while running).
     private var live: RoutineRun { store.routines.runs.first { $0.id == run.id && $0.routine == run.routine } ?? run }
@@ -533,8 +533,11 @@ struct RunView<Trailing: View>: View {
             .padding(.horizontal, 16).padding(.vertical, 12)
             Divider()
             if following {
-                TranscriptView(model: model, cwd: routine?.folder ?? "", status: running ? .busy : .ended, statusSince: live.started)
-                if live.sessionId != nil { replyBox }
+                VStack(spacing: 0) {
+                    TranscriptView(model: model, cwd: routine?.folder ?? "", status: running ? .busy : .ended, statusSince: live.started)
+                    if live.sessionId != nil { replyBox }
+                }
+                .modifier(AttachmentDrop(attachments: $attachments, enabled: live.sessionId != nil && !running))
             } else {
                 ScrollView {
                     HStack(spacing: 8) {
@@ -574,42 +577,21 @@ struct RunView<Trailing: View>: View {
 extension RunView {
     /// Talk to the run: Claude continues the same conversation, with the routine's access.
     var replyBox: some View {
-        HStack(alignment: .bottom, spacing: 6) {
-            TextField(running ? "Claude is working…" : "Reply to this run: Claude continues the conversation",
-                      text: $message, axis: .vertical)
-                .textFieldStyle(.plain)
-                .lineLimit(1...8)
-                .focused($typing)
-                .padding(.vertical, 5)
-                .onSubmit(send)
-                .disabled(running)
-            Button(action: send) {
-                ZStack {
-                    Circle().fill(canSend ? Theme.accent : Color.primary.opacity(0.1))
-                    Image(systemName: "arrow.up").font(.system(size: 13, weight: .bold)).foregroundStyle(canSend ? .white : .secondary)
-                }
-                .frame(width: 28, height: 28)
-            }
-            .buttonStyle(.deckPlain)
-            .disabled(!canSend)
-            .help(running ? "Wait for Claude to finish" : "Send (↩)")
-        }
-        .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).fill(Theme.panel)
-            .shadow(color: .black.opacity(typing ? 0.1 : 0.05), radius: typing ? 10 : 4, y: 2))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous)
-            .strokeBorder(typing ? Theme.accent.opacity(0.6) : Color.primary.opacity(0.12)))
-        .frame(maxWidth: 816)
-        .padding(.horizontal, 20).padding(.vertical, 10)
-        .frame(maxWidth: .infinity)
+        MessageBox(draft: $message, attachments: $attachments, draftKey: "routine-run:\(live.routine)/\(live.id)",
+                   placeholder: running ? "Claude is working…" : "Reply to this run: Claude continues the conversation",
+                   canSend: !running, hint: "↩ send · ⇧↩ or ⌘↩ new line · paste or drop images and files",
+                   sendHelp: running ? "Wait for Claude to finish" : "Send (↩)", onSend: send) { EmptyView() }
     }
 
-    private var canSend: Bool { !running && !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
+    /// Shown at once, like in a session, until the transcript has it.
     private func send() {
-        guard canSend else { return }
-        store.routines.reply(to: live, message.trimmingCharacters(in: .whitespacesAndNewlines))
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        let id = model.addOutgoing(text: AttachmentStore.message(text, files: attachments), images: [],
+                                   timeout: TimeInterval((routine?.timeoutMinutes ?? 30) * 60))
+        store.routines.reply(to: live, text, attachments: attachments)
+        model.markDelivered(id)
         message = ""
+        attachments = []
     }
 }
 
