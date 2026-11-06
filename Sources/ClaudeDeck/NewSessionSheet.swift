@@ -10,6 +10,7 @@ struct NewSessionSheet: View {
     @State private var highlighted: String?
     @AppStorage("newSessionRemoteControl") private var remoteControl = false
     @State private var name = ""
+    @FocusState private var listFocused: Bool
 
     /// A fork starts in the original's folder unless you pick another.
     private var folderChoices: [String] {
@@ -17,7 +18,12 @@ struct NewSessionSheet: View {
         return [cwd] + store.projectFolders.filter { $0 != cwd }
     }
 
-    private var launch: SessionLaunch { SessionLaunch(name: name, remoteControl: remoteControl) }
+    /// A fork is named after the original unless you type a name.
+    private var defaultName: String { forking.map { "Fork of \($0.displayTitle)" } ?? "" }
+    private var launch: SessionLaunch {
+        let typed = name.trimmingCharacters(in: .whitespaces)
+        return SessionLaunch(name: typed.isEmpty ? defaultName : typed, remoteControl: remoteControl)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -32,11 +38,17 @@ struct NewSessionSheet: View {
 
             folders
 
-            VStack(alignment: .leading, spacing: 8) {
-                TextField(forking == nil ? "Name (optional)" : "Name", text: $name)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(start)
-                    .help("Shown in Deck, in /resume and, with Remote Control, in the Claude app")
+            VStack(alignment: .leading, spacing: 10) {
+                // A labelled row, like Remote Control below; the name shown when you leave it empty
+                // is the placeholder.
+                HStack(spacing: 10) {
+                    Label("Name", systemImage: "character.cursor.ibeam")
+                        .fixedSize()
+                    TextField("", text: $name, prompt: Text(forking == nil ? "Optional" : defaultName))
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(start)
+                }
+                .help("Shown in Deck, in /resume and, with Remote Control, in the Claude app")
                 Toggle(isOn: $remoteControl) {
                     Label("Remote Control", systemImage: "iphone.radiowaves.left.and.right")
                 }
@@ -70,11 +82,13 @@ struct NewSessionSheet: View {
         .tint(Theme.accent)
         .onAppear {
             highlighted = folderChoices.first
-            if let forking { name = "Fork of \(forking.displayTitle)" }
+            // Start on the folder list, not with the name field's text selected.
+            listFocused = true
         }
     }
 
     private var folders: some View {
+        ScrollViewReader { proxy in
         List(folderChoices, id: \.self, selection: $highlighted) { folder in
             VStack(alignment: .leading, spacing: 1) {
                 Text((folder as NSString).lastPathComponent).font(.body)
@@ -92,10 +106,14 @@ struct NewSessionSheet: View {
             if let f = folders.first { start(in: f) }
         })
         .frame(minHeight: 220)
+        .focused($listFocused)
         .overlay {
             if folderChoices.isEmpty {
                 Text("No recent folders").foregroundStyle(.tertiary)
             }
+        }
+        // The selected folder is always in view.
+        .onAppear { if let h = folderChoices.first { proxy.scrollTo(h) } }
         }
     }
 
