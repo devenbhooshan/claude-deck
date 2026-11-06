@@ -36,8 +36,15 @@ any app, reply without switching windows, and leave Claude working on a schedule
 
 ## Install
 
+Download `Claude-Deck-<version>.dmg` from [Releases](https://github.com/devenbhooshan/claude-deck/releases),
+open it and drag Claude Deck to Applications. It's signed with Developer ID and notarized by Apple.
+You need macOS 14 or later, [Claude Code](https://claude.com/claude-code) and [Ghostty](https://ghostty.org) 1.3 or later.
+
+Or build it yourself:
+
     ./build.sh            # builds build/Claude Deck.app
     ./build.sh --install  # also copies it to /Applications
+    ./scripts/release.sh  # a signed, notarized DMG (needs a Developer ID; see the script)
 
 ## How it works
 
