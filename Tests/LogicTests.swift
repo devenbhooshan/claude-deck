@@ -253,11 +253,17 @@ func safetyTests() {
     test("shell quoting") {
         expectEqual(Safety.shellQuote("plain"), "'plain'")
         expectEqual(Safety.shellQuote("it's $(x)"), #"'it'\''s $(x)'"#)
-        expectEqual(Safety.newSessionCommand(remoteControl: false, name: "x"), "claude")
-        expectEqual(Safety.newSessionCommand(remoteControl: true), "claude --remote-control")
-        expectEqual(Safety.newSessionCommand(remoteControl: true, name: "  \n "), "claude --remote-control")
-        expectEqual(Safety.newSessionCommand(remoteControl: true, name: " deck's fix\n; rm -rf ~ "),
-                    #"claude --remote-control 'deck'\''s fix; rm -rf ~'"#)
+        expectEqual(Safety.launchCommand(SessionLaunch()), "claude")
+        expectEqual(Safety.launchCommand(SessionLaunch(name: "x")), "claude --name 'x'")
+        expectEqual(Safety.launchCommand(SessionLaunch(remoteControl: true)), "claude --remote-control")
+        expectEqual(Safety.launchCommand(SessionLaunch(name: "  \n ", remoteControl: true)), "claude --remote-control")
+        expectEqual(Safety.launchCommand(SessionLaunch(name: " deck's fix\n; $(evil) ", remoteControl: true)),
+                    #"claude --name 'deck'\''s fix; $(evil)' --remote-control 'deck'\''s fix; $(evil)'"#)
+        let a = "904d7e05-e5d3-4b07-97e8-5d5358ca80c4", b = "1ddc6d2a-ebf4-47ad-ba10-c0043f25be9f"
+        expectEqual(Safety.launchCommand(SessionLaunch(fork: a, sessionId: b, name: "Fork", remoteControl: true)),
+                    "claude --resume \(a) --fork-session --session-id \(b) --name 'Fork' --remote-control 'Fork'")
+        expect(Safety.launchCommand(SessionLaunch(fork: "x; $(evil)")) == nil)
+        expect(Safety.launchCommand(SessionLaunch(sessionId: "$(evil)")) == nil)
     }
     test("control characters") {
         expectEqual(Safety.stripControls("a\u{1b}[201~b\u{7f}c\u{85}d\n\te"), "a[201~bcd\n\te")

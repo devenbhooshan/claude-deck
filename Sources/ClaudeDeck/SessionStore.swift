@@ -31,7 +31,7 @@ final class SessionStore {
     var viewing: ViewedFile?
     /// A session we just started (and the terminal it's in): select it as soon as it appears.
     private var removingQueued = false
-    private var starting: (folder: String, at: Date, terminal: String?)?
+    private var starting: (sessionId: String, at: Date, terminal: String?)?
     /// A session being restarted, and the start times that keep restarted sessions in their slot.
     private(set) var restarting: RestartTicket?
     private var slots: [String: Date] = [:]
@@ -43,6 +43,11 @@ final class SessionStore {
 
     /// Session being renamed (drives the rename sheet).
     var renameTarget: Session?
+    /// The session the Fork sheet is copying.
+    var forkTarget: Session?
+    /// Forks Deck started, by id: the conversation they copied. Claude Code writes a fork's own
+    /// file only once you send it something, so until then that's what it shows.
+    private(set) var forkedFrom: [String: URL] = [:]
     /// Session to end once you confirm (asked only while Claude is mid-step or at a prompt).
     var endTarget: Session?
     /// Sessions being ended, by session id.
@@ -210,20 +215,26 @@ final class SessionStore {
             .filter { var dir: ObjCBool = false; return FileManager.default.fileExists(atPath: $0, isDirectory: &dir) && dir.boolValue }
     }
 
-    func startSession(in folder: String, remoteControl: Bool = false, name: String = "") {
-        starting = (folder, Date(), nil)
+    /// Starts Claude in a folder, new or as a fork of `source`.
+    func startSession(in folder: String, _ options: SessionLaunch, forking source: Session? = nil) {
+        var launch = options
+        launch.sessionId = UUID().uuidString.lowercased()
+        launch.fork = source?.sessionId
+        starting = (launch.sessionId!, Date(), nil)
+        if let url = source?.transcriptURL { forkedFrom[launch.sessionId!] = url }
         Task {
             do {
-                let terminal = try await Ghostty.newSession(in: folder, remoteControl: remoteControl, name: name)
+                let terminal = try await Ghostty.newSession(in: folder, launch)
                 starting?.terminal = terminal
                 refresh()
+                HUD.show(source.map { "Forking \($0.displayTitle)" } ?? (launch.remoteControl ? "Starting Claude with Remote Control" : "Starting Claude"),
+                         detail: Theme.shortPath(folder),
+                         symbol: source != nil ? "arrow.triangle.branch" : launch.remoteControl ? "iphone.radiowaves.left.and.right" : "plus.circle.fill",
+                         tint: Theme.accent)
                 // A new Ghostty window always takes the focus; you carry on in Deck. Once it has
                 // settled, or Ghostty takes it back.
                 try? await Task.sleep(for: .milliseconds(500))
                 NSApp.activate(ignoringOtherApps: true)
-                HUD.show(remoteControl ? "Starting Claude with Remote Control" : "Starting Claude",
-                         detail: Theme.shortPath(folder),
-                         symbol: remoteControl ? "iphone.radiowaves.left.and.right" : "plus.circle.fill", tint: Theme.accent)
             } catch {
                 starting = nil
                 lastError = error.localizedDescription
@@ -498,11 +509,10 @@ final class SessionStore {
         slots = slots.filter { id, _ in named.live.contains { $0.sessionId == id } }
         let newLive = SessionNav.keepSlots(live: named.live, slots: slots, restarting: restarting)
         if newLive != live { live = newLive }
-        // Select a session we just started once Claude Code registers it.
+        // Select a session we just started (by the id it was given) once Claude Code registers it.
         // Wait for Ghostty to report the new terminal, so the session is bound to it.
         if let start = starting, let terminal = start.terminal {
-            // By start time, not activity: another session in the same folder may be busy.
-            if let s = newLive.first(where: { $0.cwd == start.folder && ($0.startedAt ?? .distantPast) >= start.at.addingTimeInterval(-2) }) {
+            if let s = newLive.first(where: { $0.sessionId == start.sessionId }) {
                 Ghostty.adopt(terminal, for: s.sessionId)
                 selectedId = s.id
                 starting = nil

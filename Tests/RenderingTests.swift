@@ -292,6 +292,8 @@ func textViewTests() {
         expectEqual(links.map(\.1), ["The first line\n\n• one\n\nnested\n\ncode\n\n---", "Last quote"])
         let cell = { (s: String) in AttributedString(s) }
         expectEqual(TranscriptRenderer.plain(Markdown.Block(kind: .table([[cell("a"), cell("b")], [cell("1"), cell("2")]]))), "a\tb\n1\t2")
+        expectEqual(TranscriptRenderer.plain(Markdown.Block(kind: .code("x\n"))), "x")
+        expectEqual(TranscriptRenderer.plain(Markdown.Block(kind: .code("x"))), "x")
         expect(storage.string.components(separatedBy: TranscriptRenderer.copyLabel).count == 3, "one link per quote")
         expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.copyLink, at: links[1].0))
         expectEqual(pb.string(forType: .string), "Last quote")

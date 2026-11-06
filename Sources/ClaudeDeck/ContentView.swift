@@ -148,6 +148,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $store.showNewSession) { NewSessionSheet() }
+        .sheet(item: $store.forkTarget) { NewSessionSheet(forking: $0) }
         .sheet(isPresented: $store.showUsage) { UsageSheet() }
         .sheet(isPresented: $store.showPolicies) { PoliciesSheet() }
         .sheet(isPresented: $store.showRoutines) { RoutinesSheet() }
@@ -266,6 +267,7 @@ extension ContentView {
             Divider()
         }
         Button("Rename…") { store.renameTarget = s }
+        Button("Fork…") { store.forkTarget = s }
         if s.isLive {
             Toggle("Remote Control", isOn: Binding(get: { store.isRemote(s) }, set: { store.setRemote(s, on: $0) }))
             if let url = s.remoteURL {

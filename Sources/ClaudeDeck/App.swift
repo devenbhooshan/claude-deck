@@ -141,6 +141,11 @@ struct SessionCommands: Commands {
             }
             .keyboardShortcut("r", modifiers: .command)
             .disabled(store.selectedId == nil)
+            Button("Fork Session…") {
+                if let s = store.session(store.selectedId) { store.forkTarget = s }
+            }
+            .keyboardShortcut("n", modifiers: [.command, .option])
+            .disabled(store.selectedId == nil)
             Button("Restart Session") {
                 if let s = store.session(store.selectedId), s.isLive, s.status == .idle { store.restart(s) }
             }

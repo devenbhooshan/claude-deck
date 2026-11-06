@@ -13,12 +13,18 @@ enum Safety {
         "'" + s.replacingOccurrences(of: "'", with: #"'\''"#) + "'"
     }
 
-    /// The command a new session starts with. With Remote Control you can also drive it from the
-    /// Claude app or claude.ai; its name is typed into a shell, so it's one quoted line.
-    static func newSessionCommand(remoteControl: Bool, name: String = "") -> String {
-        guard remoteControl else { return "claude" }
-        let name = stripControls(name, keepNewlines: false).trimmingCharacters(in: .whitespaces)
-        return name.isEmpty ? "claude --remote-control" : "claude --remote-control \(shellQuote(name))"
+    /// The command Deck starts Claude with, typed into a shell (so ids must be session ids and the
+    /// name is one quoted line). Nil if an id isn't one.
+    static func launchCommand(_ launch: SessionLaunch) -> String? {
+        for id in [launch.fork, launch.sessionId].compactMap({ $0 }) where !isSessionId(id) { return nil }
+        let name = stripControls(launch.name, keepNewlines: false).trimmingCharacters(in: .whitespaces)
+        var parts = ["claude"]
+        if let fork = launch.fork { parts += ["--resume", fork, "--fork-session"] }
+        if let id = launch.sessionId { parts += ["--session-id", id] }
+        if !name.isEmpty { parts += ["--name", shellQuote(name)] }
+        // Remote Control shows the session under its name in the Claude app.
+        if launch.remoteControl { parts += ["--remote-control"] + (name.isEmpty ? [] : [shellQuote(name)]) }
+        return parts.joined(separator: " ")
     }
 
     /// Removes terminal colour/format escape sequences (ESC [ … letter).
@@ -91,6 +97,17 @@ enum QueuedMessages {
         let rows = queued.reduce(0) { $0 + $1.count / 20 + $1.filter(\.isNewline).count + 1 }
         return "text:" + String(repeating: #"\x15\x7f"#, count: max(200, rows))
     }
+}
+
+/// How Deck starts Claude: a new session, or a fork of one, which starts with a copy of its
+/// conversation while the original carries on unchanged. Both take the same options.
+struct SessionLaunch: Equatable {
+    /// The session to copy, for a fork.
+    var fork: String? = nil
+    /// Chosen up front, so Deck can pick out the new session once it starts.
+    var sessionId: String? = nil
+    var name = ""
+    var remoteControl = false
 }
 
 /// When Deck may answer or type into a session, decided from a fresh read of its record.

@@ -174,14 +174,14 @@ struct SessionDetailView: View {
             guard focus == nil ? model.isWindow : focus?.sessionId == session.sessionId else { return }
             model.stop()
             model = TranscriptModel()
-            model.start(url: session.transcriptURL, focus: focus)
+            model.start(url: transcript, focus: focus)
             if focus?.offset == nil, focus != nil { store.focus = nil }
         }
         .navigationTitle(session.displayTitle)
         .navigationSubtitle(subtitle)
         .toolbar { toolbar }
         .onAppear {
-            model.start(url: session.transcriptURL, focus: store.focus?.sessionId == session.sessionId ? store.focus : nil)
+            model.start(url: transcript, focus: store.focus?.sessionId == session.sessionId ? store.focus : nil)
             // Pointing at a reply is done once; switching back later returns to where you were.
             if store.focus?.sessionId == session.sessionId, store.focus?.offset == nil { store.focus = nil }
             if session.isLive { Task { await Ghostty.prewarm(session) } }
@@ -220,9 +220,19 @@ struct SessionDetailView: View {
         }
         .animation(.snappy, value: session.status)
         .onChange(of: session.status) { model.statusChanged(session.status) }
+        // A new session's file (or a fork's own) appears once you send it something: follow it.
+        .onChange(of: session.transcriptURL) {
+            guard !model.isWindow else { return }
+            model.stop()
+            model = TranscriptModel()
+            model.start(url: transcript)
+        }
         .background(Theme.surface)
         .modifier(AttachmentDrop(attachments: $attachments, enabled: session.isLive))
     }
+
+    /// The session's conversation; for a fork without one yet, the one it copied.
+    private var transcript: URL? { session.transcriptURL ?? store.forkedFrom[session.sessionId] }
 
     private var subtitle: String {
         let status = store.restarting?.session.id == session.id ? "Restarting…"
@@ -248,6 +258,8 @@ struct SessionDetailView: View {
             }
             Menu {
                 Button("Rename…") { store.renameTarget = session }
+                Button("Fork…") { store.forkTarget = session }
+                    .help("Start a new session with a copy of this conversation; this one carries on unchanged")
                 if session.isLive {
                     Button("Restart Session") { store.restart(session) }
                         .disabled(session.status != .idle || store.restarting != nil)
