@@ -217,6 +217,10 @@ final class SessionStore {
                 let terminal = try await Ghostty.newSession(in: folder, remoteControl: remoteControl, name: name)
                 starting?.terminal = terminal
                 refresh()
+                // A new Ghostty window always takes the focus; you carry on in Deck. Once it has
+                // settled, or Ghostty takes it back.
+                try? await Task.sleep(for: .milliseconds(500))
+                NSApp.activate(ignoringOtherApps: true)
                 HUD.show(remoteControl ? "Starting Claude with Remote Control" : "Starting Claude",
                          detail: Theme.shortPath(folder),
                          symbol: remoteControl ? "iphone.radiowaves.left.and.right" : "plus.circle.fill", tint: Theme.accent)
