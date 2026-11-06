@@ -25,8 +25,12 @@ struct NewSessionSheet: View {
                 .contentShape(Rectangle())
                 .pointingHand()
                 .tag(folder)
-                .onTapGesture(count: 2) { start(folder) }
             }
+            // The list's own double-click (and Return): a tap gesture on the row would swallow
+            // the single click that selects it.
+            .contextMenu(forSelectionType: String.self, menu: { _ in }, primaryAction: { folders in
+                if let f = folders.first { start(f) }
+            })
             .frame(minHeight: 220)
             .overlay {
                 if store.projectFolders.isEmpty {
