@@ -57,15 +57,18 @@ struct ContentView: View {
                     HStack {
                         SectionHeader(title: "Coordinator", count: nil, tint: nil)
                         Spacer()
+                        let on = store.focusOnCoordinator
                         Button { store.focusOnCoordinator.toggle() } label: {
-                            Image(systemName: store.focusOnCoordinator ? "bell.badge.fill" : "bell.badge")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(store.focusOnCoordinator ? Theme.accent : .secondary)
+                            Label(on ? "Others Muted" : "Mute Others", systemImage: on ? "bell.slash.fill" : "bell.slash")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 7).padding(.vertical, 2)
+                                .background(Capsule().fill(on ? Theme.accent.opacity(0.18) : Color.primary.opacity(0.06)))
+                                .foregroundStyle(on ? Theme.accent : .secondary)
                         }
                         .buttonStyle(.deckBorderless)
                         .help(store.focusOnCoordinator
-                              ? "Focus is on: you hear only from the coordinator. Click to hear from every session again."
-                              : "Focus: hear only from the coordinator (mutes every other session)")
+                              ? "Only the coordinator counts as unread or makes a sound. Other sessions' prompts still show in the sidebar and Needs You. Click to hear from every session again."
+                              : "Hear only from the coordinator: other sessions' replies stop counting as unread, and their prompts make no banner or sound")
                     }
                 }
             }
@@ -83,6 +86,14 @@ struct ContentView: View {
             } header: {
                 HStack(spacing: 6) {
                     SectionHeader(title: "Running", count: store.live.count, tint: nil)
+                    if store.focusOnCoordinator && store.coordinator != nil {
+                        Text("muted")
+                            .font(.caption2.weight(.semibold))
+                            .padding(.horizontal, 6).padding(.vertical, 1)
+                            .background(Capsule().fill(Color.primary.opacity(0.06)))
+                            .foregroundStyle(.secondary)
+                            .help("You're only hearing from the coordinator")
+                    }
                     if !waiting.isEmpty {
                         Text("\(waiting.count) need\(waiting.count == 1 ? "s" : "") you")
                             .font(.caption2.weight(.semibold))

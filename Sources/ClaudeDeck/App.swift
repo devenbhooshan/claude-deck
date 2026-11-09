@@ -126,7 +126,7 @@ struct SessionCommands: Commands {
             Button("Coordinator") { if let c = store.coordinator { store.selectedId = c.id; store.bringToFront() } }
                 .keyboardShortcut("0", modifiers: .command)
                 .disabled(store.coordinator == nil)
-            Toggle("Focus on Coordinator", isOn: Binding(get: { store.focusOnCoordinator }, set: { store.focusOnCoordinator = $0 }))
+            Toggle("Mute All but Coordinator", isOn: Binding(get: { store.focusOnCoordinator }, set: { store.focusOnCoordinator = $0 }))
                 .disabled(store.coordinatorId == nil)
             Divider()
             Button("Previous Session") { store.select(offset: -1) }
