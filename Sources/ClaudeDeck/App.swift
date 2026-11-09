@@ -42,6 +42,7 @@ struct ClaudeDeckApp: App {
         }
         .defaultSize(width: 1200, height: 780)
         .commands {
+            SidebarCommands()
             SessionCommands(store: store, usage: usage, activity: activity)
             CommandGroup(after: .sidebar) {
                 Picker("Theme", selection: $theme) {
