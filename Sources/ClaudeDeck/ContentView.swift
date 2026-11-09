@@ -51,24 +51,21 @@ struct ContentView: View {
             if let c = store.coordinator, let i = store.live.firstIndex(of: c) {
                 Section {
                     sessionRow(c, number: i + 1)
-                        .modifier(SelectableRow(id: c.id, tint: Theme.accent))
+                        .modifier(SelectableRow(id: c.id))
                         .contextMenu { rowMenu(c) }
                 } header: {
                     HStack {
                         SectionHeader(title: "Coordinator", count: nil, tint: nil)
                         Spacer()
-                        Toggle(isOn: $store.focusOnCoordinator) {
-                            Label("Focus", systemImage: store.focusOnCoordinator ? "bell.badge.fill" : "bell.badge")
-                                .font(.caption)
+                        Button { store.focusOnCoordinator.toggle() } label: {
+                            Image(systemName: store.focusOnCoordinator ? "bell.badge.fill" : "bell.badge")
+                                .font(.caption.weight(.semibold))
                                 .foregroundStyle(store.focusOnCoordinator ? Theme.accent : .secondary)
                         }
-                        .toggleStyle(.switch)
-                        .controlSize(.mini)
-                        .tint(Theme.accent)
-                        .pointingHand()
+                        .buttonStyle(.deckBorderless)
                         .help(store.focusOnCoordinator
-                              ? "Hearing only from the coordinator. Other sessions' replies don't count as unread and their prompts make no banner (they still show here and in Needs You)."
-                              : "Hear only from the coordinator: mute every other session")
+                              ? "Focus is on: you hear only from the coordinator. Click to hear from every session again."
+                              : "Focus: hear only from the coordinator (mutes every other session)")
                     }
                 }
             }
@@ -559,8 +556,6 @@ extension SessionRow where Accessory == EmptyView {
 struct SelectableRow: ViewModifier {
     @Environment(SessionStore.self) private var store
     let id: String
-    /// A row set apart (the coordinator): outlined in this colour. Only the open row is filled.
-    var tint: Color? = nil
     @State private var hovering = false
 
     func body(content: Content) -> some View {
@@ -574,12 +569,6 @@ struct SelectableRow: ViewModifier {
             .listRowBackground(
                 RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
                     .fill(fill)
-                    .overlay {
-                        if let tint {
-                            RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                                .strokeBorder(tint.opacity(0.55), lineWidth: 1)
-                        }
-                    }
                     .padding(.horizontal, 10)
             )
             .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
