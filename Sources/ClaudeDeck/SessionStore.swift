@@ -71,6 +71,25 @@ final class SessionStore {
     }
     var coordinator: Session? { live.first { $0.sessionId == coordinatorId } }
 
+    /// Sessions you've muted: their replies don't count as unread and their prompts make no
+    /// banner or sound (they still show in the sidebar and Needs You, since they're stuck until answered).
+    private(set) var mutedIds = Set(UserDefaults.standard.stringArray(forKey: "mutedSessions") ?? []) {
+        didSet { UserDefaults.standard.set(Array(mutedIds), forKey: "mutedSessions"); updateBadge() }
+    }
+    /// Hear only from the coordinator: every other session is muted.
+    var focusOnCoordinator = UserDefaults.standard.bool(forKey: "focusOnCoordinator") {
+        didSet { UserDefaults.standard.set(focusOnCoordinator, forKey: "focusOnCoordinator"); updateBadge() }
+    }
+
+    func isMuted(_ s: Session) -> Bool {
+        if mutedIds.contains(s.sessionId) { return true }
+        return focusOnCoordinator && coordinatorId != nil && s.sessionId != coordinatorId
+    }
+
+    func setMuted(_ s: Session, _ on: Bool) {
+        if on { mutedIds.insert(s.sessionId) } else { mutedIds.remove(s.sessionId) }
+    }
+
     /// Handoffs you've sent, and handoffs and questions you've dismissed, by key (kept across launches).
     private(set) var sentHandoffs = Set(UserDefaults.standard.stringArray(forKey: "sentHandoffs") ?? []) {
         didSet { UserDefaults.standard.set(Array(sentHandoffs.suffix(300)), forKey: "sentHandoffs") }
@@ -202,7 +221,7 @@ final class SessionStore {
 
     /// Claude's replies you haven't seen in this session.
     func unread(_ s: Session) -> Int {
-        guard s.isLive else { return 0 }
+        guard s.isLive, !isMuted(s) else { return 0 }
         return SessionNav.unread(s, seen: max(seenAt[s.sessionId] ?? countingSince, countingSince))
     }
 
@@ -633,6 +652,7 @@ final class SessionStore {
     }
 
     private func notify(_ s: Session) {
+        guard !isMuted(s) else { return }
         let text = NotificationText(for: s)
         let content = UNMutableNotificationContent()
         content.title = text.title

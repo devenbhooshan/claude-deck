@@ -54,7 +54,22 @@ struct ContentView: View {
                         .modifier(SelectableRow(id: c.id, tint: Theme.accent))
                         .contextMenu { rowMenu(c) }
                 } header: {
-                    SectionHeader(title: "Coordinator", count: nil, tint: nil)
+                    HStack {
+                        SectionHeader(title: "Coordinator", count: nil, tint: nil)
+                        Spacer()
+                        Toggle(isOn: $store.focusOnCoordinator) {
+                            Label("Focus", systemImage: store.focusOnCoordinator ? "bell.badge.fill" : "bell.badge")
+                                .font(.caption)
+                                .foregroundStyle(store.focusOnCoordinator ? Theme.accent : .secondary)
+                        }
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .tint(Theme.accent)
+                        .pointingHand()
+                        .help(store.focusOnCoordinator
+                              ? "Hearing only from the coordinator. Other sessions' replies don't count as unread and their prompts make no banner (they still show here and in Needs You)."
+                              : "Hear only from the coordinator: mute every other session")
+                    }
                 }
             }
             // One fixed list: a session keeps its place and number (⌘1–9) whatever its status.
@@ -296,6 +311,8 @@ extension ContentView {
         if s.isLive {
             Toggle("Coordinator", isOn: Binding(get: { store.coordinatorId == s.sessionId },
                                                 set: { store.coordinatorId = $0 ? s.sessionId : nil }))
+            Toggle("Mute", isOn: Binding(get: { store.mutedIds.contains(s.sessionId) }, set: { store.setMuted(s, $0) }))
+                .disabled(store.focusOnCoordinator && s.sessionId != store.coordinatorId)
             Toggle("Remote Control", isOn: Binding(get: { store.isRemote(s) }, set: { store.setRemote(s, on: $0) }))
             if let url = s.remoteURL {
                 Button("Open on claude.ai") { NSWorkspace.shared.open(url) }
@@ -323,10 +340,12 @@ private struct CoordinationRow: View {
     let help: String
 
     var body: some View {
+        // Lined up with session rows: the number's column, then the icon where the status icon is.
         HStack(spacing: 8) {
+            Color.clear.frame(width: 12, height: 1)
             Image(systemName: systemImage)
                 .foregroundStyle(.secondary)
-                .frame(width: 34, alignment: .trailing)
+                .frame(width: 22)
             Text(title).lineLimit(1)
             Spacer(minLength: 4)
             if let count, count > 0 {
@@ -419,6 +438,12 @@ struct SessionRow<Accessory: View>: View {
                         .font(.body.weight(session.status == .waiting || unread > 0 ? .semibold : .regular))
                         .lineLimit(1)
                     if session.isLive && session.sessionId == store.coordinatorId { CoordinatorBadge() }
+                    if session.isLive && store.isMuted(session) {
+                        Image(systemName: "bell.slash")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .help(store.mutedIds.contains(session.sessionId) ? "Muted" : "Muted while you focus on the coordinator")
+                    }
                     Spacer(minLength: 4)
                     if !session.background.isEmpty && accessory == nil {
                         Image(systemName: session.onlyServers ? "server.rack" : "terminal")
@@ -534,14 +559,13 @@ extension SessionRow where Accessory == EmptyView {
 struct SelectableRow: ViewModifier {
     @Environment(SessionStore.self) private var store
     let id: String
-    /// A row set apart (the coordinator): tinted even when not selected.
+    /// A row set apart (the coordinator): outlined in this colour. Only the open row is filled.
     var tint: Color? = nil
     @State private var hovering = false
 
     func body(content: Content) -> some View {
         let selected = store.selectedId == id
-        let fill: Color = selected ? (tint ?? Theme.accent).opacity(tint == nil ? 0.16 : 0.24)
-            : tint.map { $0.opacity(hovering ? 0.14 : 0.08) } ?? (hovering ? Color.primary.opacity(0.05) : Color.clear)
+        let fill: Color = selected ? Theme.accent.opacity(0.16) : hovering ? Color.primary.opacity(0.05) : Color.clear
         content
             .contentShape(Rectangle())
             .onTapGesture { store.selectedId = id }
@@ -553,7 +577,7 @@ struct SelectableRow: ViewModifier {
                     .overlay {
                         if let tint {
                             RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                                .strokeBorder(tint.opacity(0.4), lineWidth: 1)
+                                .strokeBorder(tint.opacity(0.55), lineWidth: 1)
                         }
                     }
                     .padding(.horizontal, 10)
