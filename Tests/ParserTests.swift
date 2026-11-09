@@ -56,6 +56,8 @@ func parserTests() {
             ["type": "queue-operation", "operation": "enqueue", "content": "fourth"],
             ["type": "queue-operation", "operation": "enqueue"],
             ["type": "queue-operation", "operation": "dequeue"],   // pops the notification
+            ["type": "queue-operation", "operation": "enqueue", "content": "<cross-session-message from=\"a\" hop-chain=\"7af\" from-name=\"w\">hi"],
+            ["type": "queue-operation", "operation": "remove", "content": "<cross-session-message from=\"a\" from-name=\"w\">hi"],
             ["type": "queue-operation", "operation": "remove", "content": "second"],
             ["type": "queue-operation", "operation": "remove", "content": "never-queued"],
             ["type": "queue-operation", "operation": "remove"],
@@ -149,6 +151,7 @@ func parserTests() {
         expect(!p.refresh(), "second refresh with no new data reports no change")
         expectEqual(p.title, "Legacy")
         expectEqual(p.queued, ["fourth"])
+        expectEqual(TranscriptParser.queueKey("<m from=\"a\" hop-chain=\"x1\" n=\"b\">hi"), "<m from=\"a\" n=\"b\">hi")
         var kinds: [String] = []
         for i in p.items {
             switch i.kind {

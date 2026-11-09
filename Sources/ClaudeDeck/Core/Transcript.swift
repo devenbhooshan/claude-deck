@@ -117,6 +117,11 @@ final class TranscriptParser: @unchecked Sendable {
     /// since `dequeue` pops the oldest entry whatever it is).
     private var queue: [String] = []
 
+    /// A queue entry as `remove` names it: without the routing attributes Claude Code adds on enqueue.
+    static func queueKey(_ content: String) -> String {
+        content.replacingOccurrences(of: #" hop-chain="[^"]*""#, with: "", options: .regularExpression)
+    }
+
     /// Messages typed while Claude was busy and not yet picked up.
     var queued: [String] { queue.filter { !$0.hasPrefix("<") } }
     /// How many times the queue was pulled back into the input box (↑ in the terminal).
@@ -237,7 +242,8 @@ final class TranscriptParser: @unchecked Sendable {
                 queue.removeAll()
                 pullBacks += 1
             case "remove":
-                if let content, let i = queue.firstIndex(of: content) { queue.remove(at: i) }
+                // A message from another session is removed without the hop-chain its enqueue had.
+                if let content, let i = queue.firstIndex(where: { Self.queueKey($0) == Self.queueKey(content) }) { queue.remove(at: i) }
             default:
                 break
             }
