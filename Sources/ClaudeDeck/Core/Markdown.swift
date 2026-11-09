@@ -21,6 +21,8 @@ enum Markdown {
         var listDepth = 0
         /// The first paragraph of a list item: "•", "3.", or a task's "☐" / "☑".
         var marker: String? = nil
+        /// A code block's info string (the language, or "send-to <session>").
+        var info: String? = nil
     }
 
     static func parse(_ text: String, parser: (String) throws -> AttributedString = parseFull) -> [Block] {
@@ -62,7 +64,9 @@ enum Markdown {
             var block = Block(kind: .rule)
             switch first.kind {
             case .header(let level): block.kind = .heading(piece, level: level)
-            case .codeBlock: block.kind = .code(String(piece.characters))
+            case .codeBlock(let info):
+                block.kind = .code(String(piece.characters))
+                block.info = info
             case .thematicBreak: block.kind = .rule
             default: block.kind = .paragraph(piece)
             }

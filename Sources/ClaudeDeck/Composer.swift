@@ -19,9 +19,11 @@ struct Composer: View {
 
     var body: some View {
         MessageBox(draft: $draft, attachments: $attachments, draftKey: session.sessionId, placeholder: placeholder,
-                   canSend: !promptOpen, commands: toolbox.commands,
-                   hint: "↩ send · ⇧↩ or ⌘↩ new line · / commands · paste or drop images and files",
-                   sendHelp: promptOpen ? "Answer the prompt first" : "Send (↩)", refocus: refocus, onSend: send) {
+                   canSend: !promptOpen || routed != nil, commands: toolbox.commands, mentions: mentions,
+                   routedTo: routed?.displayTitle,
+                   hint: "↩ send · ⇧↩ or ⌘↩ new line · / commands · @session to send elsewhere · paste or drop files",
+                   sendHelp: routed.map { "Send to \($0.displayTitle) (↩)" } ?? (promptOpen ? "Answer the prompt first" : "Send (↩)"),
+                   refocus: refocus, onSend: send) {
             Button { store.openTerminal(session) } label: {
                 FooterLabel(title: "Open Terminal", systemImage: "apple.terminal")
             }
@@ -35,11 +37,30 @@ struct Composer: View {
         // Switching sessions (click, ⌘K, ⌘1–9, ⌥⌘↑/↓) lands you in the message box.
         .onChange(of: store.selectedId) { refocus += 1 }
         .onChange(of: store.showSwitcher) { if !store.showSwitcher { refocus += 1 } }
-        .onChange(of: store.composerInsert) {
-            guard let insert = store.composerInsert else { return }
-            store.composerInsert = nil
-            draft = draft.isEmpty ? insert : draft + (draft.hasSuffix(" ") ? "" : " ") + insert
-            refocus += 1
+        .onChange(of: store.composerInsert) { takeInsert() }
+        // Opened to edit a handoff: its text arrives with the session (after the saved draft loads).
+        .onAppear { DispatchQueue.main.async { takeInsert() } }
+    }
+
+    private func takeInsert() {
+        guard let insert = store.composerInsert else { return }
+        store.composerInsert = nil
+        draft = draft.isEmpty ? insert : draft + (draft.hasSuffix(" ") ? "" : " ") + insert
+        refocus += 1
+    }
+
+    /// `@name message`: the other running session it goes to instead of this one.
+    private var routed: Session? {
+        guard let (name, _) = SessionAddress.split(draft),
+              let target = SessionAddress.resolve(name, in: store.live), target.id != session.id else { return nil }
+        return target
+    }
+
+    /// The other running sessions, for the menu after a leading "@".
+    private var mentions: [SlashCommand] {
+        store.live.filter { $0.id != session.id }.map {
+            SlashCommand(command: "@" + SessionAddress.token($0.displayTitle), description: $0.status.label,
+                         source: $0.sessionId == store.coordinatorId ? "Coordinator" : $0.projectName)
         }
     }
 
@@ -54,6 +75,18 @@ struct Composer: View {
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         let staged = attachments
+        if let target = routed, let (_, message) = SessionAddress.split(text) {
+            draft = ""
+            attachments = []
+            Task {
+                do { try await store.send(message, attachments: staged, to: target) } catch {
+                    if draft.isEmpty { draft = text }
+                    attachments = staged + attachments
+                    onError(error.localizedDescription)
+                }
+            }
+            return
+        }
         let kind = CommandCatalog.kind(of: text)
         // Commands Deck handles itself (e.g. /usage) never reach the session.
         if kind == .deck && staged.isEmpty {
@@ -100,10 +133,16 @@ struct MessageBox<Footer: View>: View {
     /// False while Claude can't take a message (a dialog is open, a run is working).
     var canSend = true
     var commands: [SlashCommand] = []
+    /// Other sessions, offered after a leading "@".
+    var mentions: [SlashCommand] = []
+    /// The session an `@name` message goes to instead, shown above the box.
+    var routedTo: String? = nil
     let hint: String
     var sendHelp = "Send (↩)"
     /// Changing it puts the cursor back in the box.
     var refocus = 0
+    /// Takes the cursor when it appears (off where several boxes share a screen).
+    var autofocus = true
     let onSend: () -> Void
     @ViewBuilder var footer: () -> Footer
 
@@ -115,7 +154,9 @@ struct MessageBox<Footer: View>: View {
 
     /// Commands matching what's typed after "/", or none when the menu shouldn't show.
     private var menuItems: [SlashCommand] {
-        guard focused, !commands.isEmpty, let q = CommandCatalog.query(in: draft), menuDismissedFor != draft else { return [] }
+        guard focused, menuDismissedFor != draft else { return [] }
+        if let q = SessionAddress.query(in: draft) { return CommandCatalog.matches(q, in: mentions) }
+        guard !commands.isEmpty, let q = CommandCatalog.query(in: draft) else { return [] }
         return CommandCatalog.matches(q, in: commands)
     }
 
@@ -128,6 +169,14 @@ struct MessageBox<Footer: View>: View {
         VStack(spacing: 8) {
             if !menuItems.isEmpty {
                 SlashMenu(items: menuItems, selected: min(menuIndex, menuItems.count - 1)) { accept($0) }
+            }
+            if let routedTo {
+                Label("Sends to \(routedTo), not this session", systemImage: "arrowshape.turn.up.right.fill")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(Theme.accent)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .help("A message starting with @\(SessionAddress.token(routedTo)) is typed into that session as you")
             }
             inputBox
         }
@@ -155,7 +204,7 @@ struct MessageBox<Footer: View>: View {
             let saved = Drafts.draft(for: draftKey)
             draft = saved.text
             attachments = saved.files.compactMap(AttachmentStore.restore)
-            focusSoon()
+            if autofocus { focusSoon() }
             installKeyMonitor()
         }
         .onChange(of: refocus) { focusSoon() }

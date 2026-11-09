@@ -36,11 +36,13 @@ struct TranscriptContent {
     var focus: String? = nil
     /// There's earlier history in the file than what's shown; it loads as you scroll up.
     var hasEarlier = false
+    /// Handoffs you've sent (their keys), shown as sent.
+    var sentHandoffs: Set<String> = []
 
     /// Cheap fingerprint so the text is only rebuilt when something visible changed.
     var signature: String {
         "\(blocks.count)|\(blocks.first?.id ?? "")|\(hasEarlier)|\(blocks.last?.id ?? "")|\(lastToolCount)|\(results.count)|\(queued.joined(separator: "\u{1}"))|"
-            + "\(outgoing.map { "\($0.id)\($0.delivered)" }.joined())|\(status)|\(openToolId ?? "")|\(loaded)|\(focus ?? "")"
+            + "\(outgoing.map { "\($0.id)\($0.delivered)" }.joined())|\(status)|\(openToolId ?? "")|\(loaded)|\(focus ?? "")|\(sentHandoffs.count)"
     }
 
     private var lastToolCount: Int {
@@ -117,6 +119,8 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
     /// Called when you scroll to the top and there's earlier history to load.
     var onReachTop: (() -> Void)?
     var onRemoveQueued: ((String) -> Void)?
+    /// A handoff card's Send (false) or Edit First (true).
+    var onHandoff: ((Handoff, _ edit: Bool) -> Void)?
     private var firstBlockId: String?
     private var expanded: Set<String> = []
     private var lastSignature = ""
@@ -211,7 +215,8 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
         let fromBottom = tv.frame.height - origin.y
         firstBlockId = content.blocks.first?.id
 
-        let text = TranscriptRenderer(width: tv.columnWidth, cwd: content.cwd, expanded: expanded).render(content)
+        let text = TranscriptRenderer(width: tv.columnWidth, cwd: content.cwd, expanded: expanded,
+                                      sent: content.sentHandoffs).render(content)
         tv.textStorage?.setAttributedString(text)
         if selection.length > 0, NSMaxRange(selection) <= text.length { tv.setSelectedRange(selection) }
 
@@ -316,6 +321,13 @@ class TranscriptTextController: NSObject, NSTextViewDelegate {
             copyBlock(in: textView, at: charIndex)
             return true
         }
+        if url.scheme == "deck", url.host == "handoff" {
+            if let storage = textView.textStorage, charIndex < storage.length,
+               let h = storage.attribute(TranscriptRenderer.handoffKey, at: charIndex, effectiveRange: nil) as? Handoff {
+                onHandoff?(h, url.lastPathComponent == "edit")
+            }
+            return true
+        }
         if url.scheme == "deck", url.host == "queued" {
             if let i = Int(url.lastPathComponent), let queued = content?.queued, queued.indices.contains(i) { onRemoveQueued?(queued[i]) }
             return true
@@ -412,6 +424,7 @@ struct TranscriptRenderer {
     let width: CGFloat
     let cwd: String
     let expanded: Set<String>
+    var sent: Set<String> = []
 
     private static let bodyFont = NSFont.systemFont(ofSize: 13.5)
     private static let monoFont = NSFont.monospacedSystemFont(ofSize: 12, weight: .regular)
@@ -678,6 +691,10 @@ struct TranscriptRenderer {
                 }
                 out.append(inline)
                 out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
+            case .code(let code) where quotes.isEmpty && Handoff.target(info: block.info) != nil:
+                if first { out.append(marker()) }
+                let text = code.trimmingCharacters(in: .whitespacesAndNewlines)
+                out.append(handoffCard(Handoff(target: Handoff.target(info: block.info)!, text: text), spacingBefore: first ? 0 : 8))
             case .code(let code):
                 if first { out.append(marker()) }
                 // A quote's own link already copies the code inside it.
@@ -757,6 +774,50 @@ struct TranscriptRenderer {
             .font: NSFont.systemFont(ofSize: 13, weight: .bold), .foregroundColor: accent,
             .paragraphStyle: paragraph { $0.paragraphSpacingBefore = 16 },
         ])
+    }
+
+    /// A message drafted for another session: who it's for, the exact text, and Send / Edit First.
+    /// Nothing goes until you click, and text that would run a command can only be copied.
+    private func handoffCard(_ h: Handoff, spacingBefore: CGFloat) -> NSAttributedString {
+        let block = RoundedTextBlock()
+        block.fill = accent.withAlphaComponent(0.06)
+        block.stroke = accent.withAlphaComponent(0.35)
+        block.radius = Palette.Radius.medium
+        block.setWidth(12, type: .absoluteValueType, for: .padding)
+        block.setContentWidth(width - indent - 24, type: .absoluteValueType)
+        block.setWidth(indent, type: .absoluteValueType, for: .margin, edge: .minX)
+        block.setWidth(max(spacingBefore, 6), type: .absoluteValueType, for: .margin, edge: .minY)
+        block.setWidth(6, type: .absoluteValueType, for: .margin, edge: .maxY)
+        let header = paragraph { $0.textBlocks = [block]; $0.paragraphSpacing = 6 }
+        let body = paragraph { $0.textBlocks = [block]; $0.paragraphSpacing = 8; $0.lineSpacing = 2 }
+        let actions = paragraph { $0.textBlocks = [block]; $0.paragraphSpacing = 0 }
+        let small = NSFont.systemFont(ofSize: 12)
+        let out = NSMutableAttributedString(string: "➤ For \(h.target)\n", attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: accent, .paragraphStyle: header,
+        ])
+        out.append(NSAttributedString(string: h.text + "\n", attributes: [
+            .font: self.body, .foregroundColor: NSColor.labelColor, .paragraphStyle: body,
+        ]))
+        func action(_ label: String, _ url: URL?, tip: String, color: NSColor, weight: NSFont.Weight = .regular) {
+            var attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: weight), .foregroundColor: color,
+                                                        .paragraphStyle: actions, .toolTip: tip, Self.handoffKey: h]
+            if let url { attrs[.link] = url }
+            out.append(NSAttributedString(string: label, attributes: attrs))
+            out.append(NSAttributedString(string: "     ", attributes: [.font: small, .paragraphStyle: actions]))
+        }
+        if !h.isTypeable {
+            action("Deck won't type this: it would run as a command", nil, tip: "Text from another session can't start with / or !",
+                   color: NSColor.secondaryLabelColor)
+        } else if sent.contains(h.key) {
+            action("✓ Sent to \(h.target)", nil, tip: "You sent this", color: Palette.success, weight: .medium)
+            action("Send Again", Self.handoffSend, tip: "Type it into \(h.target) again", color: NSColor.secondaryLabelColor)
+        } else {
+            action("Send to \(h.target)", Self.handoffSend, tip: "Type this into \(h.target) as you", color: accent, weight: .semibold)
+            action("Edit First", Self.handoffEdit, tip: "Put it in the message box, addressed to \(h.target), to change before sending",
+                   color: NSColor.secondaryLabelColor)
+        }
+        out.append(copyLine(Self.copyCodeLabel, tip: "Copy the message", text: h.text, style: actions))
+        return out
     }
 
     private func codeBlock(_ code: String, spacingBefore: CGFloat, copyable: Bool = true) -> NSAttributedString {
@@ -1060,6 +1121,10 @@ struct TranscriptRenderer {
     /// A queued message's link to take it back out.
     static func queuedLink(_ index: Int) -> URL { URL(string: "deck://queued/\(index)")! }
     static let removeLabel = "Remove"
+    /// A handoff card's actions, and the handoff they act on.
+    static let handoffSend = URL(string: "deck://handoff/send")!
+    static let handoffEdit = URL(string: "deck://handoff/edit")!
+    static let handoffKey = NSAttributedString.Key("deckHandoff")
 
     private static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 

@@ -115,7 +115,10 @@ struct TranscriptTextView: NSViewRepresentable {
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        var content = content
+        content.sentHandoffs = store.sentHandoffs
         context.coordinator.content = content
+        context.coordinator.onHandoff = { [store] h, edit in edit ? store.editHandoff(h) : store.sendHandoff(h) }
         context.coordinator.placeKey = placeKey
         context.coordinator.onReachTop = onReachTop
         context.coordinator.onRemoveQueued = onRemoveQueued

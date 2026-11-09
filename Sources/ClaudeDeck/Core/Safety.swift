@@ -24,6 +24,7 @@ enum Safety {
         if !name.isEmpty { parts += ["--name", shellQuote(name)] }
         // Remote Control shows the session under its name in the Claude app.
         if launch.remoteControl { parts += ["--remote-control"] + (name.isEmpty ? [] : [shellQuote(name)]) }
+        for dir in launch.addDirs { parts += ["--add-dir", shellQuote(dir)] }
         return parts.joined(separator: " ")
     }
 
@@ -46,7 +47,8 @@ enum Safety {
     /// The command that brings a session back after a restart: `claude --resume <id>`, keeping
     /// only well-known launch flags from how it was started (values limited to plain words), so
     /// nothing from the old command line can inject shell syntax.
-    static func resumeCommand(sessionId: String, originalArgs: [String]) -> String? {
+    /// `addDirs` are folders it may also read (Deck's attachments), quoted.
+    static func resumeCommand(sessionId: String, originalArgs: [String], addDirs: [String] = []) -> String? {
         guard isSessionId(sessionId) else { return nil }
         let switches: Set<String> = ["--dangerously-skip-permissions", "--allow-dangerously-skip-permissions",
                                      "--verbose", "--chrome", "--ide"]
@@ -66,7 +68,7 @@ enum Safety {
             }
             i += 1
         }
-        return (["claude", "--resume", sessionId] + kept).joined(separator: " ")
+        return (["claude", "--resume", sessionId] + kept + addDirs.flatMap { ["--add-dir", shellQuote($0)] }).joined(separator: " ")
     }
 
     static func typedTextAction(_ message: String) -> String {
@@ -108,6 +110,8 @@ struct SessionLaunch: Equatable {
     var sessionId: String? = nil
     var name = ""
     var remoteControl = false
+    /// Folders it may also read: Deck's attachments, so it can open the images and files you send.
+    var addDirs: [String] = []
 }
 
 /// When Deck may answer or type into a session, decided from a fresh read of its record.

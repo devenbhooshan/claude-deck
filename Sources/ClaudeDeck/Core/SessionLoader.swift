@@ -24,7 +24,7 @@ enum SessionLoader {
                   let rec = try? JSONDecoder().decode(SessionRecord.self, from: data),
                   !rec.isHeadless, alive(rec.pid) else { continue }
             let transcript = ClaudePaths.transcript(for: rec.sessionId, cwd: rec.cwd)
-            let (title, update, replies, replyTexts) = details(for: transcript, cache: cache)
+            let (title, update, info) = details(for: transcript, cache: cache)
             if let transcript, let update { updates[transcript.path] = update }
             var background: [BackgroundTask] = []
             if rec.status == "shell" {
@@ -43,7 +43,7 @@ enum SessionLoader {
                 updatedAt: Date(timeIntervalSince1970: (rec.updatedAt ?? rec.startedAt ?? 0) / 1000),
                 transcriptURL: transcript,
                 statusSince: rec.statusUpdatedAt.map { Date(timeIntervalSince1970: $0 / 1000) },
-                startedAt: rec.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) }, background: background, replies: replies, replyTexts: replyTexts,
+                startedAt: rec.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) }, background: background, replies: info.replies, replyTexts: info.replyTexts, handoffs: info.handoffs,
                 remoteId: rec.bridgeSessionId)
             // Only trust a captured request made around the time this prompt opened.
             if status == .waiting, let req = requests[rec.sessionId],
@@ -89,19 +89,22 @@ enum SessionLoader {
     }
 
     static func title(for url: URL?, cache: [String: TitleInfo]) -> (String?, TitleInfo?) {
-        let (title, info, _, _) = details(for: url, cache: cache)
+        let (title, info, _) = details(for: url, cache: cache)
         return (title, info)
     }
 
     /// The session's title, Claude's replies since your last message and their text, from
     /// the transcript's tail (re-read only when the file changed; the info is nil when the cache was used).
-    static func details(for url: URL?, cache: [String: TitleInfo]) -> (String?, TitleInfo?, [Date], [String]) {
+    typealias Replies = (replies: [Date], replyTexts: [String], handoffs: [Handoff])
+
+    static func details(for url: URL?, cache: [String: TitleInfo]) -> (String?, TitleInfo?, Replies) {
         guard let url,
-              let mtime = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { return (nil, nil, [], []) }
-        if let hit = cache[url.path], hit.mtime == mtime { return (hit.title, nil, hit.replies, hit.replyTexts) }
+              let mtime = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { return (nil, nil, ([], [], [])) }
+        if let hit = cache[url.path], hit.mtime == mtime { return (hit.title, nil, (hit.replies, hit.replyTexts, hit.handoffs)) }
         let (lines, _) = TailReader.read(url, from: nil, maxBytes: 256_000)
         let replies = Self.replies(in: lines)
         let replyTexts = Self.replyTexts(in: lines)
+        let handoffs = Self.handoffs(in: lines)
         var custom: String?
         var auto: String?
         for line in lines.reversed() {
@@ -116,7 +119,7 @@ enum SessionLoader {
         if custom == nil, let cached = cache[url.path]?.title, cache[url.path]?.isCustom == true { title = cached }
         if title == nil { title = cache[url.path]?.title }
         return (title, TitleInfo(mtime: mtime, title: title, isCustom: custom != nil || cache[url.path]?.isCustom == true,
-                                 replies: replies, replyTexts: replyTexts), replies, replyTexts)
+                                 replies: replies, replyTexts: replyTexts, handoffs: handoffs), (replies, replyTexts, handoffs))
     }
 
     /// When Claude wrote each reply (a message with text, not just tool calls) after the last thing
@@ -132,6 +135,9 @@ enum SessionLoader {
                 .replacingOccurrences(of: #"\*\*|__|`|~~"#, with: "", options: .regularExpression)
         }
     }
+
+    /// Messages Claude's replies since your last message drafted for other sessions.
+    static func handoffs(in lines: [Data]) -> [Handoff] { scanReplies(lines).flatMap { Handoff.all(in: $0.text) } }
 
     /// The newest reply on one line (for a preview), or nil when there are none.
     static func lastReply(in lines: [Data]) -> String? { replyTexts(in: lines).last.map(oneLine) }
@@ -155,7 +161,7 @@ enum SessionLoader {
             case "assistant":
                 let said = texts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
                 if !said.isEmpty, let at = (obj["timestamp"] as? String).flatMap(ISO8601DateFormatter.withFractions.date(from:)) {
-                    out.append((at, said.joined(separator: " ")))
+                    out.append((at, said.joined(separator: "\n\n")))
                 }
             default: break
             }

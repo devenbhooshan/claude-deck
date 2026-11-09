@@ -119,6 +119,13 @@ struct SessionCommands: Commands {
                 .keyboardShortcut("k", modifiers: .command)
             Button("Next Session Needing You") { store.selectNextWaiting() }
                 .keyboardShortcut("j", modifiers: .command)
+            Button("Needs You") { store.selectedId = SessionStore.inboxId; store.bringToFront() }
+                .keyboardShortcut("i", modifiers: [.command, .shift])
+            Button("Messages Between Sessions") { store.selectedId = SessionStore.commsId; store.bringToFront() }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+            Button("Coordinator") { if let c = store.coordinator { store.selectedId = c.id; store.bringToFront() } }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(store.coordinator == nil)
             Divider()
             Button("Previous Session") { store.select(offset: -1) }
                 .keyboardShortcut(.upArrow, modifiers: [.command, .option])

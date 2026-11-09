@@ -77,6 +77,8 @@ struct Session: Identifiable, Equatable {
     var replyTexts: [String] = []
     /// The newest reply, on one line.
     var lastReply: String? { replyTexts.last.map(SessionLoader.oneLine) }
+    /// Messages those replies drafted for you to send to other sessions.
+    var handoffs: [Handoff] = []
     /// The claude.ai session it's connected to with Remote Control, if it is.
     var remoteId: String? = nil
 
@@ -177,6 +179,7 @@ struct TitleInfo: Equatable {
     /// When Claude wrote each reply since your last message (for unread counts).
     var replies: [Date] = []
     var replyTexts: [String] = []
+    var handoffs: [Handoff] = []
 }
 
 /// A message just sent from Deck, shown until the transcript catches up.

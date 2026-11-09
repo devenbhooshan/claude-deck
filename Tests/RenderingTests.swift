@@ -34,7 +34,7 @@ func toolStyleTests() {
         expect(a.signature.hasPrefix("0||false||0|"))
         let call = ToolCall(id: "t", name: "Bash", summary: "ls")
         let b = content([.tools([call, call])], openToolId: "t")
-        expect(b.signature.contains("|2|") && b.signature.hasSuffix("t|true|"))
+        expect(b.signature.contains("|2|") && b.signature.hasSuffix("t|true||0"))
         expect(content([.item(item(.assistant("x"), "i"))]).signature != a.signature)
     }
 }
@@ -319,6 +319,35 @@ func textViewTests() {
         expect(!tv.textStorage!.string.contains(TranscriptRenderer.removeLabel))
         expectEqual(pb.string(forType: .string), "Last quote") // no quote there
         pb.releaseGlobally()
+    }
+    test("a handoff block is a card you send with one click") {
+        let ctl = TranscriptTextController(openURL: { _ in false })
+        let tv = ColumnTextView(frame: .zero)
+        tv.setFrameSize(NSSize(width: 900, height: 600))
+        ctl.textView = tv
+        var clicked: [(Handoff, Bool)] = []
+        ctl.onHandoff = { clicked.append(($0, $1)) }
+        let md = "```send-to supergrow\nMerge #234\n```\n\nAlso:\n\n```send-to nook\n/exit\n```\n\n```send-to content\npick 2\n```"
+        var c = content([.item(item(.assistant(md)))])
+        c.sentHandoffs = [Handoff(target: "content", text: "pick 2").key]
+        ctl.content = c
+        ctl.render(force: true)
+        let storage = tv.textStorage!
+        let text = storage.string
+        for s in ["➤ For supergrow", "Merge #234", "Send to supergrow", "Edit First", "Deck won't type this", "✓ Sent to content", "Send Again"] {
+            expect(text.contains(s), s)
+        }
+        draw(storage)
+        func at(_ label: String) -> Int { (text as NSString).range(of: label).location }
+        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffSend, at: at("Send to supergrow")))
+        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffEdit, at: at("Edit First")))
+        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffSend, at: at("➤ For supergrow") + storage.length))
+        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffSend, at: 0))
+        expectEqual(clicked.map(\.0.text), ["Merge #234", "Merge #234"])
+        expectEqual(clicked.map(\.1), [false, true])
+        // Starting a reply with one.
+        let first = TranscriptRenderer(width: 700, cwd: "", expanded: []).render(content([.item(item(.assistant("```send-to x\ngo\n```")))]))
+        expect(first.string.hasPrefix("✦\n➤ For x"))
     }
     test("a code block copies with one click") {
         let ctl = TranscriptTextController(openURL: { _ in false })

@@ -55,6 +55,88 @@ final class SessionStore {
     /// Names you've just set, shown until the transcript records them.
     private var pendingNames: [String: String] = [:]
     var hookInstalled = PendingRequests.isInstalled
+    /// Messages sessions sent each other, and you sent from Deck.
+    let comms = CommsStore()
+
+    // MARK: Coordinating sessions
+
+    /// Sidebar ids of the Needs You list and the messages between sessions.
+    static let inboxId = "deck:inbox"
+    static let commsId = "deck:comms"
+
+    /// The session that coordinates the others (your chief of staff): marked in the sidebar,
+    /// ⌘0 opens it, and its handoffs come first in Needs You.
+    var coordinatorId: String? = UserDefaults.standard.string(forKey: "coordinatorId") {
+        didSet { UserDefaults.standard.set(coordinatorId, forKey: "coordinatorId") }
+    }
+    var coordinator: Session? { live.first { $0.sessionId == coordinatorId } }
+
+    /// Handoffs you've sent, and handoffs and questions you've dismissed, by key (kept across launches).
+    private(set) var sentHandoffs = Set(UserDefaults.standard.stringArray(forKey: "sentHandoffs") ?? []) {
+        didSet { UserDefaults.standard.set(Array(sentHandoffs.suffix(300)), forKey: "sentHandoffs") }
+    }
+    private(set) var dismissed = Set(UserDefaults.standard.stringArray(forKey: "dismissedInbox") ?? []) {
+        didSet { UserDefaults.standard.set(Array(dismissed.suffix(300)), forKey: "dismissedInbox") }
+    }
+    /// A handoff you're editing before sending: sent once you send it to its session.
+    private var editing: Handoff?
+
+    /// Everything waiting on you, across sessions.
+    var inbox: [Inbox.Item] {
+        Inbox.items(live: live, sent: sentHandoffs, dismissed: dismissed, coordinator: coordinatorId, isAnswered: isAnswered)
+    }
+
+    func dismiss(_ item: Inbox.Item) {
+        switch item {
+        case .handoff(_, let h): dismissed.insert(h.key)
+        case .question(let s, _): dismissed.insert(Inbox.questionKey(s))
+        case .prompt: break
+        }
+        updateBadge()
+    }
+
+    /// Types a message into another session as you, as its own message box would.
+    func send(_ text: String, attachments: [Attachment] = [], to target: Session) async throws {
+        let message = AttachmentStore.message(text, files: attachments.filter { !$0.isImage })
+        try await Ghostty.send(text: message, images: attachments.filter(\.isImage).map(\.url), to: target)
+        comms.record(CommsMessage(from: "You", to: target.displayTitle, summary: nil, text: message, at: Date()))
+        if let h = editing, SessionAddress.token(h.target) == SessionAddress.token(target.displayTitle) {
+            sentHandoffs.insert(h.key)
+            editing = nil
+        }
+        HUD.show("Sent to \(target.displayTitle)", detail: SessionLoader.oneLine(text), symbol: "paperplane.fill", tint: Theme.accent)
+        updateBadge()
+    }
+
+    /// A handoff card's Send: types its text into the session it names, once you click.
+    func sendHandoff(_ h: Handoff) {
+        guard h.isTypeable else { return }
+        guard let target = SessionAddress.resolve(h.target, in: live) else {
+            lastError = "There's no running session called \u{201C}\(h.target)\u{201D}. Copy the message, or rename the session to match."
+            return
+        }
+        Task {
+            do {
+                try await send(h.text, to: target)
+                sentHandoffs.insert(h.key)
+                updateBadge()
+            } catch { lastError = error.localizedDescription }
+        }
+    }
+
+    /// A handoff card's Edit First: into the open message box, addressed to its session, or
+    /// (from Needs You) into that session's own message box.
+    func editHandoff(_ h: Handoff) {
+        editing = h
+        if let open = session(selectedId), open.isLive, SessionAddress.resolve(h.target, in: live)?.id != open.id {
+            composerInsert = "@\(SessionAddress.token(h.target)) \(h.text)"
+        } else if let target = SessionAddress.resolve(h.target, in: live) {
+            selectedId = target.id
+            composerInsert = h.text
+        } else {
+            lastError = "There's no running session called \u{201C}\(h.target)\u{201D}."
+        }
+    }
 
     func installHook() {
         do {
@@ -533,6 +615,7 @@ final class SessionStore {
         }
         markSeen()
         updateBadge()
+        comms.refresh(sessions: newLive)
     }
 
     private func syncRecordWatchers(_ pids: Set<Int32>) {

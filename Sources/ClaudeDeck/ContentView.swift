@@ -14,6 +14,10 @@ struct ContentView: View {
         } detail: {
             if let s = store.session(store.selectedId) {
                 SessionDetailView(session: s).id(s.id)
+            } else if store.selectedId == SessionStore.inboxId {
+                InboxView()
+            } else if store.selectedId == SessionStore.commsId {
+                CommsView()
             } else if let id = store.selectedId, id.hasPrefix("routine:"), store.routines.routine(String(id.dropFirst(8))) != nil {
                 RoutineDetailView(routineId: String(id.dropFirst(8))).id(id)
             } else {
@@ -35,20 +39,32 @@ struct ContentView: View {
         // Selection is drawn by Deck, not the system list: the system highlight switches from the
         // accent colour to grey when focus moves to the message box, which made the row flicker.
         return List {
+            Section {
+                CoordinationRow(title: "Needs You", systemImage: "tray.full", count: store.inbox.count, tint: Theme.waiting,
+                                help: "Prompts, questions and messages drafted for other sessions, answered in one place (⇧⌘I)")
+                    .modifier(SelectableRow(id: SessionStore.inboxId))
+                CoordinationRow(title: "Messages Between Sessions", systemImage: "bubble.left.and.bubble.right", count: nil, tint: nil,
+                                help: "Everything sessions sent each other, and you sent from Deck (⇧⌘M)")
+                    .modifier(SelectableRow(id: SessionStore.commsId))
+            }
+            // The coordinator in its own section, set apart; it keeps its ⌘ number.
+            if let c = store.coordinator, let i = store.live.firstIndex(of: c) {
+                Section {
+                    sessionRow(c, number: i + 1)
+                        .modifier(SelectableRow(id: c.id, tint: Theme.accent))
+                        .contextMenu { rowMenu(c) }
+                } header: {
+                    SectionHeader(title: "Coordinator", count: nil, tint: nil)
+                }
+            }
             // One fixed list: a session keeps its place and number (⌘1–9) whatever its status.
             // Sessions waiting on you stay put and show Allow / Deny in place.
             Section {
                 if store.live.isEmpty {
                     Text("No running sessions").foregroundStyle(.tertiary).font(.callout)
                 }
-                ForEach(Array(store.live.enumerated()), id: \.element.id) { i, s in
-                    Group {
-                        if s.status == .waiting {
-                            ApprovalRow(session: s, number: i + 1)
-                        } else {
-                            SessionRow(session: s, number: i + 1)
-                        }
-                    }
+                ForEach(Array(store.live.enumerated()).filter { $0.element.sessionId != store.coordinatorId }, id: \.element.id) { i, s in
+                    sessionRow(s, number: i + 1)
                     .modifier(SelectableRow(id: s.id))
                     .contextMenu { rowMenu(s) }
                 }
@@ -259,6 +275,15 @@ private struct Dialogs: ViewModifier {
 
 extension ContentView {
     @ViewBuilder
+    func sessionRow(_ s: Session, number: Int) -> some View {
+        if s.status == .waiting {
+            ApprovalRow(session: s, number: number)
+        } else {
+            SessionRow(session: s, number: number)
+        }
+    }
+
+    @ViewBuilder
     func rowMenu(_ s: Session) -> some View {
         if s.status == .waiting && PromptGuard.canAnswerHere(s) && !store.isAnswered(s) {
             Button("Allow") { store.respond(s, key: "enter") }
@@ -269,6 +294,8 @@ extension ContentView {
         Button("Rename…") { store.renameTarget = s }
         Button("Fork…") { store.forkTarget = s }
         if s.isLive {
+            Toggle("Coordinator", isOn: Binding(get: { store.coordinatorId == s.sessionId },
+                                                set: { store.coordinatorId = $0 ? s.sessionId : nil }))
             Toggle("Remote Control", isOn: Binding(get: { store.isRemote(s) }, set: { store.setRemote(s, on: $0) }))
             if let url = s.remoteURL {
                 Button("Open on claude.ai") { NSWorkspace.shared.open(url) }
@@ -284,6 +311,34 @@ extension ContentView {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(s.sessionId, forType: .string)
         }
+    }
+}
+
+/// A sidebar row for one of Deck's own views (Needs You, messages between sessions).
+private struct CoordinationRow: View {
+    let title: String
+    let systemImage: String
+    let count: Int?
+    let tint: Color?
+    let help: String
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: systemImage)
+                .foregroundStyle(.secondary)
+                .frame(width: 34, alignment: .trailing)
+            Text(title).lineLimit(1)
+            Spacer(minLength: 4)
+            if let count, count > 0 {
+                Text("\(count)")
+                    .font(.caption2.weight(.bold)).monospacedDigit()
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6).padding(.vertical, 1)
+                    .background(Capsule().fill(tint ?? Theme.accent))
+            }
+        }
+        .padding(.vertical, 3)
+        .help(help)
     }
 }
 
@@ -363,6 +418,7 @@ struct SessionRow<Accessory: View>: View {
                     Text(session.displayTitle)
                         .font(.body.weight(session.status == .waiting || unread > 0 ? .semibold : .regular))
                         .lineLimit(1)
+                    if session.isLive && session.sessionId == store.coordinatorId { CoordinatorBadge() }
                     Spacer(minLength: 4)
                     if !session.background.isEmpty && accessory == nil {
                         Image(systemName: session.onlyServers ? "server.rack" : "terminal")
@@ -478,10 +534,14 @@ extension SessionRow where Accessory == EmptyView {
 struct SelectableRow: ViewModifier {
     @Environment(SessionStore.self) private var store
     let id: String
+    /// A row set apart (the coordinator): tinted even when not selected.
+    var tint: Color? = nil
     @State private var hovering = false
 
     func body(content: Content) -> some View {
         let selected = store.selectedId == id
+        let fill: Color = selected ? (tint ?? Theme.accent).opacity(tint == nil ? 0.16 : 0.24)
+            : tint.map { $0.opacity(hovering ? 0.14 : 0.08) } ?? (hovering ? Color.primary.opacity(0.05) : Color.clear)
         content
             .contentShape(Rectangle())
             .onTapGesture { store.selectedId = id }
@@ -489,7 +549,13 @@ struct SelectableRow: ViewModifier {
             .pointingHand()
             .listRowBackground(
                 RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
-                    .fill(selected ? Theme.accent.opacity(0.16) : hovering ? Color.primary.opacity(0.05) : Color.clear)
+                    .fill(fill)
+                    .overlay {
+                        if let tint {
+                            RoundedRectangle(cornerRadius: Theme.Radius.small, style: .continuous)
+                                .strokeBorder(tint.opacity(0.4), lineWidth: 1)
+                        }
+                    }
                     .padding(.horizontal, 10)
             )
             .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)

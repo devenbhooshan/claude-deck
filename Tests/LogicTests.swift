@@ -237,6 +237,7 @@ func safetyTests() {
     test("resume command keeps only plain, known flags") {
         let id = "0f8fad5b-d9cb-469f-a165-70867728950e"
         expectEqual(Safety.resumeCommand(sessionId: id, originalArgs: ["claude"]), "claude --resume \(id)")
+        expectEqual(Safety.resumeCommand(sessionId: id, originalArgs: [], addDirs: ["/x's"]), "claude --resume \(id) --add-dir '/x'\\''s'")
         expectEqual(Safety.resumeCommand(sessionId: id, originalArgs: [
             "claude", "--dangerously-skip-permissions", "--model", "opus[1m]", "--permission-mode=plan",
             "--resume", "old", "--settings", "x.json", "--verbose"]),
@@ -254,6 +255,7 @@ func safetyTests() {
         expectEqual(Safety.shellQuote("plain"), "'plain'")
         expectEqual(Safety.shellQuote("it's $(x)"), #"'it'\''s $(x)'"#)
         expectEqual(Safety.launchCommand(SessionLaunch()), "claude")
+        expectEqual(Safety.launchCommand(SessionLaunch(addDirs: ["/a b/c"])), "claude --add-dir '/a b/c'")
         expectEqual(Safety.launchCommand(SessionLaunch(name: "x")), "claude --name 'x'")
         expectEqual(Safety.launchCommand(SessionLaunch(remoteControl: true)), "claude --remote-control")
         expectEqual(Safety.launchCommand(SessionLaunch(name: "  \n ", remoteControl: true)), "claude --remote-control")

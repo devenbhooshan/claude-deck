@@ -198,7 +198,7 @@ enum Ghostty {
     /// the same shell (keeping its well-known launch flags).
     static func restart(_ session: Session) async throws {
         guard let pid = session.pid, PromptGuard.canRestart(SessionLoader.record(pid: pid)) else { throw Failure.notIdle }
-        guard let command = Safety.resumeCommand(sessionId: session.sessionId, originalArgs: arguments(of: pid))
+        guard let command = Safety.resumeCommand(sessionId: session.sessionId, originalArgs: arguments(of: pid), addDirs: readable)
         else { throw Failure.invalidSession }
         try await send(text: "/exit", to: session)
         let id = try await terminalId(for: session)
@@ -292,16 +292,24 @@ enum Ghostty {
     }
 
     /// Opens a new Ghostty window that resumes an ended session.
+    /// Folders every session Deck starts may read: its attachments, so Claude can open the
+    /// screenshots and files you send without asking for the folder first.
+    private static var readable: [String] { [AttachmentStore.dir.path] }
+
     static func resume(_ session: Session) async throws {
         // The id is typed into a shell, so it must be exactly a session id.
         guard Safety.isSessionId(session.sessionId) else { throw Failure.invalidSession }
-        let id = try await openWindow(in: session.cwd, typing: "claude --resume \(session.sessionId)")
+        guard let command = Safety.resumeCommand(sessionId: session.sessionId, originalArgs: [], addDirs: readable)
+        else { throw Failure.invalidSession }
+        let id = try await openWindow(in: session.cwd, typing: command)
         adopt(id, for: session.sessionId)
     }
 
     /// Opens a new Ghostty window in `folder` and starts Claude Code there, new or forked, with the
     /// options asked for. Returns the new terminal's id, to `adopt` once the session appears.
     static func newSession(in folder: String, _ launch: SessionLaunch) async throws -> String {
+        var launch = launch
+        launch.addDirs = readable
         guard let command = Safety.launchCommand(launch) else { throw Failure.invalidSession }
         return try await openWindow(in: folder, typing: command)
     }
