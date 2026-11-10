@@ -322,17 +322,27 @@ struct TaskBoardPanel: View {
     }
 
     private func list(_ board: TaskBoard) -> some View {
-        let open = board.items.filter { $0.state != .done }
         let done = board.items.filter { $0.state == .done }
+        let states = TaskItem.State.allCases.filter { $0 != .done || showDone }
         return VStack(alignment: .leading, spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(open) { TaskRow(task: $0) }
-                    if showDone { ForEach(done) { TaskRow(task: $0) } }
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(states, id: \.self) { state in
+                        let tasks = board.items.filter { $0.state == state }
+                        if !tasks.isEmpty {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("\(TaskRow.section(state)) · \(tasks.count)")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(state == .todo ? .secondary : TaskRow.color(state))
+                                    .padding(.horizontal, 6)
+                                ForEach(tasks) { TaskRow(task: $0) }
+                            }
+                        }
+                    }
                 }
-                .padding(6)
+                .padding(.horizontal, 6).padding(.vertical, 10)
             }
-            .frame(maxHeight: 380)
+            .frame(maxHeight: 420)
             .fixedSize(horizontal: false, vertical: true)
             Divider()
             HStack(spacing: 8) {
@@ -363,23 +373,38 @@ struct TaskBoardPanel: View {
         .padding(12)
     }
 
-    /// A dot and number per state that has tasks, leaving out done.
+    /// How many need you, in plain words, and how many are moving.
     private func counts(_ board: TaskBoard) -> some View {
-        HStack(spacing: 8) {
-            ForEach(board.counts.filter { $0.0 != .done }, id: \.0) { state, n in
-                HStack(spacing: 3) {
-                    Circle().fill(TaskRow.color(state)).frame(width: 6, height: 6)
-                    Text("\(n)").font(.caption.weight(.semibold)).monospacedDigit()
-                }
-                .help("\(n) \(state.label.lowercased())")
+        let you = board.items.filter { $0.state == .you }.count
+        let doing = board.items.filter { $0.state == .doing }.count
+        return HStack(spacing: 4) {
+            if you > 0 {
+                Text("\(you) need you").foregroundStyle(Theme.waiting).fontWeight(.semibold)
+            }
+            if you > 0 && doing > 0 { Text("·").foregroundStyle(.tertiary) }
+            if doing > 0 {
+                Text("\(doing) in progress").foregroundStyle(.secondary)
             }
         }
+        .font(.caption)
+        .monospacedDigit()
     }
 }
 
 private struct TaskRow: View {
     @Environment(SessionStore.self) private var store
     let task: TaskItem
+
+    /// A group's heading: what the state means for you.
+    static func section(_ s: TaskItem.State) -> String {
+        switch s {
+        case .you: "Waiting on you"
+        case .blocked: "Blocked on others"
+        case .doing: "In progress"
+        case .todo: "Up next"
+        case .done: "Done"
+        }
+    }
 
     static func color(_ s: TaskItem.State) -> Color {
         switch s {
@@ -412,7 +437,17 @@ private struct TaskRow: View {
                     .strikethrough(task.state == .done, color: .secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if let note = task.note {
-                    Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    if task.state == .you {
+                        // What you need to do: the point of the row, so it reads first after the title.
+                        HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Image(systemName: "arrow.turn.down.right").font(.caption2.weight(.bold))
+                            Text(note).fixedSize(horizontal: false, vertical: true)
+                        }
+                        .font(.callout)
+                        .foregroundStyle(Theme.waiting)
+                    } else {
+                        Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                    }
                 }
                 if let name = task.session { sessionChip(name) }
             }

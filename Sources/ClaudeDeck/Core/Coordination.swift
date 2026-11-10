@@ -257,6 +257,6 @@ struct TaskBoard: Equatable {
 
     /// What to type into the coordinator to have it keep a board.
     static let request = """
-    Please keep a task board for me in your replies. Whenever the work changes, end your reply with a code block whose info string is `tasks`, one task per line: `- [state] Task @session — short note`. State is one of you (needs me), blocked, doing, todo or done; @session is the session working on it (leave it out if none); the note is optional. One session can have several tasks. Repost the whole board at the end of every sweep and whenever a task changes state, since Claude Deck shows only the latest one. Save this to memory so you keep doing it.
+    Please keep a task board for me in your replies. Whenever the work changes, end your reply with a code block whose info string is `tasks`, one task per line: `- [state] Task @session — short note`. State is one of you, blocked, doing, todo or done. Use you whenever the next step or a blocker is on me, and make the note say exactly what I need to do or decide; blocked is only for waiting on someone or something else; @session is the session working on it (leave it out if none); the note is optional. One session can have several tasks. Repost the whole board at the end of every sweep and whenever a task changes state, since Claude Deck shows only the latest one. Save this to memory so you keep doing it.
     """
 }
