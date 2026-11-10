@@ -320,6 +320,15 @@ func textViewTests() {
         expectEqual(pb.string(forType: .string), "Last quote") // no quote there
         pb.releaseGlobally()
     }
+    test("a tasks board renders as one line, not a code block") {
+        let md = "Done.\n\n```tasks\n- [doing] A @x\n- [done] B\n- [todo] C\n```"
+        let out = TranscriptRenderer(width: 700, cwd: "", expanded: []).render(content([.item(item(.assistant(md)))])).string
+        expect(out.contains("Task board updated · 2 open, shown in the Tasks panel"))
+        expect(!out.contains("[doing]"))
+        let alone = TranscriptRenderer(width: 700, cwd: "", expanded: []).render(content([.item(item(.assistant("```tasks\n- [x] B\n```")))])).string
+        expect(alone.contains("Task board updated · 0 open"))
+    }
+
     test("a handoff block is a card you send with one click") {
         let ctl = TranscriptTextController(openURL: { _ in false })
         let tv = ColumnTextView(frame: .zero)

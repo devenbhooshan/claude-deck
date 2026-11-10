@@ -695,6 +695,14 @@ struct TranscriptRenderer {
                 if first { out.append(marker()) }
                 let text = code.trimmingCharacters(in: .whitespacesAndNewlines)
                 out.append(handoffCard(Handoff(target: Handoff.target(info: block.info)!, text: text), spacingBefore: first ? 0 : 8))
+            case .code(let code) where quotes.isEmpty && block.info?.trimmingCharacters(in: .whitespaces).lowercased() == TaskBoard.marker:
+                // The coordinator reposts its whole board often; the Tasks panel shows it, so here it's one line.
+                if first { out.append(marker()) }
+                let open = code.components(separatedBy: .newlines).compactMap(TaskItem.parse(line:)).filter { $0.state != .done }.count
+                let line = paragraph { $0.firstLineHeadIndent = indent; $0.headIndent = indent; $0.paragraphSpacingBefore = first ? 0 : 6 }
+                out.append(NSAttributedString(string: "☑ Task board updated · \(open) open, shown in the Tasks panel\n", attributes: [
+                    .font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: line,
+                ]))
             case .code(let code):
                 if first { out.append(marker()) }
                 // A quote's own link already copies the code inside it.
