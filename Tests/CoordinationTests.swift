@@ -73,6 +73,7 @@ func coordinationTests() {
         expectEqual(board?.counts.map(\.1), [2, 1])
         expect(TaskBoard.latest(in: [msg("nothing")]) == nil)
         expect(TaskBoard.request.contains("```") == false && TaskBoard.request.contains("tasks"))
+        expect(TaskBoard.ask(about: TaskItem(state: .you, title: "Radar", session: nil, note: nil)).contains("“Radar”"))
     }
 
     test("handoff blocks: target from the info string, text, safety") {

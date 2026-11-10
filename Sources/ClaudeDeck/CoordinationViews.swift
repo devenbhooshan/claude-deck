@@ -287,6 +287,17 @@ struct TaskBoardPanel: View {
     let coordinator: Session
     @AppStorage("taskBoardExpanded") private var expanded = true
     @AppStorage("taskBoardShowDone") private var showDone = false
+    /// The board instructions last typed into the coordinator, to offer newer ones.
+    @AppStorage("taskBoardInstructions") private var sentInstructions = ""
+
+    private func sendInstructions() {
+        Task {
+            do {
+                try await store.send(TaskBoard.request, to: coordinator)
+                sentInstructions = TaskBoard.request
+            } catch { store.lastError = error.localizedDescription }
+        }
+    }
 
     var body: some View {
         let board = coordinator.tasks
@@ -348,6 +359,11 @@ struct TaskBoardPanel: View {
             HStack(spacing: 8) {
                 Text("Updated \(Theme.ago(board.at))").font(.caption).foregroundStyle(.tertiary)
                 Spacer()
+                let stale = sentInstructions != TaskBoard.request
+                Button(stale ? "Send New Board Instructions" : "Resend Instructions") { sendInstructions() }
+                    .buttonStyle(.deck(.link)).font(.caption.weight(stale ? .semibold : .regular))
+                    .help(stale ? "Deck's board format changed: type the new instructions into the coordinator"
+                                : "Type the board instructions into the coordinator again")
                 if !done.isEmpty {
                     Button(showDone ? "Hide Done" : "Show \(done.count) Done") { showDone.toggle() }
                         .buttonStyle(.deck(.link)).font(.caption)
@@ -362,11 +378,7 @@ struct TaskBoardPanel: View {
             Text("No task board yet. Ask the coordinator to keep one, and its latest board shows here.")
                 .font(.callout).foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
-            Button("Ask for a Task Board") {
-                Task {
-                    do { try await store.send(TaskBoard.request, to: coordinator) } catch { store.lastError = error.localizedDescription }
-                }
-            }
+            Button("Ask for a Task Board") { sendInstructions() }
             .buttonStyle(.deck(.secondary))
             .help("Types a request into the coordinator explaining the board's format")
         }
@@ -432,7 +444,7 @@ private struct TaskRow: View {
                 .frame(width: 16)
                 .help(task.state.label)
             VStack(alignment: .leading, spacing: 2) {
-                Text(task.title).font(.callout.weight(.medium))
+                Text(task.title).font(.callout.weight(.medium)).textSelection(.enabled)
                     .foregroundStyle(task.state == .done ? .secondary : .primary)
                     .strikethrough(task.state == .done, color: .secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -441,15 +453,26 @@ private struct TaskRow: View {
                         // What you need to do: the point of the row, so it reads first after the title.
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
                             Image(systemName: "arrow.turn.down.right").font(.caption2.weight(.bold))
-                            Text(note).fixedSize(horizontal: false, vertical: true)
+                            Text(note).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                         }
                         .font(.callout)
                         .foregroundStyle(Theme.waiting)
                     } else {
-                        Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                        Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
                     }
                 }
-                if let name = task.session { sessionChip(name) }
+                HStack(spacing: 6) {
+                    if let name = task.session { sessionChip(name) }
+                    if task.state == .you, let c = store.coordinator {
+                        Button("What do you need?") {
+                            Task {
+                                do { try await store.send(TaskBoard.ask(about: task), to: c) } catch { store.lastError = error.localizedDescription }
+                            }
+                        }
+                        .buttonStyle(.deck(.link)).font(.caption)
+                        .help("Ask the coordinator exactly what it needs from you on this task")
+                    }
+                }
             }
             Spacer(minLength: 0)
         }
