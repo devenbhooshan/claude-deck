@@ -157,3 +157,106 @@ struct CommsMessage: Equatable, Identifiable {
         return messages.sorted { $0.at > $1.at }.filter { seen.insert($0.from).inserted }
     }
 }
+
+/// One line of the coordinator's task board: `- [doing] Rotate keys @supergrow — testing the rake task`.
+/// A session can carry several tasks, so each task names the session doing it, if any.
+struct TaskItem: Equatable, Identifiable {
+    enum State: String, CaseIterable {
+        case you, blocked, doing, todo, done
+
+        /// The words a coordinator might write between the brackets.
+        static func parse(_ word: String) -> State {
+            switch word.lowercased().trimmingCharacters(in: .whitespaces) {
+            case "you", "needs you", "waiting", "ask": .you
+            case "blocked", "stuck": .blocked
+            case "doing", "working", "in progress", "wip", "~": .doing
+            case "done", "x", "shipped": .done
+            default: .todo
+            }
+        }
+
+        var label: String {
+            switch self {
+            case .you: "Needs you"
+            case .blocked: "Blocked"
+            case .doing: "In progress"
+            case .todo: "To do"
+            case .done: "Done"
+            }
+        }
+    }
+
+    let state: State
+    let title: String
+    /// The session working on it, as written after `@`.
+    let session: String?
+    let note: String?
+    var id: String { title + "\u{1}" + (session ?? "") }
+
+    /// A board line, or nil if it isn't one.
+    static func parse(line: String) -> TaskItem? {
+        let pattern = #"^\s*[-*+]\s*\[([^\]]*)\]\s*(.+)$"#
+        guard let m = line.range(of: pattern, options: .regularExpression) else { return nil }
+        let body = String(line[m])
+        guard let open = body.firstIndex(of: "["), let close = body.firstIndex(of: "]") else { return nil }
+        let state = State.parse(String(body[body.index(after: open)..<close]))
+        var rest = body[body.index(after: close)...].trimmingCharacters(in: .whitespaces)
+        var note: String?
+        if let dash = rest.range(of: " — ") ?? rest.range(of: " -- ") {
+            note = rest[dash.upperBound...].trimmingCharacters(in: .whitespaces)
+            rest = String(rest[..<dash.lowerBound])
+        }
+        var words = rest.split(separator: " ").map(String.init)
+        var session: String?
+        if let i = words.lastIndex(where: { $0.hasPrefix("@") && $0.count > 1 }) {
+            session = String(words.remove(at: i).dropFirst())
+        }
+        let title = words.joined(separator: " ")
+        guard !title.isEmpty else { return nil }
+        return TaskItem(state: state, title: title, session: session, note: note?.isEmpty == true ? nil : note)
+    }
+}
+
+/// The coordinator's task board: a code block marked `tasks` in a reply, the newest one winning.
+struct TaskBoard: Equatable {
+    let items: [TaskItem]
+    let at: Date
+
+    static let marker = "tasks"
+
+    /// The board in a reply, if it has one (the last, if it has several).
+    static func items(in markdown: String) -> [TaskItem]? {
+        let blocks = Markdown.parse(markdown).filter { block in
+            guard block.quoteDepth == 0, case .code = block.kind else { return false }
+            return block.info?.trimmingCharacters(in: .whitespaces).lowercased() == marker
+        }
+        guard let last = blocks.last, case .code(let code) = last.kind else { return nil }
+        return code.components(separatedBy: .newlines).compactMap(TaskItem.parse(line:))
+    }
+
+    /// The newest board in lines of a transcript, written by the main conversation.
+    static func latest(in lines: [Data]) -> TaskBoard? {
+        for line in lines.reversed() where line.range(of: Data("```tasks".utf8)) != nil {
+            guard let obj = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+                  obj["type"] as? String == "assistant", obj["isSidechain"] as? Bool != true,
+                  let at = (obj["timestamp"] as? String).flatMap(ISO8601DateFormatter.withFractions.date(from:)),
+                  let content = (obj["message"] as? [String: Any])?["content"] as? [[String: Any]] else { continue }
+            let text = content.filter { $0["type"] as? String == "text" }.compactMap { $0["text"] as? String }.joined(separator: "\n\n")
+            if let items = items(in: text) { return TaskBoard(items: items, at: at) }
+        }
+        return nil
+    }
+
+    /// How many tasks are in each state, in board order, leaving out empty ones.
+    var counts: [(TaskItem.State, Int)] {
+        TaskItem.State.allCases.compactMap { s in
+            let n = items.filter { $0.state == s }.count
+            return n > 0 ? (s, n) : nil
+        }
+    }
+
+    /// What to type into the coordinator to have it keep a board.
+    static let request = """
+    Please keep a task board for me in your replies. Whenever the work changes, end your reply with a code block whose info string is `tasks`, one task per line: `- [state] Task @session — short note`. State is one of you (needs me), blocked, doing, todo or done; @session is the session working on it (leave it out if none); the note is optional. One session can have several tasks. Repost the whole board at the end of every sweep and whenever a task changes state, since Claude Deck shows only the latest one. Save this to memory so you keep doing it.
+    """
+}

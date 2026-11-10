@@ -212,6 +212,12 @@ struct SessionDetailView: View {
                             .transition(.move(edge: .bottom).combined(with: .opacity))
                     }
                 }
+                .overlay(alignment: .topTrailing) {
+                    if session.sessionId == store.coordinatorId {
+                        TaskBoardPanel(coordinator: session)
+                            .padding(.top, 12).padding(.trailing, 20)
+                    }
+                }
             if session.isLive {
                 Composer(session: session, model: model, attachments: $attachments, onError: { error = $0 })
             } else {

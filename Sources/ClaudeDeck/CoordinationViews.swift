@@ -279,3 +279,167 @@ private struct CommsRow: View {
         }
     }
 }
+
+/// Floats over the coordinator's conversation: its latest task board, so you can see where
+/// each piece of work stands without leaving it. Collapses to a one-line summary.
+struct TaskBoardPanel: View {
+    @Environment(SessionStore.self) private var store
+    let coordinator: Session
+    @AppStorage("taskBoardExpanded") private var expanded = true
+    @AppStorage("taskBoardShowDone") private var showDone = false
+
+    var body: some View {
+        let board = coordinator.tasks
+        VStack(alignment: .leading, spacing: 0) {
+            Button { withAnimation(.snappy) { expanded.toggle() } } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "checklist").font(.callout).foregroundStyle(Theme.accent)
+                    Text("Tasks").font(.callout.weight(.semibold))
+                    Spacer(minLength: 8)
+                    if let board { counts(board) }
+                    Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                        .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 9)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.deckPlain)
+            .help(expanded ? "Collapse" : "Show the coordinator's tasks")
+            if expanded {
+                Divider()
+                if let board, !board.items.isEmpty {
+                    list(board)
+                } else {
+                    empty
+                }
+            }
+        }
+        .frame(width: 340)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).fill(Theme.panel)
+            .shadow(color: .black.opacity(0.15), radius: 14, y: 4))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous)
+            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1))
+    }
+
+    private func list(_ board: TaskBoard) -> some View {
+        let open = board.items.filter { $0.state != .done }
+        let done = board.items.filter { $0.state == .done }
+        return VStack(alignment: .leading, spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(open) { TaskRow(task: $0) }
+                    if showDone { ForEach(done) { TaskRow(task: $0) } }
+                }
+                .padding(6)
+            }
+            .frame(maxHeight: 380)
+            .fixedSize(horizontal: false, vertical: true)
+            Divider()
+            HStack(spacing: 8) {
+                Text("Updated \(Theme.ago(board.at))").font(.caption).foregroundStyle(.tertiary)
+                Spacer()
+                if !done.isEmpty {
+                    Button(showDone ? "Hide Done" : "Show \(done.count) Done") { showDone.toggle() }
+                        .buttonStyle(.deck(.link)).font(.caption)
+                }
+            }
+            .padding(.horizontal, 12).padding(.vertical, 7)
+        }
+    }
+
+    private var empty: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("No task board yet. Ask the coordinator to keep one, and its latest board shows here.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            Button("Ask for a Task Board") {
+                Task {
+                    do { try await store.send(TaskBoard.request, to: coordinator) } catch { store.lastError = error.localizedDescription }
+                }
+            }
+            .buttonStyle(.deck(.secondary))
+            .help("Types a request into the coordinator explaining the board's format")
+        }
+        .padding(12)
+    }
+
+    /// A dot and number per state that has tasks, leaving out done.
+    private func counts(_ board: TaskBoard) -> some View {
+        HStack(spacing: 8) {
+            ForEach(board.counts.filter { $0.0 != .done }, id: \.0) { state, n in
+                HStack(spacing: 3) {
+                    Circle().fill(TaskRow.color(state)).frame(width: 6, height: 6)
+                    Text("\(n)").font(.caption.weight(.semibold)).monospacedDigit()
+                }
+                .help("\(n) \(state.label.lowercased())")
+            }
+        }
+    }
+}
+
+private struct TaskRow: View {
+    @Environment(SessionStore.self) private var store
+    let task: TaskItem
+
+    static func color(_ s: TaskItem.State) -> Color {
+        switch s {
+        case .you: Theme.waiting
+        case .blocked: Theme.danger
+        case .doing: Theme.busy
+        case .todo: .secondary
+        case .done: Theme.success
+        }
+    }
+
+    private var icon: String {
+        switch task.state {
+        case .you: "person.fill.questionmark"
+        case .blocked: "exclamationmark.octagon.fill"
+        case .doing: "circle.dotted.circle"
+        case .todo: "circle"
+        case .done: "checkmark.circle.fill"
+        }
+    }
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: icon).font(.callout).foregroundStyle(Self.color(task.state))
+                .frame(width: 16)
+                .help(task.state.label)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(task.title).font(.callout.weight(.medium))
+                    .foregroundStyle(task.state == .done ? .secondary : .primary)
+                    .strikethrough(task.state == .done, color: .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let note = task.note {
+                    Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                }
+                if let name = task.session { sessionChip(name) }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 6).padding(.vertical, 5)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The session doing it, with its live state; opens it when it's running.
+    @ViewBuilder private func sessionChip(_ name: String) -> some View {
+        if let s = SessionAddress.resolve(name, in: store.live) {
+            Button { store.selectedId = s.id } label: {
+                HStack(spacing: 4) {
+                    Circle().fill(Theme.color(s.status)).frame(width: 6, height: 6)
+                    Text(s.displayTitle).lineLimit(1)
+                    Text("· \(s.status == .waiting ? "needs you" : s.status.label.lowercased())").foregroundStyle(.tertiary)
+                }
+                .font(.caption)
+                .padding(.horizontal, 6).padding(.vertical, 1)
+                .background(Capsule().fill(Color.primary.opacity(0.06)))
+            }
+            .buttonStyle(.deckPlain)
+            .help("Open \(s.displayTitle)")
+        } else {
+            Text(name).font(.caption).foregroundStyle(.tertiary)
+                .help("No running session is called \(name)")
+        }
+    }
+}

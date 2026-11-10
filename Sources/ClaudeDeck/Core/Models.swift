@@ -79,6 +79,8 @@ struct Session: Identifiable, Equatable {
     var lastReply: String? { replyTexts.last.map(SessionLoader.oneLine) }
     /// Messages those replies drafted for you to send to other sessions.
     var handoffs: [Handoff] = []
+    /// Its newest task board (a coordinator's `tasks` block), if it has posted one.
+    var tasks: TaskBoard? = nil
     /// The claude.ai session it's connected to with Remote Control, if it is.
     var remoteId: String? = nil
 
@@ -180,6 +182,7 @@ struct TitleInfo: Equatable {
     var replies: [Date] = []
     var replyTexts: [String] = []
     var handoffs: [Handoff] = []
+    var tasks: TaskBoard? = nil
 }
 
 /// A message just sent from Deck, shown until the transcript catches up.

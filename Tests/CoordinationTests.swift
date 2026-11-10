@@ -7,6 +7,74 @@ private func session(_ name: String, live: Bool = true, status: SessionStatus = 
 }
 
 func coordinationTests() {
+    test("task board lines: state words, session, note") {
+        let t = TaskItem.parse(line: "- [doing] Rotate encryption keys @supergrow — testing the rake task")
+        expectEqual(t, TaskItem(state: .doing, title: "Rotate encryption keys", session: "supergrow", note: "testing the rake task"))
+        expectEqual(TaskItem.parse(line: "* [x] Ship @nook @site -- live")?.session, "site")
+        expectEqual(TaskItem.parse(line: "* [x] Ship @nook @site -- live")?.title, "Ship @nook")
+        expectEqual(TaskItem.parse(line: "- [ ] Write spec")?.state, .todo)
+        expect(TaskItem.parse(line: "- [ ] Write spec")?.session == nil)
+        expect(TaskItem.parse(line: "- [you] Approve deploy — ")?.note == nil)
+        expect(TaskItem.parse(line: "plain text") == nil)
+        expect(TaskItem.parse(line: "- [doing] @only") == nil)
+        expect(TaskItem.parse(line: "- [doing] Thing @")?.session == nil)
+        for (word, state) in [("Needs You", TaskItem.State.you), ("waiting", .you), ("ask", .you), ("blocked", .blocked),
+                              ("stuck", .blocked), ("working", .doing), ("in progress", .doing), ("wip", .doing), ("~", .doing),
+                              ("done", .done), ("X", .done), ("shipped", .done), ("todo", .todo), ("later", .todo)] {
+            expectEqual(TaskItem.State.parse(word), state)
+        }
+        expectEqual(TaskItem.State.allCases.map(\.label), ["Needs you", "Blocked", "In progress", "To do", "Done"])
+        expectEqual(TaskItem(state: .todo, title: "a", session: "b", note: nil).id, "a\u{1}b")
+        expectEqual(TaskItem(state: .todo, title: "a", session: nil, note: nil).id, "a\u{1}")
+    }
+
+    test("task board: the newest tasks block from the main conversation") {
+        let reply = """
+        Status:
+
+        ```tasks
+        - [doing] Keys @api
+        - [done] JWKS
+        not a task
+        ```
+
+        > ```tasks
+        > - [todo] quoted
+        > ```
+
+        ```tasks
+        - [you] Approve @api
+        - [doing] Spec
+        - [doing] Site
+        ```
+        """
+        expectEqual(TaskBoard.items(in: reply)?.map(\.title), ["Approve", "Spec", "Site"])
+        expect(TaskBoard.items(in: "```swift\nx\n```") == nil)
+        let at = "2026-11-10T10:00:00.000Z"
+        func msg(_ text: String, type: String = "assistant", side: Bool = false, ts: String? = at) -> Data {
+            var o: [String: Any] = ["type": type, "isSidechain": side,
+                                    "message": ["content": [["type": "text", "text": text], ["type": "tool_use", "name": "x"]]]]
+            if let ts { o["timestamp"] = ts }
+            return line(o)
+        }
+        let board = TaskBoard.latest(in: [
+            msg("```tasks\n- [todo] Old\n```"),
+            msg("```tasks\n- [doing] New\n- [done] A\n- [doing] B\n```"),
+            msg("```tasks\n- [todo] Agent\n```", side: true),
+            msg("```tasks\n- [todo] Mine\n```", type: "user"),
+            msg("```tasks\n- [todo] No time\n```", ts: nil),
+            msg("mentions ```tasks inline"),
+            Data("```tasks broken".utf8),
+            msg("no board"),
+        ])
+        expectEqual(board?.items.map(\.title), ["New", "A", "B"])
+        expectEqual(board?.at, ISO8601DateFormatter.withFractions.date(from: at))
+        expectEqual(board?.counts.map(\.0), [.doing, .done])
+        expectEqual(board?.counts.map(\.1), [2, 1])
+        expect(TaskBoard.latest(in: [msg("nothing")]) == nil)
+        expect(TaskBoard.request.contains("```") == false && TaskBoard.request.contains("tasks"))
+    }
+
     test("handoff blocks: target from the info string, text, safety") {
         expectEqual(Handoff.target(info: "send-to supergrow"), "supergrow")
         expectEqual(Handoff.target(info: " Send-To  chief of staff "), "chief of staff")

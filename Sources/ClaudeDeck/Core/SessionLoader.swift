@@ -43,7 +43,7 @@ enum SessionLoader {
                 updatedAt: Date(timeIntervalSince1970: (rec.updatedAt ?? rec.startedAt ?? 0) / 1000),
                 transcriptURL: transcript,
                 statusSince: rec.statusUpdatedAt.map { Date(timeIntervalSince1970: $0 / 1000) },
-                startedAt: rec.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) }, background: background, replies: info.replies, replyTexts: info.replyTexts, handoffs: info.handoffs,
+                startedAt: rec.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) }, background: background, replies: info.replies, replyTexts: info.replyTexts, handoffs: info.handoffs, tasks: info.tasks,
                 remoteId: rec.bridgeSessionId)
             // Only trust a captured request made around the time this prompt opened.
             if status == .waiting, let req = requests[rec.sessionId],
@@ -95,16 +95,18 @@ enum SessionLoader {
 
     /// The session's title, Claude's replies since your last message and their text, from
     /// the transcript's tail (re-read only when the file changed; the info is nil when the cache was used).
-    typealias Replies = (replies: [Date], replyTexts: [String], handoffs: [Handoff])
+    typealias Replies = (replies: [Date], replyTexts: [String], handoffs: [Handoff], tasks: TaskBoard?)
 
     static func details(for url: URL?, cache: [String: TitleInfo]) -> (String?, TitleInfo?, Replies) {
         guard let url,
-              let mtime = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { return (nil, nil, ([], [], [])) }
-        if let hit = cache[url.path], hit.mtime == mtime { return (hit.title, nil, (hit.replies, hit.replyTexts, hit.handoffs)) }
+              let mtime = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate else { return (nil, nil, ([], [], [], nil)) }
+        if let hit = cache[url.path], hit.mtime == mtime { return (hit.title, nil, (hit.replies, hit.replyTexts, hit.handoffs, hit.tasks)) }
         let (lines, _) = TailReader.read(url, from: nil, maxBytes: 256_000)
         let replies = Self.replies(in: lines)
         let replyTexts = Self.replyTexts(in: lines)
         let handoffs = Self.handoffs(in: lines)
+        // An older board can scroll out of what's read: keep the one already found.
+        let tasks = TaskBoard.latest(in: lines) ?? cache[url.path]?.tasks
         var custom: String?
         var auto: String?
         for line in lines.reversed() {
@@ -119,7 +121,7 @@ enum SessionLoader {
         if custom == nil, let cached = cache[url.path]?.title, cache[url.path]?.isCustom == true { title = cached }
         if title == nil { title = cache[url.path]?.title }
         return (title, TitleInfo(mtime: mtime, title: title, isCustom: custom != nil || cache[url.path]?.isCustom == true,
-                                 replies: replies, replyTexts: replyTexts, handoffs: handoffs), (replies, replyTexts, handoffs))
+                                 replies: replies, replyTexts: replyTexts, handoffs: handoffs, tasks: tasks), (replies, replyTexts, handoffs, tasks))
     }
 
     /// When Claude wrote each reply (a message with text, not just tool calls) after the last thing
