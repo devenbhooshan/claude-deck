@@ -33,6 +33,17 @@ struct Handoff: Equatable, Hashable {
 
     /// Identifies it for "sent" and "dismissed".
     var key: String { target.lowercased() + "\u{1}" + text }
+
+    /// What Deck types into the session that drafted messages once you've sent them, so it knows
+    /// they went out (it can't see the other session). One line, however many were sent.
+    static func receipt(for sent: [(target: String, text: String)]) -> String {
+        let quoted = sent.map { s in
+            let one = s.text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            return "to \(s.target): “\(one.count > 80 ? one.prefix(79) + "…" : one)”"
+        }
+        let what = sent.count == 1 ? "your message" : "your \(sent.count) messages"
+        return "[Claude Deck] I sent \(what) " + quoted.joined(separator: "; ") + ". No need to reply."
+    }
 }
 
 /// Addressing a session by name: `@supergrow merge it` in any message box goes to supergrow.

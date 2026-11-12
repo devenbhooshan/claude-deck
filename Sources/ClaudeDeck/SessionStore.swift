@@ -122,6 +122,7 @@ final class SessionStore {
         if let h = editing, SessionAddress.token(h.target) == SessionAddress.token(target.displayTitle) {
             sentHandoffs.insert(h.key)
             editing = nil
+            confirmSent(h, text: message, to: target)
         }
         HUD.show("Sent to \(target.displayTitle)", detail: SessionLoader.oneLine(text), symbol: "paperplane.fill", tint: Theme.accent)
         updateBadge()
@@ -138,8 +139,28 @@ final class SessionStore {
             do {
                 try await send(h.text, to: target)
                 sentHandoffs.insert(h.key)
+                confirmSent(h, text: h.text, to: target)
                 updateBadge()
             } catch { lastError = error.localizedDescription }
+        }
+    }
+
+    /// Handoffs sent in the last moment, by the session that drafted them, waiting to be confirmed together.
+    private var receipts: [String: [(target: String, text: String)]] = [:]
+
+    /// Tells the session that drafted a handoff it went out: it can't see the other session, so
+    /// otherwise it keeps reminding you. Sends a moment later, in one line if you send several at once.
+    private func confirmSent(_ h: Handoff, text: String, to target: Session) {
+        guard let source = live.first(where: { $0.handoffs.contains(h) }), source.id != target.id else { return }
+        let first = receipts[source.id] == nil
+        receipts[source.id, default: []].append((target.displayTitle, text))
+        guard first else { return }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            guard let sent = receipts.removeValue(forKey: source.id), let s = session(source.id), s.isLive else { return }
+            do { try await Ghostty.send(text: Handoff.receipt(for: sent), images: [], to: s) } catch {
+                lastError = "Couldn't tell \(s.displayTitle) the message was sent: \(error.localizedDescription)"
+            }
         }
     }
 

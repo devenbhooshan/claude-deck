@@ -106,6 +106,11 @@ func coordinationTests() {
         expect(!Handoff(target: "a", text: "/exit").isTypeable)
         expect(!Handoff(target: "a", text: "!rm x").isTypeable)
         expectEqual(Handoff(target: "Nook", text: "hi").key, "nook\u{1}hi")
+        expectEqual(Handoff.receipt(for: [("supergrow", "Merge\n  #234")]),
+                    "[Claude Deck] I sent your message to supergrow: “Merge #234”. No need to reply.")
+        let long = String(repeating: "a", count: 100)
+        expectEqual(Handoff.receipt(for: [("a", "x"), ("b", long)]),
+                    "[Claude Deck] I sent your 2 messages to a: “x”; to b: “\(String(repeating: "a", count: 79))…”. No need to reply.")
     }
 
     test("addressing a session with @name") {
