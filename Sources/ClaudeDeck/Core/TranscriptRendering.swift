@@ -379,8 +379,23 @@ final class ColumnTextView: NSTextView {
 
     /// Select to copy, as in the terminal: text selected with the mouse goes to the clipboard.
     override func mouseDown(with event: NSEvent) {
+        if clickButton(at: convert(event.locationInWindow, from: nil)) { return }
         super.mouseDown(with: event) // returns once the mouse is released
         copyIfSelected()
+    }
+
+    /// A card's drawn button acts on mouse down. Left to NSTextView, a button is an image: the
+    /// slightest movement while pressing drags it instead, and part of it isn't clickable at all.
+    func clickButton(at point: NSPoint) -> Bool {
+        guard let lm = layoutManager, let tc = textContainer, let storage = textStorage, storage.length > 0 else { return false }
+        let p = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let glyph = lm.glyphIndex(for: p, in: tc)
+        let i = lm.characterIndexForGlyph(at: glyph)
+        guard i < storage.length, storage.attribute(TranscriptRenderer.buttonLabel, at: i, effectiveRange: nil) != nil,
+              let url = storage.attribute(.link, at: i, effectiveRange: nil) as? URL,
+              lm.boundingRect(forGlyphRange: NSRange(location: glyph, length: 1), in: tc).insetBy(dx: 0, dy: -6).contains(p)
+        else { return false }
+        return delegate?.textView?(self, clickedOnLink: url, at: i) ?? false
     }
 
     func copyIfSelected(to pasteboard: NSPasteboard = .general) {

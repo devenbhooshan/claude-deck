@@ -372,6 +372,30 @@ func textViewTests() {
         let found = buttons(storage)
         expectEqual(Set(found.keys), ["Send to supergrow", "Edit First", "✓ Sent to content", "Send Again"])
         draw(storage)
+        // Clicking a drawn button acts at once; anywhere else is left to the text view.
+        tv.delegate = ctl
+        let lm = tv.layoutManager!, tc = tv.textContainer!
+        func centre(_ i: Int) -> NSPoint {
+            let r = lm.boundingRect(forGlyphRange: lm.glyphRange(forCharacterRange: NSRange(location: i, length: 1), actualCharacterRange: nil), in: tc)
+            return NSPoint(x: r.midX + tv.textContainerOrigin.x, y: r.midY + tv.textContainerOrigin.y)
+        }
+        expect(tv.clickButton(at: centre(found["Send to supergrow"]!)))
+        expect(!tv.clickButton(at: centre(found["✓ Sent to content"]!)), "the done badge isn't a button")
+        expect(!tv.clickButton(at: centre(0)))
+        expect(!ColumnTextView(frame: .zero).clickButton(at: .zero))
+        // A real press on it, through mouseDown, acts without waiting for the release.
+        _ = NSApplication.shared
+        let win = NSWindow(contentRect: tv.frame, styleMask: [], backing: .buffered, defer: true)
+        win.contentView = tv
+        let press = NSEvent.mouseEvent(with: .leftMouseDown, location: tv.convert(centre(found["Send to supergrow"]!), to: nil),
+                                       modifierFlags: [], timestamp: 0, windowNumber: win.windowNumber, context: nil,
+                                       eventNumber: 0, clickCount: 1, pressure: 1)!
+        tv.mouseDown(with: press)
+        expectEqual(clicked.count, 2)
+        tv.delegate = nil
+        expect(!tv.clickButton(at: centre(found["Send to supergrow"]!)), "nothing to tell")
+        tv.delegate = ctl
+        clicked = []
         expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffSend, at: found["Send to supergrow"]!))
         expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffEdit, at: found["Edit First"]!))
         expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffSend, at: storage.length + 5))
