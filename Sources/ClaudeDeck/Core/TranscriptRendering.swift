@@ -811,30 +811,36 @@ struct TranscriptRenderer {
         out.append(NSAttributedString(string: h.text + "\n", attributes: [
             .font: self.body, .foregroundColor: NSColor.labelColor, .paragraphStyle: body,
         ]))
-        func action(_ label: String, _ url: URL?, tip: String, color: NSColor, weight: NSFont.Weight = .regular) {
-            var attrs: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 12, weight: weight), .foregroundColor: color,
-                                                        .paragraphStyle: actions, .toolTip: tip, Self.handoffKey: h]
+        /// A real button (a drawn pill, clickable as a link), so the card's action can't be missed.
+        func action(_ label: String, _ url: URL?, tip: String, kind: ButtonKind) {
+            let att = NSTextAttachment()
+            att.image = Self.button(label, kind: kind)
+            att.bounds = NSRect(x: 0, y: -9, width: att.image!.size.width, height: att.image!.size.height)
+            let button = NSMutableAttributedString(attachment: att)
+            var attrs: [NSAttributedString.Key: Any] = [.paragraphStyle: actions, .toolTip: tip, Self.handoffKey: h, Self.buttonLabel: label]
             if let url { attrs[.link] = url }
-            out.append(NSAttributedString(string: label, attributes: attrs))
-            out.append(NSAttributedString(string: "     ", attributes: [.font: small, .paragraphStyle: actions]))
+            button.addAttributes(attrs, range: NSRange(location: 0, length: button.length))
+            out.append(button)
+            out.append(NSAttributedString(string: "  ", attributes: [.font: small, .paragraphStyle: actions]))
         }
         if !h.isTypeable {
-            action("Deck won't type this: it would run as a command", nil, tip: "Text from another session can't start with / or !",
-                   color: NSColor.secondaryLabelColor)
+            out.append(NSAttributedString(string: "Deck won't type this: it would run as a command", attributes: [
+                .font: small, .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: actions,
+                .toolTip: "Text from another session can't start with /, ! or -",
+            ]))
         } else if h.newSession && sent.contains(h.key) {
-            action("✓ Started \(h.target)", nil, tip: "You started this session", color: Palette.success, weight: .medium)
-            action("Start Another", Self.handoffSend, tip: "Start a second session with this first message", color: NSColor.secondaryLabelColor)
+            action("✓ Started \(h.target)", nil, tip: "You started this session", kind: .done)
+            action("Start Another", Self.handoffSend, tip: "Start a second session with this first message", kind: .secondary)
         } else if h.newSession {
-            action("Start Session", Self.handoffSend, tip: "Start \(h.target) and send this as your first message", color: accent, weight: .semibold)
-            action("Edit First", Self.handoffEdit, tip: "Change the name, folder or first message before starting",
-                   color: NSColor.secondaryLabelColor)
+            action("Start Session", Self.handoffSend, tip: "Start \(h.target) and send this as your first message", kind: .primary)
+            action("Edit First", Self.handoffEdit, tip: "Change the name, folder or first message before starting", kind: .secondary)
         } else if sent.contains(h.key) {
-            action("✓ Sent to \(h.target)", nil, tip: "You sent this", color: Palette.success, weight: .medium)
-            action("Send Again", Self.handoffSend, tip: "Type it into \(h.target) again", color: NSColor.secondaryLabelColor)
+            action("✓ Sent to \(h.target)", nil, tip: "You sent this", kind: .done)
+            action("Send Again", Self.handoffSend, tip: "Type it into \(h.target) again", kind: .secondary)
         } else {
-            action("Send to \(h.target)", Self.handoffSend, tip: "Type this into \(h.target) as you", color: accent, weight: .semibold)
+            action("Send to \(h.target)", Self.handoffSend, tip: "Type this into \(h.target) as you", kind: .primary)
             action("Edit First", Self.handoffEdit, tip: "Put it in the message box, addressed to \(h.target), to change before sending",
-                   color: NSColor.secondaryLabelColor)
+                   kind: .secondary)
         }
         out.append(copyLine(Self.copyCodeLabel, tip: "Copy the message", text: h.text, style: actions))
         return out
@@ -1145,6 +1151,8 @@ struct TranscriptRenderer {
     static let handoffSend = URL(string: "deck://handoff/send")!
     static let handoffEdit = URL(string: "deck://handoff/edit")!
     static let handoffKey = NSAttributedString.Key("deckHandoff")
+    /// A drawn button's label (it's an image, so not in the text).
+    static let buttonLabel = NSAttributedString.Key("deckButtonLabel")
 
     private static let detector = try! NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
 
@@ -1181,6 +1189,40 @@ struct TranscriptRenderer {
         return NSImage(size: size, flipped: false) { rect in
             NSBezierPath(roundedRect: rect, xRadius: Palette.Radius.medium, yRadius: Palette.Radius.medium).addClip()
             image.draw(in: rect)
+            return true
+        }
+    }
+
+    enum ButtonKind { case primary, secondary, done }
+
+    /// A button drawn as an image for a card: filled accent for the main action, outlined for the
+    /// others, green once done. Drawn when shown, so it follows light and dark mode.
+    static func button(_ label: String, kind: ButtonKind) -> NSImage {
+        let font = NSFont.systemFont(ofSize: 13, weight: kind == .secondary ? .medium : .semibold)
+        let text = NSAttributedString(string: label, attributes: [.font: font])
+        let size = NSSize(width: ceil(text.size().width) + 28, height: 28)
+        return NSImage(size: size, flipped: false) { rect in
+            let shape = NSBezierPath(roundedRect: rect.insetBy(dx: 0.5, dy: 0.5), xRadius: 7, yRadius: 7)
+            let fg: NSColor
+            switch kind {
+            case .primary:
+                Palette.accent.setFill()
+                shape.fill()
+                fg = .white
+            case .secondary:
+                NSColor.labelColor.withAlphaComponent(0.06).setFill()
+                shape.fill()
+                NSColor.labelColor.withAlphaComponent(0.22).setStroke()
+                shape.stroke()
+                fg = .labelColor
+            case .done:
+                Palette.success.withAlphaComponent(0.15).setFill()
+                shape.fill()
+                fg = Palette.success
+            }
+            let styled = NSAttributedString(string: label, attributes: [.font: font, .foregroundColor: fg])
+            let s = styled.size()
+            styled.draw(at: NSPoint(x: (rect.width - s.width) / 2, y: (rect.height - s.height) / 2))
             return true
         }
     }

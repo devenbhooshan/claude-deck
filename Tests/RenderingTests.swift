@@ -320,17 +320,27 @@ func textViewTests() {
         expectEqual(pb.string(forType: .string), "Last quote") // no quote there
         pb.releaseGlobally()
     }
+    /// The drawn buttons in rendered text, by label, with where each is.
+    func buttons(_ s: NSAttributedString) -> [String: Int] {
+        var out: [String: Int] = [:]
+        s.enumerateAttribute(TranscriptRenderer.buttonLabel, in: NSRange(location: 0, length: s.length)) { v, r, _ in
+            if let v = v as? String { out[v] = r.location }
+        }
+        return out
+    }
     test("a new-session card: start, edit, started") {
         let md = "```new-session taxes ~/w\nDo my ITR\n```\n\n```new-session x\n/exit\n```\n\n```new-session y\n   \n```"
-        let out = TranscriptRenderer(width: 700, cwd: "", expanded: []).render(content([.item(item(.assistant(md)))])).string
+        let rendered = TranscriptRenderer(width: 700, cwd: "", expanded: []).render(content([.item(item(.assistant(md)))]))
+        let out = rendered.string
         expect(out.contains("＋ New session taxes in ~/w"))
-        expect(out.contains("Start Session"))
+        expectEqual(Set(buttons(rendered).keys), ["Start Session", "Edit First"])
         expect(out.contains("Deck won't type this"))
         var c = content([.item(item(.assistant("```new-session taxes\nDo my ITR\n```")))])
         c.sentHandoffs = [Handoff(target: "taxes", text: "Do my ITR", newSession: true).key]
-        let started = TranscriptRenderer(width: 700, cwd: "", expanded: [], sent: c.sentHandoffs).render(c).string
-        expect(started.contains("✓ Started taxes") && started.contains("Start Another"))
-        expect(!started.contains(" in "))
+        let started = TranscriptRenderer(width: 700, cwd: "", expanded: [], sent: c.sentHandoffs).render(c)
+        expectEqual(Set(buttons(started).keys), ["✓ Started taxes", "Start Another"])
+        expect(!started.string.contains(" in "))
+        draw(started)
     }
 
     test("a tasks board renders as one line, not a code block") {
@@ -356,14 +366,15 @@ func textViewTests() {
         ctl.render(force: true)
         let storage = tv.textStorage!
         let text = storage.string
-        for s in ["➤ For supergrow", "Merge #234", "Send to supergrow", "Edit First", "Deck won't type this", "✓ Sent to content", "Send Again"] {
+        for s in ["➤ For supergrow", "Merge #234", "Deck won't type this"] {
             expect(text.contains(s), s)
         }
+        let found = buttons(storage)
+        expectEqual(Set(found.keys), ["Send to supergrow", "Edit First", "✓ Sent to content", "Send Again"])
         draw(storage)
-        func at(_ label: String) -> Int { (text as NSString).range(of: label).location }
-        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffSend, at: at("Send to supergrow")))
-        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffEdit, at: at("Edit First")))
-        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffSend, at: at("➤ For supergrow") + storage.length))
+        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffSend, at: found["Send to supergrow"]!))
+        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffEdit, at: found["Edit First"]!))
+        expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffSend, at: storage.length + 5))
         expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffSend, at: 0))
         expectEqual(clicked.map(\.0.text), ["Merge #234", "Merge #234"])
         expectEqual(clicked.map(\.1), [false, true])
