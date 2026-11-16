@@ -7,6 +7,28 @@ private func session(_ name: String, live: Bool = true, status: SessionStatus = 
 }
 
 func coordinationTests() {
+    test("new-session cards: name, optional folder, first message, safety") {
+        expectEqual(Handoff.from(info: "new-session taxes ~/worksplace/ai-workspace", code: "\n Do my ITR \n"),
+                    Handoff(target: "taxes", text: "Do my ITR", newSession: true, folder: "~/worksplace/ai-workspace"))
+        expectEqual(Handoff.from(info: "New-Session tax filing /tmp", code: "go")?.target, "tax filing")
+        expectEqual(Handoff.from(info: "new-session tax filing", code: "go")?.folder, nil)
+        expectEqual(Handoff.from(info: "new-session ~/x", code: "go")?.target, "~/x")
+        expect(Handoff.from(info: "new-session", code: "go") == nil)
+        expect(Handoff.from(info: "swift", code: "go") == nil)
+        expect(Handoff.from(info: nil, code: "go") == nil)
+        expect(Handoff.from(info: "new-session a", code: "  ") == nil)
+        expect(Handoff.isCard(info: "new-session a") && Handoff.isCard(info: "send-to b") && !Handoff.isCard(info: "tasks"))
+        expect(!Handoff(target: "a", text: "-p hi", newSession: true).isTypeable)
+        expect(Handoff(target: "a", text: "-p hi").isTypeable)
+        expectEqual(Handoff(target: "A", text: "go", newSession: true).key, "new\u{1}a\u{1}go")
+        let h = Handoff(target: "a", text: "go", newSession: true, folder: "~/w")
+        expectEqual(h.startFolder(home: "/Users/me", fallback: "/f"), "/Users/me/w")
+        expectEqual(Handoff(target: "a", text: "go", newSession: true, folder: "~").startFolder(home: "/Users/me", fallback: "/f"), "/Users/me")
+        expectEqual(Handoff(target: "a", text: "go", newSession: true, folder: "/abs").startFolder(fallback: "/f"), "/abs")
+        expectEqual(Handoff(target: "a", text: "go", newSession: true).startFolder(fallback: "/f"), "/f")
+        expectEqual(Handoff.all(in: "```new-session taxes\nbrief\n```\n\n```send-to cos\nhi\n```").map(\.newSession), [true, false])
+    }
+
     test("task board lines: state words, session, note") {
         let t = TaskItem.parse(line: "- [doing] Rotate encryption keys @supergrow — testing the rake task")
         expectEqual(t, TaskItem(state: .doing, title: "Rotate encryption keys", session: "supergrow", note: "testing the rake task"))
@@ -106,11 +128,11 @@ func coordinationTests() {
         expect(!Handoff(target: "a", text: "/exit").isTypeable)
         expect(!Handoff(target: "a", text: "!rm x").isTypeable)
         expectEqual(Handoff(target: "Nook", text: "hi").key, "nook\u{1}hi")
-        expectEqual(Handoff.receipt(for: [("supergrow", "Merge\n  #234")]),
+        expectEqual(Handoff.receipt(for: [Handoff(target: "supergrow", text: "Merge\n  #234")]),
                     "[Claude Deck] I sent your message to supergrow: “Merge #234”. No need to reply.")
         let long = String(repeating: "a", count: 100)
-        expectEqual(Handoff.receipt(for: [("a", "x"), ("b", long)]),
-                    "[Claude Deck] I sent your 2 messages to a: “x”; to b: “\(String(repeating: "a", count: 79))…”. No need to reply.")
+        expectEqual(Handoff.receipt(for: [Handoff(target: "a", text: "x"), Handoff(target: "taxes", text: long, newSession: true)]),
+                    "[Claude Deck] I sent your message to a: “x”; started the session taxes with your first message “\(String(repeating: "a", count: 79))…”. No need to reply.")
     }
 
     test("addressing a session with @name") {

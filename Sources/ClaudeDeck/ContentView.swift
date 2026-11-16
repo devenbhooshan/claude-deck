@@ -188,6 +188,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $store.showNewSession) { NewSessionSheet() }
         .sheet(item: $store.forkTarget) { NewSessionSheet(forking: $0) }
+        .sheet(item: $store.startDraft) { StartDraftSheet(draft: $0) }
         .sheet(isPresented: $store.showUsage) { UsageSheet() }
         .sheet(isPresented: $store.showPolicies) { PoliciesSheet() }
         .sheet(isPresented: $store.showRoutines) { RoutinesSheet() }

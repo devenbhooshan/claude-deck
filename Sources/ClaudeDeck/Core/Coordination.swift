@@ -1,16 +1,25 @@
 import Foundation
 
-/// Something one session asks you to say in another, written as a code block marked
-/// `send-to <session>`. Deck shows it as a card you can send with one click; your click is
-/// what makes it yours, since a session rightly ignores approvals passed on by another one.
+/// Something one session asks you to do for it in another, as a code block Deck shows as a card
+/// you act on with one click; your click is what makes it yours, since a session rightly ignores
+/// approvals passed on by another one.
+///
+/// - ```` ```send-to supergrow ```` : a message to type into a running session.
+/// - ```` ```new-session taxes ~/work ```` : a session to start (in that folder, or the drafting
+///   session's), with the block's text as your first message.
 struct Handoff: Equatable, Hashable {
     /// The session's name as written.
     let target: String
     let text: String
+    /// Start `target` as a new session instead of messaging a running one.
+    var newSession = false
+    /// For a new session, the folder to start it in, as written (`~` allowed).
+    var folder: String? = nil
 
     static let marker = "send-to"
+    static let newMarker = "new-session"
 
-    /// The session a code block's info string (```send-to supergrow) addresses, if it's a handoff.
+    /// The session a code block's info string (```send-to supergrow) addresses, if it's a send-to.
     static func target(info: String?) -> String? {
         guard let info else { return nil }
         let parts = info.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 1)
@@ -18,31 +27,55 @@ struct Handoff: Equatable, Hashable {
         return parts[1].trimmingCharacters(in: .whitespaces)
     }
 
+    /// The handoff a code block makes, from its info string and text, if it's one.
+    static func from(info: String?, code: String) -> Handoff? {
+        let text = code.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let info else { return nil }
+        if let target = target(info: info) { return Handoff(target: target, text: text) }
+        var words = info.split(separator: " ").map(String.init)
+        guard words.count >= 2, words.removeFirst().lowercased() == newMarker else { return nil }
+        // A last word that's a path is the folder; the rest is the name.
+        var folder: String?
+        if words.count > 1, let last = words.last, last.hasPrefix("/") || last.hasPrefix("~") { folder = words.removeLast() }
+        return Handoff(target: words.joined(separator: " "), text: text, newSession: true, folder: folder)
+    }
+
+    /// Whether a code block's info string makes it a handoff card.
+    static func isCard(info: String?) -> Bool { from(info: info, code: "x") != nil }
+
     /// Every handoff in a reply, in order (not ones quoted inside a quote).
     static func all(in markdown: String) -> [Handoff] {
         Markdown.parse(markdown).compactMap { block in
-            guard block.quoteDepth == 0, case .code(let code) = block.kind, let target = target(info: block.info) else { return nil }
-            let text = code.trimmingCharacters(in: .whitespacesAndNewlines)
-            return text.isEmpty ? nil : Handoff(target: target, text: text)
+            guard block.quoteDepth == 0, case .code(let code) = block.kind else { return nil }
+            return from(info: block.info, code: code)
         }
     }
 
     /// Typed at Claude's prompt, `/` runs a command and `!` a shell command. Text another
-    /// session wrote must never do either, so Deck only offers to copy it.
-    var isTypeable: Bool { !(text.hasPrefix("/") || text.hasPrefix("!")) }
+    /// session wrote must never do either, so Deck only offers to copy it. A new session's first
+    /// message goes on its command line, where a leading `-` would be read as an option.
+    var isTypeable: Bool { !(text.hasPrefix("/") || text.hasPrefix("!") || (newSession && text.hasPrefix("-"))) }
 
     /// Identifies it for "sent" and "dismissed".
-    var key: String { target.lowercased() + "\u{1}" + text }
+    var key: String { (newSession ? "new\u{1}" : "") + target.lowercased() + "\u{1}" + text }
 
-    /// What Deck types into the session that drafted messages once you've sent them, so it knows
-    /// they went out (it can't see the other session). One line, however many were sent.
-    static func receipt(for sent: [(target: String, text: String)]) -> String {
-        let quoted = sent.map { s in
-            let one = s.text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-            return "to \(s.target): “\(one.count > 80 ? one.prefix(79) + "…" : one)”"
+    /// The folder to start a new session in: its own (with `~` expanded), else `fallback`.
+    func startFolder(home: String = NSHomeDirectory(), fallback: String) -> String {
+        guard let folder else { return fallback }
+        return folder == "~" ? home : folder.hasPrefix("~/") ? home + folder.dropFirst() : folder
+    }
+
+    /// What Deck types into the session that drafted handoffs once you've acted on them, so it
+    /// knows (it can't see the other session). One line, however many there were. `text` is what
+    /// was actually sent, which you may have edited.
+    static func receipt(for done: [Handoff]) -> String {
+        let parts = done.map { h in
+            let one = h.text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+            let quote = "“\(one.count > 80 ? one.prefix(79) + "…" : one)”"
+            return h.newSession ? "started the session \(h.target) with your first message \(quote)"
+                                : "sent your message to \(h.target): \(quote)"
         }
-        let what = sent.count == 1 ? "your message" : "your \(sent.count) messages"
-        return "[Claude Deck] I sent \(what) " + quoted.joined(separator: "; ") + ". No need to reply."
+        return "[Claude Deck] I " + parts.joined(separator: "; ") + ". No need to reply."
     }
 }
 

@@ -691,10 +691,14 @@ struct TranscriptRenderer {
                 }
                 out.append(inline)
                 out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
-            case .code(let code) where quotes.isEmpty && Handoff.target(info: block.info) != nil:
+            case .code(let code) where quotes.isEmpty && Handoff.isCard(info: block.info):
                 if first { out.append(marker()) }
-                let text = code.trimmingCharacters(in: .whitespacesAndNewlines)
-                out.append(handoffCard(Handoff(target: Handoff.target(info: block.info)!, text: text), spacingBefore: first ? 0 : 8))
+                // An empty card has nothing to send: shown as the plain (empty) block it is.
+                if let h = Handoff.from(info: block.info, code: code) {
+                    out.append(handoffCard(h, spacingBefore: first ? 0 : 8))
+                } else {
+                    out.append(codeBlock(code, spacingBefore: first ? 0 : 6))
+                }
             case .code(let code) where quotes.isEmpty && block.info?.trimmingCharacters(in: .whitespaces).lowercased() == TaskBoard.marker:
                 // The coordinator reposts its whole board often; the Tasks panel shows it, so here it's one line.
                 if first { out.append(marker()) }
@@ -800,7 +804,8 @@ struct TranscriptRenderer {
         let body = paragraph { $0.textBlocks = [block]; $0.paragraphSpacing = 8; $0.lineSpacing = 2 }
         let actions = paragraph { $0.textBlocks = [block]; $0.paragraphSpacing = 0 }
         let small = NSFont.systemFont(ofSize: 12)
-        let out = NSMutableAttributedString(string: "➤ For \(h.target)\n", attributes: [
+        let heading = h.newSession ? "＋ New session \(h.target)" + (h.folder.map { " in \($0)" } ?? "") : "➤ For \(h.target)"
+        let out = NSMutableAttributedString(string: heading + "\n", attributes: [
             .font: NSFont.systemFont(ofSize: 12, weight: .semibold), .foregroundColor: accent, .paragraphStyle: header,
         ])
         out.append(NSAttributedString(string: h.text + "\n", attributes: [
@@ -815,6 +820,13 @@ struct TranscriptRenderer {
         }
         if !h.isTypeable {
             action("Deck won't type this: it would run as a command", nil, tip: "Text from another session can't start with / or !",
+                   color: NSColor.secondaryLabelColor)
+        } else if h.newSession && sent.contains(h.key) {
+            action("✓ Started \(h.target)", nil, tip: "You started this session", color: Palette.success, weight: .medium)
+            action("Start Another", Self.handoffSend, tip: "Start a second session with this first message", color: NSColor.secondaryLabelColor)
+        } else if h.newSession {
+            action("Start Session", Self.handoffSend, tip: "Start \(h.target) and send this as your first message", color: accent, weight: .semibold)
+            action("Edit First", Self.handoffEdit, tip: "Change the name, folder or first message before starting",
                    color: NSColor.secondaryLabelColor)
         } else if sent.contains(h.key) {
             action("✓ Sent to \(h.target)", nil, tip: "You sent this", color: Palette.success, weight: .medium)

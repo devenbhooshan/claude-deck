@@ -122,51 +122,89 @@ final class SessionStore {
         if let h = editing, SessionAddress.token(h.target) == SessionAddress.token(target.displayTitle) {
             sentHandoffs.insert(h.key)
             editing = nil
-            confirmSent(h, text: message, to: target)
+            confirm(Handoff(target: target.displayTitle, text: message), from: source(of: h), unless: target)
         }
         HUD.show("Sent to \(target.displayTitle)", detail: SessionLoader.oneLine(text), symbol: "paperplane.fill", tint: Theme.accent)
         updateBadge()
     }
 
-    /// A handoff card's Send: types its text into the session it names, once you click.
+    /// A handoff card's Send (or Start Session): types its text into the session it names, or
+    /// starts that session with it as your first message, once you click.
     func sendHandoff(_ h: Handoff) {
         guard h.isTypeable else { return }
+        if h.newSession {
+            let from = source(of: h)
+            guard let folder = from.map({ h.startFolder(fallback: $0.cwd) }) ?? h.folder.map({ h.startFolder(fallback: $0) }) else {
+                lastError = "Deck can't tell which folder to start \u{201C}\(h.target)\u{201D} in. Use Edit First to pick one."
+                return
+            }
+            startHandoff(h, name: h.target, folder: folder, prompt: h.text)
+            return
+        }
         guard let target = SessionAddress.resolve(h.target, in: live) else {
             lastError = "There's no running session called \u{201C}\(h.target)\u{201D}. Copy the message, or rename the session to match."
             return
         }
+        let from = source(of: h)
         Task {
             do {
                 try await send(h.text, to: target)
                 sentHandoffs.insert(h.key)
-                confirmSent(h, text: h.text, to: target)
+                confirm(Handoff(target: target.displayTitle, text: h.text), from: from, unless: target)
                 updateBadge()
             } catch { lastError = error.localizedDescription }
         }
     }
 
-    /// Handoffs sent in the last moment, by the session that drafted them, waiting to be confirmed together.
-    private var receipts: [String: [(target: String, text: String)]] = [:]
+    /// A new-session card, ready to change before starting (Edit First).
+    var startDraft: StartDraft?
 
-    /// Tells the session that drafted a handoff it went out: it can't see the other session, so
-    /// otherwise it keeps reminding you. Sends a moment later, in one line if you send several at once.
-    private func confirmSent(_ h: Handoff, text: String, to target: Session) {
-        guard let source = live.first(where: { $0.handoffs.contains(h) }), source.id != target.id else { return }
+    /// Starts the session a new-session card asks for, as you typed or changed it.
+    func startHandoff(_ h: Handoff, name: String, folder: String, prompt: String) {
+        var dir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: folder, isDirectory: &dir), dir.boolValue else {
+            lastError = "There's no folder at \(folder). Use Edit First to pick another."
+            return
+        }
+        let from = source(of: h)
+        startSession(in: folder, SessionLaunch(name: name, prompt: prompt))
+        sentHandoffs.insert(h.key)
+        confirm(Handoff(target: name, text: prompt, newSession: true), from: from)
+        updateBadge()
+    }
+
+    /// The session that drafted a handoff: the one whose replies hold it, else the one open.
+    private func source(of h: Handoff) -> Session? {
+        live.first { $0.handoffs.contains(h) } ?? session(selectedId).flatMap { $0.isLive ? $0 : nil }
+    }
+
+    /// Handoffs acted on in the last moment, by the session that drafted them, to confirm together.
+    private var receipts: [String: [Handoff]] = [:]
+
+    /// Tells the session that drafted a handoff you acted on: it can't see the other session, so
+    /// otherwise it keeps reminding you. Sends a moment later, in one line if you did several at once.
+    private func confirm(_ done: Handoff, from source: Session?, unless target: Session? = nil) {
+        guard let source, source.id != target?.id else { return }
         let first = receipts[source.id] == nil
-        receipts[source.id, default: []].append((target.displayTitle, text))
+        receipts[source.id, default: []].append(done)
         guard first else { return }
         Task {
             try? await Task.sleep(for: .seconds(2))
-            guard let sent = receipts.removeValue(forKey: source.id), let s = session(source.id), s.isLive else { return }
-            do { try await Ghostty.send(text: Handoff.receipt(for: sent), images: [], to: s) } catch {
-                lastError = "Couldn't tell \(s.displayTitle) the message was sent: \(error.localizedDescription)"
+            guard let done = receipts.removeValue(forKey: source.id), let s = session(source.id), s.isLive else { return }
+            do { try await Ghostty.send(text: Handoff.receipt(for: done), images: [], to: s) } catch {
+                lastError = "Couldn't tell \(s.displayTitle) it was done: \(error.localizedDescription)"
             }
         }
     }
 
     /// A handoff card's Edit First: into the open message box, addressed to its session, or
-    /// (from Needs You) into that session's own message box.
+    /// (from Needs You) into that session's own message box. A new session's opens a sheet.
     func editHandoff(_ h: Handoff) {
+        if h.newSession {
+            let folder = source(of: h).map { h.startFolder(fallback: $0.cwd) } ?? h.startFolder(fallback: NSHomeDirectory())
+            startDraft = StartDraft(handoff: h, folder: folder)
+            return
+        }
         editing = h
         if let open = session(selectedId), open.isLive, SessionAddress.resolve(h.target, in: live)?.id != open.id {
             composerInsert = "@\(SessionAddress.token(h.target)) \(h.text)"

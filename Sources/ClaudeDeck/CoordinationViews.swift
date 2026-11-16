@@ -76,7 +76,7 @@ private struct InboxCard: View {
         switch item {
         case .prompt: Theme.isPermission(session) ? "wants to run a tool" : "is waiting for \(session.waitingFor ?? "you")"
         case .question: "asked you"
-        case .handoff(_, let h): "drafted a message for \(h.target)"
+        case .handoff(_, let h): h.newSession ? "asks you to start a session, \(h.target)" : "drafted a message for \(h.target)"
         }
     }
 
@@ -148,6 +148,13 @@ private struct HandoffActions: View {
             if !handoff.isTypeable {
                 Label("Deck won't type this: it would run as a command", systemImage: "exclamationmark.triangle")
                     .font(.callout).foregroundStyle(.secondary)
+            } else if handoff.newSession {
+                Button("Start Session") { store.sendHandoff(handoff) }
+                    .buttonStyle(.deck(.primary))
+                    .help("Start \(handoff.target) and send this as your first message")
+                Button("Edit First") { store.editHandoff(handoff) }
+                    .buttonStyle(.deck(.secondary))
+                    .help("Change the name, folder or first message before starting")
             } else {
                 Button("Send to \(handoff.target)") { store.sendHandoff(handoff) }
                     .buttonStyle(.deck(.primary))
@@ -498,6 +505,87 @@ private struct TaskRow: View {
         } else {
             Text(name).font(.caption).foregroundStyle(.tertiary)
                 .help("No running session is called \(name)")
+        }
+    }
+}
+
+/// A new-session card being changed before it starts.
+struct StartDraft: Identifiable {
+    let id = UUID()
+    let handoff: Handoff
+    let folder: String
+}
+
+/// Edit First on a new-session card: its name, folder and first message, then Start.
+struct StartDraftSheet: View {
+    @Environment(SessionStore.self) private var store
+    @Environment(\.dismiss) private var dismiss
+    let draft: StartDraft
+    @State private var name = ""
+    @State private var folder = ""
+    @State private var prompt = ""
+
+    private var canStart: Bool {
+        let text = prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !name.trimmingCharacters(in: .whitespaces).isEmpty && !text.isEmpty
+            && Handoff(target: name, text: text, newSession: true).isTypeable
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Start a new session").font(.title3.weight(.semibold))
+            Text("Opens a Ghostty window in the folder, starts Claude with this name and sends the first message as you.")
+                .font(.callout).foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 10) {
+                Label("Name", systemImage: "character.cursor.ibeam").frame(width: 90, alignment: .leading)
+                TextField("", text: $name).textFieldStyle(.roundedBorder)
+            }
+            HStack(spacing: 10) {
+                Label("Folder", systemImage: "folder").frame(width: 90, alignment: .leading)
+                Text(Theme.shortPath(folder)).lineLimit(1).truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .help(folder)
+                Button("Choose…") {
+                    let panel = NSOpenPanel()
+                    panel.canChooseDirectories = true
+                    panel.canChooseFiles = false
+                    panel.directoryURL = URL(fileURLWithPath: folder)
+                    if panel.runModal() == .OK, let url = panel.url { folder = url.path }
+                }
+                .buttonStyle(.deck(.secondary))
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                Label("First message", systemImage: "text.bubble")
+                TextEditor(text: $prompt)
+                    .font(.body)
+                    .scrollContentBackground(.hidden)
+                    .padding(6)
+                    .frame(minHeight: 160, maxHeight: 320)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(Color.primary.opacity(0.05)))
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .buttonStyle(.deck(.secondary))
+                    .keyboardShortcut(.cancelAction)
+                Button("Start") {
+                    store.startHandoff(draft.handoff, name: name.trimmingCharacters(in: .whitespaces), folder: folder,
+                                       prompt: prompt.trimmingCharacters(in: .whitespacesAndNewlines))
+                    dismiss()
+                }
+                .buttonStyle(.deck(.primary))
+                .keyboardShortcut(.defaultAction)
+                .disabled(!canStart)
+                .help(canStart ? "Start the session" : "It needs a name and a first message that doesn't start with /, ! or -")
+            }
+        }
+        .padding(20)
+        .frame(width: 560)
+        .onAppear {
+            name = draft.handoff.target
+            folder = draft.folder
+            prompt = draft.handoff.text
         }
     }
 }

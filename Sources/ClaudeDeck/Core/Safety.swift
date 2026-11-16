@@ -25,6 +25,10 @@ enum Safety {
         // Remote Control shows the session under its name in the Claude app.
         if launch.remoteControl { parts += ["--remote-control"] + (name.isEmpty ? [] : [shellQuote(name)]) }
         for dir in launch.addDirs { parts += ["--add-dir", shellQuote(dir)] }
+        if let prompt = launch.prompt.map({ stripControls($0).trimmingCharacters(in: .whitespacesAndNewlines) }), !prompt.isEmpty {
+            // After `--`, so it can't be read as an option whatever it starts with.
+            parts += ["--", shellQuote(prompt)]
+        }
         return parts.joined(separator: " ")
     }
 
@@ -112,6 +116,8 @@ struct SessionLaunch: Equatable {
     var remoteControl = false
     /// Folders it may also read: Deck's attachments, so it can open the images and files you send.
     var addDirs: [String] = []
+    /// Your first message, sent as Claude starts.
+    var prompt: String? = nil
 }
 
 /// When Deck may answer or type into a session, decided from a fresh read of its record.

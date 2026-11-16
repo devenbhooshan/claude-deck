@@ -256,6 +256,9 @@ func safetyTests() {
         expectEqual(Safety.shellQuote("it's $(x)"), #"'it'\''s $(x)'"#)
         expectEqual(Safety.launchCommand(SessionLaunch()), "claude")
         expectEqual(Safety.launchCommand(SessionLaunch(addDirs: ["/a b/c"])), "claude --add-dir '/a b/c'")
+        expectEqual(Safety.launchCommand(SessionLaunch(name: "taxes", addDirs: ["/d"], prompt: "  Read it's brief\u{1B}\n")),
+                    "claude --name 'taxes' --add-dir '/d' -- 'Read it'\\''s brief'")
+        expectEqual(Safety.launchCommand(SessionLaunch(prompt: " \n ")), "claude")
         expectEqual(Safety.launchCommand(SessionLaunch(name: "x")), "claude --name 'x'")
         expectEqual(Safety.launchCommand(SessionLaunch(remoteControl: true)), "claude --remote-control")
         expectEqual(Safety.launchCommand(SessionLaunch(name: "  \n ", remoteControl: true)), "claude --remote-control")

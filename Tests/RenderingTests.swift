@@ -320,6 +320,19 @@ func textViewTests() {
         expectEqual(pb.string(forType: .string), "Last quote") // no quote there
         pb.releaseGlobally()
     }
+    test("a new-session card: start, edit, started") {
+        let md = "```new-session taxes ~/w\nDo my ITR\n```\n\n```new-session x\n/exit\n```\n\n```new-session y\n   \n```"
+        let out = TranscriptRenderer(width: 700, cwd: "", expanded: []).render(content([.item(item(.assistant(md)))])).string
+        expect(out.contains("＋ New session taxes in ~/w"))
+        expect(out.contains("Start Session"))
+        expect(out.contains("Deck won't type this"))
+        var c = content([.item(item(.assistant("```new-session taxes\nDo my ITR\n```")))])
+        c.sentHandoffs = [Handoff(target: "taxes", text: "Do my ITR", newSession: true).key]
+        let started = TranscriptRenderer(width: 700, cwd: "", expanded: [], sent: c.sentHandoffs).render(c).string
+        expect(started.contains("✓ Started taxes") && started.contains("Start Another"))
+        expect(!started.contains(" in "))
+    }
+
     test("a tasks board renders as one line, not a code block") {
         let md = "Done.\n\n```tasks\n- [doing] A @x\n- [done] B\n- [todo] C\n```"
         let out = TranscriptRenderer(width: 700, cwd: "", expanded: []).render(content([.item(item(.assistant(md)))])).string
