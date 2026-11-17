@@ -251,12 +251,15 @@ enum Ghostty {
             on run argv
               tell application "Ghostty"
                 set t to terminal id (item 1 of argv)
-                if (working directory of t) is not (item 2 of argv) then return "mismatch"
+                set AppleScript's text item delimiters to character id 31
+                set okDirs to text items of (item 2 of argv)
+                set AppleScript's text item delimiters to ""
+                if okDirs does not contain (working directory of t) then return "mismatch"
                 close t
               end tell
               return "ok"
             end run
-            """, args: [id, session.cwd])
+            """, args: [id, TerminalMatch.foldersArgument(session.cwd)])
     }
 
     /// Polls `done` every 250ms; false if it's still not true after `seconds`.
@@ -345,7 +348,10 @@ enum Ghostty {
                 set n to name of t
                 set d to working directory of t
               end tell
-              if d is not (item 2 of argv) then return "mismatch"
+              set AppleScript's text item delimiters to character id 31
+              set okDirs to text items of (item 2 of argv)
+              set AppleScript's text item delimiters to ""
+              if okDirs does not contain d then return "mismatch"
               if n is "" then return "mismatch"
               if (character 1 of n) is not in (item 3 of argv) then return "mismatch"
               tell application "Ghostty"
@@ -359,7 +365,7 @@ enum Ghostty {
             let id = try await terminalId(for: session)
             let result: String
             do {
-                result = try await run(script, args: [id, session.cwd, marks] + args)
+                result = try await run(script, args: [id, TerminalMatch.foldersArgument(session.cwd), marks] + args)
             } catch Failure.script(let msg) where msg.contains("-1728") || msg.contains("terminal id") {
                 result = "mismatch" // The cached terminal is gone.
             }

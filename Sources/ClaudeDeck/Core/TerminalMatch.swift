@@ -45,7 +45,7 @@ enum TerminalMatch {
     /// set one), and anything ambiguous returns nil.
     static func find(for session: Session, in all: [GhosttyTerminal], claimed: Set<String> = [],
                      preferred: String? = nil) -> GhosttyTerminal? {
-        let inDir = all.filter { isClaudeTitle($0.name) && $0.workingDirectory == session.cwd }
+        let inDir = all.filter { stillMatches($0, session: session) }
         if let preferred, let t = inDir.first(where: { $0.id == preferred }) { return t }
         let free = inDir.filter { !claimed.contains($0.id) }
         let names = [session.title, session.name].compactMap { $0 }.filter { !$0.isEmpty }
@@ -57,6 +57,20 @@ enum TerminalMatch {
 
     /// Whether a terminal still looks like this session's (checked right before every action).
     static func stillMatches(_ t: GhosttyTerminal, session: Session) -> Bool {
-        isClaudeTitle(t.name) && t.workingDirectory == session.cwd
+        isClaudeTitle(t.name) && folders(of: session.cwd).contains(t.workingDirectory)
     }
+
+    /// The folders the session's terminal can be in: the session's own, and, when Claude moved the
+    /// session into a worktree (`<repo>/.claude/worktrees/<name>`), the repo it was started in, which
+    /// the terminal keeps reporting. Only that exact layout: any parent folder would let a terminal
+    /// sitting in ~ pass for every session.
+    static func folders(of cwd: String) -> [String] {
+        let marker = "/.claude/worktrees/"
+        guard let r = cwd.range(of: marker), !cwd[r.upperBound...].isEmpty,
+              !cwd[r.upperBound...].contains("/") else { return [cwd] }
+        return [cwd, String(cwd[..<r.lowerBound])]
+    }
+
+    /// `folders(of:)` as one AppleScript argument, split by `fieldSeparator` in the script.
+    static func foldersArgument(_ cwd: String) -> String { folders(of: cwd).joined(separator: fieldSeparator) }
 }

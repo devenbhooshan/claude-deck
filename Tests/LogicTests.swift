@@ -231,6 +231,20 @@ func terminalTests() {
         expect(!TerminalMatch.stillMatches(terms[2], session: s), "now a shell")
         expect(!TerminalMatch.stillMatches(terms[3], session: s), "other folder")
     }
+    test("a session Claude moved into a worktree still matches the terminal it started in") {
+        let wt = "/p/app/.claude/worktrees/fix-banner"
+        expectEqual(TerminalMatch.folders(of: wt), [wt, "/p/app"])
+        expectEqual(TerminalMatch.foldersArgument(wt), wt + fs + "/p/app")
+        expectEqual(TerminalMatch.foldersArgument("/p/app"), "/p/app")
+        let s = session("s", cwd: wt, title: "Fix bug")
+        expect(TerminalMatch.stillMatches(terms[0], session: s))
+        expectEqual(TerminalMatch.find(for: s, in: terms)?.id, "T1")
+        // Only that exact layout: not any parent folder, nor a folder inside the worktree.
+        for cwd in ["/p/app/sub", "/p/app/.claude/worktrees/", "/p/app/.claude/worktrees/x/src", "/p/app/.claude/x"] {
+            expectEqual(TerminalMatch.folders(of: cwd), [cwd])
+        }
+        expect(!TerminalMatch.stillMatches(terms[0], session: session("s", cwd: "/p/app/sub")))
+    }
 }
 
 func safetyTests() {
