@@ -6,6 +6,8 @@ You keep working in the terminal. Deck shows you every session at once: who's bu
 on you, and what each one said while you were looking at something else. Approve a prompt from
 any app, reply without switching windows, and leave Claude working on a schedule while you're away.
 
+![The coordinator's window: its task board, and messages it drafted for other sessions with one-click Send and Start Session buttons](docs/screenshots/coordinator.png)
+
 | | |
 |---|---|
 | ![A session in Deck: tool calls, an edit, and a reply with copy links](docs/screenshots/session.png) | ![Policies: rules checked before every tool call](docs/screenshots/policies.png) |
@@ -18,6 +20,9 @@ any app, reply without switching windows, and leave Claude working on a schedule
 - **Answer from anywhere.** ⌥⌘↩ approves the next prompt from any app, even over a full-screen
   video, and Deck checks it's the prompt you meant. There's also a floating dock, the menu bar,
   notifications with Allow / Deny, and a Dock badge.
+- **Run many sessions from one.** Pick a coordinator session. Its task board shows what's waiting
+  on you, what's blocked and what's in progress. When it drafts a message for another session, or
+  asks you to start a new one, one click sends it or starts it, and the coordinator is told it went out.
 - **Put Claude on a schedule.** Routines run a prompt in a folder every morning or every few hours,
   even with Deck closed. When one finishes, a pop-up waits for you, and you can reply to the run.
 - **Set the rules once.** Policies are checked before every tool call in every session, and Deck

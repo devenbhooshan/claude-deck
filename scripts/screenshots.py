@@ -148,7 +148,27 @@ Should I fix those too?""", 790),
         with open(os.path.join(routines, "runs", f"r-digest__{name}.json"), "w") as f:
             json.dump({"id": name, "routine": "r-digest", "started": start, "finished": start + 95, "status": status,
                        "result": text, "denied": 0, "cost": 0.18, "turns": 6}, f)
-    return main, reply
+    lead, _ = session("lead", "orbit", "Coordinate the orbit release", [
+        user("where are we on the release? what do you need from me?", 120),
+        say("""Two things need you, and I've drafted the next step for the others.
+
+```tasks
+- [you] Approve the staging migration @orbit-web — click Allow on its prompt in Deck
+- [blocked] v2 upgrade guide @orbit-docs — waiting on the final API names
+- [doing] Settings crash on Android 15 @orbit-mobile
+- [todo] Same missing await in refunds and invoices
+- [done] Flaky checkout test @orbit-api — 50 runs in a row pass
+```
+
+```send-to orbit-api
+Fix the same missing await in refunds.ts too.
+```
+
+```new-session orbit-search ~/code/orbit-api
+Add search to the orders page.
+```""", 110),
+    ])
+    return main, reply, lead
 
 
 def finish(reply):
@@ -199,8 +219,8 @@ def launch(*args):
 
 def shot(helper, start, take, prompt=False):
     new_home()
-    session_id, reply = setup(prompt)
-    app = launch(*start(session_id))
+    session_id, reply, lead = setup(prompt)
+    app = launch(*start(session_id, lead))
     try:
         time.sleep(5)
         finish(reply)
@@ -229,11 +249,16 @@ def main():
                 capture(id, panels[width])
 
     try:
-        shot(helper, lambda id: ["--open", id], lambda app: capture(biggest(helper, app), "session.png"))
-        shot(helper, lambda id: ["--open", id], panels_shot, prompt=True)
-        shot(helper, lambda id: ["--policies"], lambda app: capture(biggest(helper, app), "policies.png"))
+        shot(helper, lambda id, _: ["--open", id], lambda app: capture(biggest(helper, app), "session.png"))
+        shot(helper, lambda id, _: ["--open", id], panels_shot, prompt=True)
+        # The coordinator's window: its task board and the cards it drafted for other sessions.
+        shot(helper, lambda _, lead: ["--open", lead, "-coordinatorId", lead],
+             lambda app: capture(biggest(helper, app), "coordinator.png"), prompt=True)
+        shot(helper, lambda id, _: ["--policies"], lambda app: capture(biggest(helper, app), "policies.png"))
         crop("session.png", 760, 112, 1640, 960)
         crop("policies.png", 561, 141, 1278, 1279)
+        # Below the toolbar (this copy draws its content under it), down to the end of the board.
+        crop("coordinator.png", 0, 89, 2400, 746)
     finally:
         shutil.rmtree(build, ignore_errors=True)
 
