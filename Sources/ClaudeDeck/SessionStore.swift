@@ -186,23 +186,46 @@ final class SessionStore {
         live.first { $0.handoffs.contains(h) } ?? session(selectedId).flatMap { $0.isLive ? $0 : nil }
     }
 
-    /// Handoffs acted on in the last moment, by the session that drafted them, to confirm together.
-    private var receipts: [String: [Handoff]] = [:]
+    /// Receipts waiting a moment, by the session they're for, to send together.
+    private var receipts: [String: [Receipt]] = [:]
 
     /// Tells the session that drafted a handoff you acted on: it can't see the other session, so
-    /// otherwise it keeps reminding you. Sends a moment later, in one line if you did several at once.
+    /// otherwise it keeps reminding you.
     private func confirm(_ done: Handoff, from source: Session?, unless target: Session? = nil) {
         guard let source, source.id != target?.id else { return }
-        let first = receipts[source.id] == nil
-        receipts[source.id, default: []].append(done)
+        queueReceipt(.handoff(done), for: source)
+    }
+
+    /// Types a receipt into a session a moment later, in one message with any others made meanwhile.
+    private func queueReceipt(_ receipt: Receipt, for target: Session) {
+        let first = receipts[target.id] == nil
+        receipts[target.id, default: []].append(receipt)
         guard first else { return }
         Task {
             try? await Task.sleep(for: .seconds(2))
-            guard let done = receipts.removeValue(forKey: source.id), let s = session(source.id), s.isLive else { return }
-            do { try await Ghostty.send(text: Handoff.receipt(for: done), images: [], to: s) } catch {
-                lastError = "Couldn't tell \(s.displayTitle) it was done: \(error.localizedDescription)"
+            guard let done = receipts.removeValue(forKey: target.id), let s = session(target.id), s.isLive else { return }
+            do { try await Ghostty.send(text: Receipt.text(for: done), images: [], to: s) } catch {
+                lastError = "Couldn't tell \(s.displayTitle) what you did: \(error.localizedDescription)"
             }
         }
+    }
+
+    // MARK: Task board
+
+    /// Your changes to the coordinator's board, snoozes and its decisions log.
+    let board = BoardStore()
+
+    /// A task control (Mark done, I did it, an answer…): typed to the coordinator as one line,
+    /// batched with any others, and shown as sent until its next board reflects it.
+    func editTask(_ task: TaskItem, _ action: BoardEdit.Action) {
+        guard let c = coordinator else {
+            lastError = "The coordinator isn't running, so Deck can't tell it."
+            return
+        }
+        let edit = BoardEdit(task: task.title, action: action, at: Date())
+        board.record(edit, coordinator: c.sessionId)
+        queueReceipt(.board(edit), for: c)
+        HUD.show(edit.pendingLabel, detail: task.title, symbol: "checklist", tint: Theme.accent)
     }
 
     /// A handoff card's Edit First: into the open message box, addressed to its session, or
@@ -712,6 +735,7 @@ final class SessionStore {
         updateBadge()
         comms.refresh(sessions: newLive)
         ci.refresh(sessions: newLive)
+        board.refresh(coordinator: coordinator) { [weak self] in self?.lastError = $0 }
     }
 
     private func syncRecordWatchers(_ pids: Set<Int32>) {

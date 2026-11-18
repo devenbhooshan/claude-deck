@@ -11,6 +11,7 @@ let suites: [(String, () -> Void)] = [
     ("Activity", activityTests), ("Activity index", activityIndexTests), ("Activity summaries", activitySummaryTests), ("Search", searchTests),
     ("Background tasks", backgroundTaskTests), ("Unread replies", unreadTests), ("Policies", policyTests), ("Policy history & suggestions", policyHistoryTests), ("Policy files & hook", policyIOTests), ("File links", fileLinkTests), ("Earlier history", historyTests), ("Markdown editor", markdownEditorTests), ("Drafts", draftTests), ("Image zoom", imageZoomTests), ("Image zoom input", imageZoomInputTests), ("Routines", routineTests), ("Coordination", coordinationTests), ("CI status", ciStatusTests),
     ("Screenshot attach", screenshotAttachTests), ("Snippets", snippetTests),
+    ("Task board edits", taskBoardTests),
 ]
 for (name, run) in suites {
     print("• \(name)")

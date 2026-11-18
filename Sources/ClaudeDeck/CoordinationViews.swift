@@ -350,13 +350,15 @@ struct TaskBoardPanel: View {
     }
 
     private func list(_ board: TaskBoard) -> some View {
-        let done = board.items.filter { $0.state == .done }
+        // Snoozed tasks stay out of sight here (the board itself is the coordinator's) until the snooze ends.
+        let shown = store.board.visible(board)
+        let done = shown.filter { $0.state == .done }
         let states = TaskItem.State.allCases.filter { $0 != .done || showDone }
         return VStack(alignment: .leading, spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 10) {
                     ForEach(states, id: \.self) { state in
-                        let tasks = board.items.filter { $0.state == state }
+                        let tasks = shown.filter { $0.state == state }
                         if !tasks.isEmpty {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("\(TaskRow.section(state)) · \(tasks.count)")
@@ -385,6 +387,12 @@ struct TaskBoardPanel: View {
                     Button(showDone ? "Hide Done" : "Show \(done.count) Done") { showDone.toggle() }
                         .buttonStyle(.deck(.link)).font(.caption)
                 }
+                let snoozed = store.board.snoozedCount
+                if snoozed > 0 {
+                    Button("Wake \(snoozed) Snoozed") { store.board.wakeAll() }
+                        .buttonStyle(.deck(.link)).font(.caption)
+                        .help("Show the tasks you snoozed again now")
+                }
             }
             .padding(.horizontal, 12).padding(.vertical, 7)
         }
@@ -404,8 +412,9 @@ struct TaskBoardPanel: View {
 
     /// How many need you, in plain words, and how many are moving.
     private func counts(_ board: TaskBoard) -> some View {
-        let you = board.items.filter { $0.state == .you }.count
-        let doing = board.items.filter { $0.state == .doing }.count
+        // What the list below shows: snoozed tasks and ones you've already answered don't count.
+        let you = store.board.needsYou(board)
+        let doing = store.board.visible(board).filter { $0.state == .doing }.count
         return HStack(spacing: 4) {
             if you > 0 {
                 Text("\(you) need you").foregroundStyle(Theme.waiting).fontWeight(.semibold)
@@ -423,6 +432,22 @@ struct TaskBoardPanel: View {
 private struct TaskRow: View {
     @Environment(SessionStore.self) private var store
     let task: TaskItem
+    @State private var answer = ""
+    @FocusState private var answering: Bool
+
+    private var pending: BoardEdit? { store.board.pending(task) }
+
+    private func edit(_ action: BoardEdit.Action) {
+        withAnimation(.snappy) { store.editTask(task, action) }
+    }
+
+    private func sendAnswer() {
+        let text = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        edit(.answer(text))
+        answer = ""
+        answering = false
+    }
 
     /// A group's heading: what the state means for you.
     static func section(_ s: TaskItem.State) -> String {
@@ -478,9 +503,14 @@ private struct TaskRow: View {
                         Text(note).font(.caption).foregroundStyle(.secondary).lineLimit(2).textSelection(.enabled)
                     }
                 }
+                if let pending {
+                    sentBadge(pending)
+                } else if task.state == .you && store.coordinator != nil {
+                    answerControls
+                }
                 HStack(spacing: 6) {
                     if let name = task.session { sessionChip(name) }
-                    if task.state == .you, let c = store.coordinator {
+                    if task.state == .you, pending == nil, let c = store.coordinator {
                         Button("What do you need?") {
                             Task {
                                 do { try await store.send(TaskBoard.ask(about: task), to: c) } catch { store.lastError = error.localizedDescription }
@@ -492,9 +522,71 @@ private struct TaskRow: View {
                 }
             }
             Spacer(minLength: 0)
+            if task.state != .done, pending == nil, store.coordinator != nil { controlsMenu }
         }
         .padding(.horizontal, 6).padding(.vertical, 5)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .opacity(pending == nil ? 1 : 0.75)
+    }
+
+    /// Sent to the coordinator, waiting for its next board to show it.
+    private func sentBadge(_ edit: BoardEdit) -> some View {
+        HStack(spacing: 4) {
+            Image(systemName: "paperplane.fill").font(.caption2)
+            Text(edit.pendingLabel).fontWeight(.semibold)
+            if case .answer(let a) = edit.action {
+                Text("“\(SessionLoader.oneLine(a))”").lineLimit(1).truncationMode(.tail)
+            }
+        }
+        .font(.caption)
+        .foregroundStyle(Theme.accent)
+        .padding(.horizontal, 7).padding(.vertical, 2)
+        .background(Capsule().fill(Theme.accent.opacity(0.12)))
+        .help("Typed to the coordinator: \(edit.line)\nShown until its next board reflects it.")
+    }
+
+    /// On a task waiting on you: say you did it, or answer it in a few words.
+    private var answerControls: some View {
+        HStack(spacing: 6) {
+            Button { edit(.didIt) } label: {
+                Label("I Did It", systemImage: "checkmark")
+            }
+            .buttonStyle(.deck(.primary, size: .small))
+            .help("Tell the coordinator you've done this yourself")
+            TextField("Answer…", text: $answer)
+                .textFieldStyle(.roundedBorder)
+                .controlSize(.small)
+                .focused($answering)
+                .onSubmit(sendAnswer)
+                .help("A short answer for the coordinator (Return sends it). It's kept in the decisions log.")
+            if !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button("Send", action: sendAnswer)
+                    .buttonStyle(.deck(.secondary, size: .small))
+            }
+        }
+        .padding(.top, 3)
+    }
+
+    /// The task's controls: each becomes one line typed to the coordinator.
+    private var controlsMenu: some View {
+        Menu {
+            Button { edit(.done) } label: { Label("Mark Done", systemImage: "checkmark.circle") }
+            if task.state == .blocked {
+                Button { edit(.unblock) } label: { Label("Unblock", systemImage: "lock.open") }
+            }
+            if task.state != .todo {
+                Button { edit(.later) } label: { Label("Move to Later", systemImage: "arrow.uturn.down") }
+            }
+            Divider()
+            Button { edit(.snooze(hours: 1)) } label: { Label("Snooze for an Hour", systemImage: "moon.zzz") }
+            Button { edit(.snooze(hours: 24)) } label: { Label("Snooze for a Day", systemImage: "moon.zzz") }
+        } label: {
+            Image(systemName: "ellipsis.circle").font(.callout).foregroundStyle(.secondary)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Change this task: Deck tells the coordinator, and its next board shows it")
     }
 
     /// The session doing it, with its live state; opens it when it's running.

@@ -70,8 +70,7 @@ struct Handoff: Equatable, Hashable {
     /// was actually sent, which you may have edited.
     static func receipt(for done: [Handoff]) -> String {
         let parts = done.map { h in
-            let one = h.text.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-            let quote = "“\(one.count > 80 ? one.prefix(79) + "…" : one)”"
+            let quote = Receipt.quote(h.text)
             return h.newSession ? "started the session \(h.target) with your first message \(quote)"
                                 : "sent your message to \(h.target): \(quote)"
         }
