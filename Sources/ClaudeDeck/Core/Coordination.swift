@@ -117,26 +117,30 @@ enum Inbox {
         case question(Session, String)
         /// A message a session drafted for you to send to another.
         case handoff(from: Session, Handoff)
+        /// A PR's checks went green or red (or its deploy landed or broke).
+        case ci(Session, CIAlert)
 
         var id: String {
             switch self {
             case .prompt(let s): "prompt:" + s.sessionId
             case .question(let s, _): "question:" + s.sessionId
             case let .handoff(s, h): "handoff:" + s.sessionId + ":" + h.key
+            case let .ci(s, a): a.key + ":" + s.sessionId
             }
         }
 
         var session: Session {
             switch self {
-            case .prompt(let s), .question(let s, _), .handoff(let s, _): s
+            case .prompt(let s), .question(let s, _), .handoff(let s, _), .ci(let s, _): s
             }
         }
     }
 
-    /// Prompts first (they hold a session up), then handoffs, then questions. The coordinator's
-    /// handoffs come before other sessions'.
+    /// Prompts first (they hold a session up), then handoffs, then CI changes, then questions.
+    /// The coordinator's handoffs come before other sessions'. A CI alert shows on the first
+    /// running session in its folder.
     static func items(live: [Session], sent: Set<String>, dismissed: Set<String>, coordinator: String? = nil,
-                      isAnswered: (Session) -> Bool = { _ in false }) -> [Item] {
+                      ci: [CIAlert] = [], isAnswered: (Session) -> Bool = { _ in false }) -> [Item] {
         let prompts = live.filter { $0.status == .waiting && !isAnswered($0) }.map(Item.prompt)
         let byCoordinator = live.filter { $0.sessionId == coordinator } + live.filter { $0.sessionId != coordinator }
         let handoffs = byCoordinator.flatMap { s in
@@ -146,7 +150,10 @@ enum Inbox {
             guard s.status == .idle, let q = question(in: s), !dismissed.contains(questionKey(s)) else { return nil }
             return .question(s, q)
         }
-        return prompts + handoffs + questions
+        let changes = ci.filter { !dismissed.contains($0.key) }.compactMap { a in
+            live.first { $0.cwd == a.folder }.map { Item.ci($0, a) }
+        }
+        return prompts + handoffs + changes + questions
     }
 
     /// The question a session's last reply ends on: its last paragraph, if that asks something.

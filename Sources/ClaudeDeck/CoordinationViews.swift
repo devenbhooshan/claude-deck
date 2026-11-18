@@ -77,6 +77,13 @@ private struct InboxCard: View {
         case .prompt: Theme.isPermission(session) ? "wants to run a tool" : "is waiting for \(session.waitingFor ?? "you")"
         case .question: "asked you"
         case .handoff(_, let h): h.newSession ? "asks you to start a session, \(h.target)" : "drafted a message for \(h.target)"
+        case .ci(_, let a):
+            switch a.flip {
+            case .wentGreen: "checks passed"
+            case .wentRed: "checks failed"
+            case .deployed: "deployed"
+            case .deployFailed: "deploy check failed"
+            }
         }
     }
 
@@ -85,6 +92,7 @@ private struct InboxCard: View {
         case .prompt: Theme.waiting
         case .question: Theme.idle
         case .handoff: Theme.accent
+        case .ci(_, let a): a.flip == .wentGreen || a.flip == .deployed ? Theme.success : Theme.danger
         }
     }
 
@@ -113,6 +121,8 @@ private struct InboxCard: View {
                 .padding(.horizontal, -20)
         case .handoff(_, let h):
             HandoffActions(handoff: h)
+        case let .ci(s, a):
+            CIAlertActions(session: s, alert: a)
         }
     }
 

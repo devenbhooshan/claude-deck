@@ -19,8 +19,22 @@ enum ClaudeRunner {
         return execute(gh, args, in: dir, timeout: timeout)
     }
 
+    /// Runs a shell command line (a repo's deploy-status command) through zsh in `dir`, and
+    /// returns its exit status and everything it printed (errors included).
+    static func shell(_ command: String, in dir: String, timeout: TimeInterval = 60) -> (status: Int32, output: String) {
+        switch launch("/bin/zsh", ["-lc", command], in: dir, timeout: timeout, mergeErrors: true) {
+        case .success(let r): return r
+        case .failure(let e): return (127, e.message)
+        }
+    }
+
     /// Runs a command (in `dir`, or home if that folder is gone) and returns what it printed.
     private static func execute(_ path: String, _ args: [String], in dir: String, timeout: TimeInterval) -> Result<String, RunError> {
+        launch(path, args, in: dir, timeout: timeout).map(\.output)
+    }
+
+    private static func launch(_ path: String, _ args: [String], in dir: String, timeout: TimeInterval,
+                               mergeErrors: Bool = false) -> Result<(status: Int32, output: String), RunError> {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: path)
         p.arguments = args
@@ -34,7 +48,7 @@ enum ClaudeRunner {
         p.environment = env
         let out = Pipe()
         p.standardOutput = out
-        p.standardError = Pipe()
+        p.standardError = mergeErrors ? out : Pipe()
         // No input: otherwise `claude -p` waits a few seconds for stdin first.
         p.standardInput = FileHandle.nullDevice
         do { try p.run() } catch { return .failure(RunError(message: error.localizedDescription)) }
@@ -43,6 +57,6 @@ enum ClaudeRunner {
         let data = out.fileHandleForReading.readDataToEndOfFile()
         p.waitUntilExit()
         killer.cancel()
-        return .success(String(decoding: data, as: UTF8.self))
+        return .success((p.terminationStatus, String(decoding: data, as: UTF8.self)))
     }
 }

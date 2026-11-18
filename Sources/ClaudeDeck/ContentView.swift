@@ -30,6 +30,7 @@ struct ContentView: View {
         .animation(.easeOut(duration: 0.12), value: store.showSwitcher)
         .animation(.easeOut(duration: 0.15), value: store.showHistory)
         .modifier(Dialogs(newName: $newName))
+        .modifier(DeployCommandDialog())
         // The "/" menu's commands and skills follow the selected session's project.
         .onChange(of: store.selectedId, initial: true) { toolbox.focus(cwd: store.session(store.selectedId)?.cwd) }
     }
@@ -318,6 +319,7 @@ extension ContentView {
         Button("Rename…") { store.renameTarget = s }
         Button("Fork…") { store.forkTarget = s }
         if s.isLive {
+            Menu("CI & Deploy") { CIMenuItems(session: s) }
             Toggle("Coordinator", isOn: Binding(get: { store.coordinatorId == s.sessionId },
                                                 set: { store.coordinatorId = $0 ? s.sessionId : nil }))
             Toggle("Mute", isOn: Binding(get: { store.mutedIds.contains(s.sessionId) }, set: { store.setMuted(s, $0) }))
@@ -484,10 +486,14 @@ struct SessionRow<Accessory: View>: View {
                         }
                     }
                 }
-                Text(subtitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    CIChip(session: session, compact: true)
+                }
             }
         }
         .padding(.vertical, 4)

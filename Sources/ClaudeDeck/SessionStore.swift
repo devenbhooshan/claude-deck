@@ -57,6 +57,10 @@ final class SessionStore {
     var hookInstalled = PendingRequests.isInstalled
     /// Messages sessions sent each other, and you sent from Deck.
     let comms = CommsStore()
+    /// Each running session's PR checks and deploy state.
+    let ci = CIStore()
+    /// The session whose repo's deploy-status command is being edited.
+    var deployCommandTarget: Session?
 
     // MARK: Coordinating sessions
 
@@ -102,13 +106,17 @@ final class SessionStore {
 
     /// Everything waiting on you, across sessions.
     var inbox: [Inbox.Item] {
-        Inbox.items(live: live, sent: sentHandoffs, dismissed: dismissed, coordinator: coordinatorId, isAnswered: isAnswered)
+        Inbox.items(live: live, sent: sentHandoffs, dismissed: dismissed, coordinator: coordinatorId,
+                    ci: ci.alerts.values.sorted { $0.at > $1.at }, isAnswered: isAnswered)
     }
 
     func dismiss(_ item: Inbox.Item) {
         switch item {
         case .handoff(_, let h): dismissed.insert(h.key)
         case .question(let s, _): dismissed.insert(Inbox.questionKey(s))
+        case .ci(_, let a):
+            dismissed.insert(a.key)
+            ci.dismiss(a)
         case .prompt: break
         }
         updateBadge()
@@ -214,6 +222,15 @@ final class SessionStore {
         } else {
             lastError = "There's no running session called \u{201C}\(h.target)\u{201D}."
         }
+    }
+
+    /// Puts a message in a session's message box for you to edit and send (the CI chip's
+    /// Fix Failing Checks, Push and Merge When Green); never sends it.
+    func draftMessage(_ text: String, in s: Session) {
+        guard s.isLive else { return }
+        selectedId = s.id
+        detailTab = .conversation
+        composerInsert = text
     }
 
     func installHook() {
@@ -694,6 +711,7 @@ final class SessionStore {
         markSeen()
         updateBadge()
         comms.refresh(sessions: newLive)
+        ci.refresh(sessions: newLive)
     }
 
     private func syncRecordWatchers(_ pids: Set<Int32>) {
