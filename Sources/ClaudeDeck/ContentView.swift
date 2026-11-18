@@ -317,23 +317,32 @@ extension ContentView {
             Button("Deny") { store.respond(s, key: "escape") }
             Divider()
         }
-        Button("Rename…") { store.renameTarget = s }
-        Button("Fork…") { store.forkTarget = s }
+        // A background session has no terminal: nothing here may type into one.
+        if !s.isBackground {
+            Button("Rename…") { store.renameTarget = s }
+            Button("Fork…") { store.forkTarget = s }
+        }
         if s.isLive {
             Menu("CI & Deploy") { CIMenuItems(session: s) }
-            Toggle("Coordinator", isOn: Binding(get: { store.coordinatorId == s.sessionId },
-                                                set: { store.coordinatorId = $0 ? s.sessionId : nil }))
+            if !s.isBackground {
+                Toggle("Coordinator", isOn: Binding(get: { store.coordinatorId == s.sessionId },
+                                                    set: { store.coordinatorId = $0 ? s.sessionId : nil }))
+            }
             Toggle("Mute", isOn: Binding(get: { store.mutedIds.contains(s.sessionId) }, set: { store.setMuted(s, $0) }))
                 .disabled(store.focusOnCoordinator && s.sessionId != store.coordinatorId)
-            Toggle("Remote Control", isOn: Binding(get: { store.isRemote(s) }, set: { store.setRemote(s, on: $0) }))
+            if !s.isBackground {
+                Toggle("Remote Control", isOn: Binding(get: { store.isRemote(s) }, set: { store.setRemote(s, on: $0) }))
+            }
             if let url = s.remoteURL {
                 Button("Open on claude.ai") { NSWorkspace.shared.open(url) }
             }
-            Button("Open Terminal") { store.openTerminal(s) }
-            Button("Restart Session") { store.restart(s) }
-                .disabled(s.status != .idle || store.restarting != nil)
-            Button("End Session") { store.requestEnd(s) }
-                .disabled(store.ending.contains(s.sessionId))
+            if !s.isBackground {
+                Button("Open Terminal") { store.openTerminal(s) }
+                Button("Restart Session") { store.restart(s) }
+                    .disabled(s.status != .idle || store.restarting != nil)
+                Button("End Session") { store.requestEnd(s) }
+                    .disabled(store.ending.contains(s.sessionId))
+            }
         }
         Divider()
         Button("Copy Session ID") {
@@ -465,6 +474,7 @@ struct SessionRow<Accessory: View>: View {
                         .font(.body.weight(session.status == .waiting || unread > 0 ? .semibold : .regular))
                         .lineLimit(1)
                     if session.isLive && session.sessionId == store.coordinatorId { CoordinatorBadge() }
+                    if session.isBackground { BackgroundBadge(session: session) }
                     if session.isLive && store.isMuted(session) {
                         Image(systemName: "bell.slash")
                             .font(.caption2)

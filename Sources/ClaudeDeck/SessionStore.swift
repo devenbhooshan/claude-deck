@@ -345,6 +345,7 @@ final class SessionStore {
     /// Renames via Claude Code's own /rename for running sessions, so the name shows everywhere.
     /// Ended sessions get the same custom-title record appended to their transcript.
     func rename(_ s: Session, to raw: String) {
+        guard !refuseBackground(s) else { return }
         if s.isLive && s.status == .waiting {
             lastError = "Claude is showing a prompt. Answer it first, then rename."
             return
@@ -453,6 +454,7 @@ final class SessionStore {
     /// Answers a session's prompt by pressing a key in its terminal (enter = allow, escape = deny),
     /// only if it's still the prompt you saw (`expectedSince` defaults to the one on screen).
     func respond(_ s: Session, key: String, expectedSince: Double? = nil) {
+        guard !refuseBackground(s) else { return }
         answered[s.id] = Date()
         let since = expectedSince ?? s.statusStamp
         Task {
@@ -471,6 +473,11 @@ final class SessionStore {
         guard let (target, remaining) = SessionNav.approvalTarget(live: live, selected: selectedId,
                                                                    isAnswered: isAnswered) else {
             HUD.show("Nothing waiting", symbol: "checkmark.circle", tint: Color.secondary)
+            return
+        }
+        guard target.canDrive else {
+            HUD.show("Open this one to answer", detail: "\(target.displayTitle) is a background session with no terminal",
+                     symbol: "moon.stars", tint: Theme.waiting)
             return
         }
         // Never approve blind: Deck must know exactly what's being asked.
@@ -521,6 +528,7 @@ final class SessionStore {
 
     /// Stops the session's current step.
     func interrupt(_ s: Session) {
+        guard !refuseBackground(s) else { return }
         Task {
             do {
                 try await Ghostty.interrupt(s)
@@ -547,6 +555,7 @@ final class SessionStore {
 
     /// Moves what Claude is waiting on to the background, so it can carry on.
     func background(_ s: Session) {
+        guard !refuseBackground(s) else { return }
         Task {
             do {
                 try await Ghostty.background(s)
@@ -560,6 +569,7 @@ final class SessionStore {
     /// Quits and resumes the session in its terminal so new skills and MCP servers load. It keeps
     /// its place in the list (and its ⌘ number) throughout.
     func restart(_ s: Session) {
+        guard !s.isBackground else { lastError = Self.backgroundRefusal; return }
         guard restarting == nil else {
             lastError = "Another session is restarting. Try again in a moment."
             return
@@ -584,6 +594,7 @@ final class SessionStore {
 
     /// Quits Claude in its terminal and closes the terminal. The session stays resumable.
     func end(_ s: Session) {
+        guard !s.isBackground else { lastError = Self.backgroundRefusal; return }
         guard s.isLive, !ending.contains(s.sessionId) else { return }
         ending.insert(s.sessionId)
         endedByDeck.insert(s.sessionId)
@@ -599,6 +610,15 @@ final class SessionStore {
             }
             refresh()
         }
+    }
+
+    static let backgroundRefusal = "This is a background session (claude --bg). It has no terminal, so Deck can't do that here."
+
+    /// A background session has no terminal: says so instead of acting. True when refused.
+    private func refuseBackground(_ s: Session) -> Bool {
+        guard !s.canDrive else { return false }
+        lastError = Self.backgroundRefusal
+        return true
     }
 
     /// Stops a command Claude left running in the background (and everything it started).
@@ -625,7 +645,7 @@ final class SessionStore {
     /// Connects or disconnects a running session with Remote Control, so you can drive it from the
     /// Claude app or claude.ai. Checks the session's record afterwards and says if it didn't take.
     func setRemote(_ s: Session, on: Bool) {
-        guard remoteSwitching[s.sessionId] == nil else { return }
+        guard !refuseBackground(s), remoteSwitching[s.sessionId] == nil else { return }
         remoteSwitching[s.sessionId] = on
         Task {
             do {
@@ -660,6 +680,7 @@ final class SessionStore {
     }
 
     func openTerminal(_ s: Session) {
+        guard !refuseBackground(s) else { return }
         Task {
             do { try await Ghostty.focus(s) } catch { lastError = error.localizedDescription }
         }

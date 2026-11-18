@@ -24,6 +24,7 @@ enum Ghostty {
         case queueTaken
         case queuedImage
         case notPutBack
+        case background
 
         var errorDescription: String? {
             switch self {
@@ -39,6 +40,7 @@ enum Ghostty {
             case .queueTaken: "Claude already picked that message up, or is showing a prompt. Nothing was removed."
             case .queuedImage: "Another queued message has an image, which Deck can't put back. Press ↑ in the terminal to edit the queue there."
             case .notPutBack: "That message was removed, but your other queued messages couldn't go back, so they're on the clipboard."
+            case .background: "This is a background session (claude --bg). It has no terminal, so nothing was typed or pressed."
             }
         }
     }
@@ -197,6 +199,7 @@ enum Ghostty {
     /// settings: types /exit, waits for the process to quit, then runs `claude --resume <id>` in
     /// the same shell (keeping its well-known launch flags).
     static func restart(_ session: Session) async throws {
+        guard !session.isBackground else { throw Failure.background }
         guard let pid = session.pid, PromptGuard.canRestart(SessionLoader.record(pid: pid)) else { throw Failure.notIdle }
         guard let command = Safety.resumeCommand(sessionId: session.sessionId, originalArgs: arguments(of: pid), addDirs: readable)
         else { throw Failure.invalidSession }
@@ -229,6 +232,7 @@ enum Ghostty {
     /// Ends a session: stops Claude's current step or dismisses its prompt (Esc), quits it with
     /// /exit, and once it has quit closes its terminal (only if it's still in the session's folder).
     static func end(_ session: Session) async throws {
+        guard !session.isBackground else { throw Failure.background }
         guard let pid = session.pid, SessionLoader.isAlive(pid) else { return }
         // Back to Claude's prompt first: /exit can only be typed there.
         for _ in 0..<3 {
@@ -300,6 +304,8 @@ enum Ghostty {
     private static var readable: [String] { [AttachmentStore.dir.path] }
 
     static func resume(_ session: Session) async throws {
+        // `--resume` on a background session starts a copy of it.
+        guard !session.isBackground else { throw Failure.background }
         // The id is typed into a shell, so it must be exactly a session id.
         guard Safety.isSessionId(session.sessionId) else { throw Failure.invalidSession }
         guard let command = Safety.resumeCommand(sessionId: session.sessionId, originalArgs: [], addDirs: readable)
@@ -380,7 +386,7 @@ enum Ghostty {
         if let id = cache[key] { return id }
         let found = TerminalMatch.find(for: session, in: try await terminals(),
                                        claimed: cache.values(except: key), preferred: opened[session.sessionId])
-        guard let id = found?.id else { throw Failure.notFound }
+        guard let id = found?.id else { throw session.isBackground ? Failure.background : Failure.notFound }
         cache[key] = id
         return id
     }

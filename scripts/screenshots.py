@@ -67,18 +67,27 @@ def tool(name, input, result, ago):
                    "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": id, "content": result}]}}]
 
 
-def session(name, folder, title, records, status="idle", waiting=None, quiet=0):
-    """`quiet`: seconds since it last wrote anything (a working session quiet for 10+ minutes shows Stuck)."""
-    sid = str(uuid.uuid4())
+# A background session (`claude --bg`) waiting on a permission prompt: `--open` it to see the
+# Background badge and its prompt card. Fixed, so it can be named on the command line.
+BG_WAITING = "b9c0ffee-0000-4000-8000-000000000001"
+
+
+def session(name, folder, title, records, status="idle", waiting=None, quiet=0, sid=None, job=None):
+    """`quiet`: seconds since it last wrote anything (a working session quiet for 10+ minutes shows Stuck).
+    `job`: a background session's job id (written with kind "bg", as `claude --bg` does)."""
+    sid = sid or str(uuid.uuid4())
     cwd = os.path.join(home, "code", folder)
     os.makedirs(cwd, exist_ok=True)
     sleeper = subprocess.Popen(["sleep", "600"])
     sleepers.append(sleeper)
     now = time.time() * 1000
     with open(os.path.join(claude, "sessions", f"{sleeper.pid}.json"), "w") as f:
-        json.dump({"pid": sleeper.pid, "sessionId": sid, "cwd": cwd, "startedAt": now - 3_600_000, "kind": "interactive",
-                   "entrypoint": "cli", "name": name, "status": status, "waitingFor": waiting,
-                   "updatedAt": now, "statusUpdatedAt": now - quiet * 1000}, f)
+        record = {"pid": sleeper.pid, "sessionId": sid, "cwd": cwd, "startedAt": now - 3_600_000, "kind": "bg" if job else "interactive",
+                  "entrypoint": "cli", "name": name, "status": status, "waitingFor": waiting,
+                  "updatedAt": now, "statusUpdatedAt": now - quiet * 1000}
+        if job:
+            record["jobId"] = job
+        json.dump(record, f)
     folder = os.path.join(claude, "projects", "".join(c if c.isalnum() else "-" for c in cwd))
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, f"{sid}.jsonl")
@@ -140,6 +149,15 @@ Should I fix those too?""", 790),
     with open(os.path.join(pending, "demo.json"), "w") as f:
         json.dump({"session_id": waiting, "tool_name": "Bash",
                    "tool_input": {"command": "npm run migrate -- --env staging"}}, f)
+    # A background session in the same folder as orbit-web, waiting on its own prompt: Deck can't answer
+    # it in place (it has no terminal), so its card offers Open to answer instead.
+    session("orbit-bump", "orbit-web", "Bump the payment SDK", [
+        user("bump the payment SDK to v5 and run the tests", 400),
+        say("Updating the lockfile.", 390),
+        *tool("Bash", {"command": "npm install @orbit/pay@5", "description": "Install the new SDK"}, None, 380),
+    ], status="waiting", waiting="permission", sid=BG_WAITING, job="k7f2q9")
+    with open(os.path.join(pending, "demo-bg.json"), "w") as f:
+        json.dump({"session_id": BG_WAITING, "tool_name": "Bash", "tool_input": {"command": "npm install @orbit/pay@5"}}, f)
     session("orbit-docs", "orbit-docs", "Write the v2 upgrade guide", [
         user("draft the upgrade guide for v2", 200),
         say("Reading the changelog first.", 190),

@@ -75,6 +75,8 @@ struct ApprovalButtons: View {
             if store.isAnswered(session) {
                 Label("Sent", systemImage: "checkmark")
                     .font(.caption).foregroundStyle(.secondary)
+            } else if !session.canDrive {
+                BackgroundPromptActions(session: session, size: size)
             } else if PromptGuard.canAnswerHere(session) {
                 Button("Allow") { store.respond(session, key: "enter") }
                     .buttonStyle(.deck(.primary, size: size))
@@ -93,6 +95,35 @@ struct ApprovalButtons: View {
                           : "This kind of prompt has its own options; answer it in the terminal")
             }
         }
+    }
+}
+
+/// A background session's prompt: it has no terminal, so Deck can't answer it in place.
+struct BackgroundPromptActions: View {
+    let session: Session
+    var size: ControlSize = .small
+    /// Just the button (sidebar rows and the dock), without the explanation.
+    var compact = false
+
+    var body: some View {
+        if !compact {
+            Label("Background session: no terminal to answer in", systemImage: "moon.stars")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Marks a background session (`claude --bg`), which runs without a terminal.
+struct BackgroundBadge: View {
+    let session: Session
+
+    var body: some View {
+        Text("Background")
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(Capsule().fill(Theme.accent.opacity(0.14)))
+            .foregroundStyle(Theme.accent)
+            .help("A background session (claude --bg): it runs without a terminal, so Deck can't answer or type into it")
     }
 }
 
@@ -321,6 +352,8 @@ struct QuickApproval: View {
     var body: some View {
         if store.isAnswered(session) {
             Image(systemName: "checkmark").font(.caption).foregroundStyle(.secondary).help("Sent")
+        } else if !session.canDrive {
+            BackgroundPromptActions(session: session, size: .mini, compact: true)
         } else if PromptGuard.canAnswerHere(session) {
             HStack(spacing: 4) {
                 iconButton("checkmark", tint: Theme.accent, filled: true, help: "Allow: \(request)") {

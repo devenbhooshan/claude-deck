@@ -48,7 +48,7 @@ enum SessionLoader {
                 transcriptURL: transcript,
                 statusSince: rec.statusUpdatedAt.map { Date(timeIntervalSince1970: $0 / 1000) },
                 startedAt: rec.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) }, background: background, replies: info.replies, replyTexts: info.replyTexts, handoffs: info.handoffs, tasks: info.tasks,
-                remoteId: rec.bridgeSessionId, activeAt: activeAt)
+                remoteId: rec.bridgeSessionId, activeAt: activeAt, isBackground: rec.isBackground, jobId: rec.jobId)
             // Only trust a captured request made around the time this prompt opened.
             if status == .waiting, let req = requests[rec.sessionId],
                req.date.timeIntervalSince(s.statusSince ?? .distantPast) > -10 {
