@@ -100,17 +100,14 @@ final class SessionStore {
     /// A handoff you're editing before sending: sent once you send it to its session.
     private var editing: Handoff?
 
-    /// Everything waiting on you, across sessions.
+    /// Everything waiting on you, across sessions, and finished replies you haven't read.
     var inbox: [Inbox.Item] {
-        Inbox.items(live: live, sent: sentHandoffs, dismissed: dismissed, coordinator: coordinatorId, isAnswered: isAnswered)
+        Inbox.items(live: live, sent: sentHandoffs, dismissed: dismissed, coordinator: coordinatorId, isAnswered: isAnswered,
+                    failures: failures, isUnread: { self.unread($0) > 0 })
     }
 
     func dismiss(_ item: Inbox.Item) {
-        switch item {
-        case .handoff(_, let h): dismissed.insert(h.key)
-        case .question(let s, _): dismissed.insert(Inbox.questionKey(s))
-        case .prompt: break
-        }
+        if let key = item.dismissKey { dismissed.insert(key) }
         updateBadge()
     }
 
@@ -181,6 +178,14 @@ final class SessionStore {
     /// Handoffs acted on in the last moment, by the session that drafted them, to confirm together.
     private var receipts: [String: [Handoff]] = [:]
 
+    /// Types a note from Deck into a session (a receipt, a fleet update): not as you, so it isn't
+    /// listed in Messages Between Sessions. Ghostty refuses while a prompt is open.
+    private func tell(_ s: Session, _ text: String, failed: @escaping (Error) -> Void) {
+        Task {
+            do { try await Ghostty.send(text: text, images: [], to: s) } catch { failed(error) }
+        }
+    }
+
     /// Tells the session that drafted a handoff you acted on: it can't see the other session, so
     /// otherwise it keeps reminding you. Sends a moment later, in one line if you did several at once.
     private func confirm(_ done: Handoff, from source: Session?, unless target: Session? = nil) {
@@ -191,9 +196,92 @@ final class SessionStore {
         Task {
             try? await Task.sleep(for: .seconds(2))
             guard let done = receipts.removeValue(forKey: source.id), let s = session(source.id), s.isLive else { return }
-            do { try await Ghostty.send(text: Handoff.receipt(for: done), images: [], to: s) } catch {
-                lastError = "Couldn't tell \(s.displayTitle) it was done: \(error.localizedDescription)"
+            tell(s, Handoff.receipt(for: done)) { [weak self] error in
+                self?.lastError = "Couldn't tell \(s.displayTitle) it was done: \(error.localizedDescription)"
             }
+        }
+    }
+
+    // MARK: Fleet feed
+
+    /// Type a line into the coordinator when something changes in the fleet.
+    var fleetFeedOn = UserDefaults.standard.object(forKey: "fleetFeed") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(fleetFeedOn, forKey: "fleetFeed")
+            if !fleetFeedOn { fleetBatch = [] }
+        }
+    }
+    /// How long a working session can go without writing anything before it counts as stuck.
+    var stuckMinutes = UserDefaults.standard.object(forKey: "stuckMinutes") as? Int ?? FleetDigest.defaultStuckMinutes {
+        didSet { UserDefaults.standard.set(stuckMinutes, forKey: "stuckMinutes") }
+    }
+    private var stuckThreshold: TimeInterval { TimeInterval(max(1, stuckMinutes)) * 60 }
+
+    /// The fleet at the last poll, what's waiting to be typed, and when the last line went.
+    private var fleetSnapshot: FleetSnapshot?
+    private var fleetBatch: [FleetEvent] = []
+    private var fleetSentAt: Date?
+    /// Deck's own ends and restarts, so they read as such rather than as crashes or new sessions.
+    private var endedByDeck: Set<String> = []
+    private var restartedByDeck: Set<String> = []
+    private var replacedByRestart: Set<String> = []
+    /// Sessions that ended while working or at a prompt (Needs You's errors), newest last.
+    private(set) var failures: [Inbox.Failure] = []
+
+    /// Since when a working session has written nothing, once that's past the stuck threshold.
+    func stuckSince(_ s: Session, now: Date = Date()) -> Date? {
+        FleetDigest.stuckSince(s, now: now, threshold: stuckThreshold)
+    }
+
+    /// A session's CI or deploy changed ("CI failed on #412"): told to the coordinator with the rest.
+    func reportCI(_ s: Session, _ text: String) {
+        guard s.sessionId != coordinatorId, !isMuted(s) else { return }
+        queueFleet([.ciFlipped(s, text)])
+    }
+
+    /// Compares this poll with the last, records sessions that died mid-work, and queues the rest.
+    private func updateFleet(_ live: [Session]) {
+        let now = Date()
+        let snapshot = FleetDigest.snapshot(live, now: now, threshold: stuckThreshold)
+        let known = (fleetSnapshot?.sessions ?? []) + live
+        var context = FleetDigest.Context(endedByDeck: endedByDeck, restartedByDeck: restartedByDeck, replaced: replacedByRestart)
+        // Every session's unexpected end is an error in Needs You, the coordinator's and muted ones' too.
+        for case .ended(let s, true) in FleetDigest.events(from: fleetSnapshot, to: snapshot, now: now, threshold: stuckThreshold, context: context) {
+            failures = (failures + [Inbox.Failure(session: s, at: now)]).suffix(20)
+        }
+        context.excluded = Set(known.filter { $0.sessionId == coordinatorId || isMuted($0) }.map(\.sessionId))
+        let events = FleetDigest.events(from: fleetSnapshot, to: snapshot, now: now, threshold: stuckThreshold, context: context)
+        fleetSnapshot = snapshot
+        let ids = Set(live.map(\.sessionId))
+        endedByDeck = endedByDeck.filter(ids.contains)
+        restartedByDeck = []
+        replacedByRestart = []
+        queueFleet(events)
+    }
+
+    private func queueFleet(_ events: [FleetEvent]) {
+        guard fleetFeedOn, coordinator != nil else { fleetBatch = []; return }
+        fleetBatch = FleetDigest.merge(fleetBatch, events)
+        deliverFleet()
+    }
+
+    /// Types the batch into the coordinator, as one line, when it's at its prompt and the last
+    /// line went two minutes ago or more. Not in the screenshot copy, whose sessions are made up.
+    private func deliverFleet() {
+        let now = Date()
+        fleetBatch = FleetDigest.current(fleetBatch, live: live, now: now, threshold: stuckThreshold)
+        guard Bundle.main.bundleIdentifier?.hasSuffix(".demo") != true,
+              FleetDigest.shouldDeliver(fleetBatch, coordinator: coordinator, lastSent: fleetSentAt, now: now),
+              let c = coordinator, let line = FleetDigest.line(fleetBatch, now: now) else { return }
+        let batch = fleetBatch
+        fleetBatch = []
+        fleetSentAt = now
+        DebugLog.write("fleet → \(c.displayTitle): \(line)")
+        tell(c, line) { [weak self] error in
+            // Try again with the next line; it's only news, so no alert.
+            guard let self else { return }
+            fleetBatch = FleetDigest.merge(batch, fleetBatch)
+            DebugLog.write("fleet line not typed: \(error.localizedDescription)")
         }
     }
 
@@ -469,6 +557,7 @@ final class SessionStore {
     func end(_ s: Session) {
         guard s.isLive, !ending.contains(s.sessionId) else { return }
         ending.insert(s.sessionId)
+        endedByDeck.insert(s.sessionId)
         HUD.show("Ending session", detail: s.displayTitle, symbol: "xmark.circle.fill", tint: Theme.accent)
         Task {
             defer { ending.remove(s.sessionId) }
@@ -476,6 +565,7 @@ final class SessionStore {
                 try await Ghostty.end(s)
                 HUD.show("Session ended", detail: s.displayTitle, symbol: "checkmark.circle.fill", tint: Theme.accent)
             } catch {
+                endedByDeck.remove(s.sessionId)
                 lastError = error.localizedDescription
             }
             refresh()
@@ -659,6 +749,10 @@ final class SessionStore {
         pendingNames = named.pending
         if let t = restarting {
             if let back = SessionNav.restarted(t, in: named.live) {
+                if back.sessionId != t.session.sessionId {
+                    restartedByDeck.insert(back.sessionId)
+                    replacedByRestart.insert(t.session.sessionId)
+                }
                 slots[back.sessionId] = t.session.startedAt
                 if selectedId == t.session.id { selectedId = back.id }
                 restarting = nil
@@ -669,6 +763,7 @@ final class SessionStore {
         slots = slots.filter { id, _ in named.live.contains { $0.sessionId == id } }
         let newLive = SessionNav.keepSlots(live: named.live, slots: slots, restarting: restarting)
         if newLive != live { live = newLive }
+        updateFleet(newLive)
         // Select a session we just started (by the id it was given) once Claude Code registers it.
         // Wait for Ghostty to report the new terminal, so the session is bound to it.
         if let start = starting, let terminal = start.terminal {

@@ -51,6 +51,9 @@ struct ClaudeDeckApp: App {
             }
         }
 
+        Settings {
+            SettingsView().environment(store)
+        }
 
         MenuBarExtra {
             MenuBarContent().environment(store).environment(usage).environment(activity).id(theme)
@@ -129,6 +132,7 @@ struct SessionCommands: Commands {
                 .disabled(store.coordinator == nil)
             Toggle("Mute All but Coordinator", isOn: Binding(get: { store.focusOnCoordinator }, set: { store.focusOnCoordinator = $0 }))
                 .disabled(store.coordinatorId == nil)
+            Toggle("Fleet Updates to Coordinator", isOn: Binding(get: { store.fleetFeedOn }, set: { store.fleetFeedOn = $0 }))
             Divider()
             Button("Previous Session") { store.select(offset: -1) }
                 .keyboardShortcut(.upArrow, modifiers: [.command, .option])

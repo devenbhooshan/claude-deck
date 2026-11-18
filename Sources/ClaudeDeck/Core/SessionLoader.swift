@@ -26,8 +26,12 @@ enum SessionLoader {
             let transcript = ClaudePaths.transcript(for: rec.sessionId, cwd: rec.cwd)
             let (title, update, info) = details(for: transcript, cache: cache)
             if let transcript, let update { updates[transcript.path] = update }
+            let activeAt = transcript.flatMap { try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate }
+            // A working session that has written nothing for a while may be running a long command:
+            // look, so it isn't taken for stuck.
+            let quiet = rec.status == "busy" && activeAt.map { Date().timeIntervalSince($0) > 60 } == true
             var background: [BackgroundTask] = []
-            if rec.status == "shell" {
+            if rec.status == "shell" || quiet {
                 if running == nil { running = tasks() }
                 background = running?[rec.pid] ?? []
             }
@@ -44,7 +48,7 @@ enum SessionLoader {
                 transcriptURL: transcript,
                 statusSince: rec.statusUpdatedAt.map { Date(timeIntervalSince1970: $0 / 1000) },
                 startedAt: rec.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) }, background: background, replies: info.replies, replyTexts: info.replyTexts, handoffs: info.handoffs, tasks: info.tasks,
-                remoteId: rec.bridgeSessionId)
+                remoteId: rec.bridgeSessionId, activeAt: activeAt)
             // Only trust a captured request made around the time this prompt opened.
             if status == .waiting, let req = requests[rec.sessionId],
                req.date.timeIntervalSince(s.statusSince ?? .distantPast) > -10 {

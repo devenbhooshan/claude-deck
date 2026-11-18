@@ -83,6 +83,8 @@ struct Session: Identifiable, Equatable {
     var tasks: TaskBoard? = nil
     /// The claude.ai session it's connected to with Remote Control, if it is.
     var remoteId: String? = nil
+    /// When its transcript last changed: the last time Claude (or you) wrote anything.
+    var activeAt: Date? = nil
 
     var isLive: Bool { pid != nil }
     /// Where to open it on claude.ai or the Claude app; only a well-formed id becomes a link.

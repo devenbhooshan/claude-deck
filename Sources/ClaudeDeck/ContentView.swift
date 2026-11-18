@@ -40,8 +40,8 @@ struct ContentView: View {
         // accent colour to grey when focus moves to the message box, which made the row flicker.
         return List {
             Section {
-                CoordinationRow(title: "Needs You", systemImage: "tray.full", count: store.inbox.count, tint: Theme.waiting,
-                                help: "Prompts, questions and messages drafted for other sessions, answered in one place (⇧⌘I)")
+                CoordinationRow(title: "Needs You", systemImage: "tray.full", count: store.inbox.filter(\.needsAction).count, tint: Theme.waiting,
+                                help: "Prompts, questions, errors and messages drafted for other sessions, answered in one place, plus finished replies you haven't read (⇧⌘I)")
                     .modifier(SelectableRow(id: SessionStore.inboxId))
                 CoordinationRow(title: "Messages Between Sessions", systemImage: "bubble.left.and.bubble.right", count: nil, tint: nil,
                                 help: "Everything sessions sent each other, and you sent from Deck (⇧⌘M)")
@@ -419,6 +419,21 @@ struct SectionHeader: View {
     }
 }
 
+/// A working session that has written nothing for a while: "Stuck 12m", in orange.
+struct StuckBadge: View {
+    let since: Date
+    let now: Date
+
+    var body: some View {
+        Text("Stuck \(FleetDigest.minutes(since: since, now: now))m")
+            .font(.caption2.weight(.bold)).monospacedDigit()
+            .foregroundStyle(.white)
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(Capsule().fill(Theme.waiting))
+            .help("Working, but nothing new in its transcript for \(FleetDigest.minutes(since: since, now: now)) minutes and no background command running. Open it, or check its terminal.")
+    }
+}
+
 struct SessionRow<Accessory: View>: View {
     @Environment(ActivityStore.self) private var activity
     @Environment(SessionStore.self) private var store
@@ -454,6 +469,11 @@ struct SessionRow<Accessory: View>: View {
                             .help(store.mutedIds.contains(session.sessionId) ? "Muted" : "Muted while you focus on the coordinator")
                     }
                     Spacer(minLength: 4)
+                    if accessory == nil, session.isLive, session.status == .busy {
+                        TimelineView(.periodic(from: .now, by: 30)) { ctx in
+                            if let since = store.stuckSince(session, now: ctx.date) { StuckBadge(since: since, now: ctx.date) }
+                        }
+                    }
                     if !session.background.isEmpty && accessory == nil {
                         Image(systemName: session.onlyServers ? "server.rack" : "terminal")
                             .font(.caption2)
