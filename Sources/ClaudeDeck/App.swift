@@ -87,6 +87,12 @@ private struct MainWindow: View {
                 // For checking the UI from the command line.
                 if CommandLine.arguments.contains("--activity-tab") { store.detailTab = .activity }
                 if CommandLine.arguments.contains("--open-history") { store.showHistory = true }
+                // The screenshot script's demo copy: Sessions ▸ Attach Latest Screenshot, without a keypress.
+                if Bundle.main.bundleIdentifier?.hasSuffix(".demo") == true, CommandLine.arguments.contains("--attach-latest-screenshot") {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        NotificationCenter.default.post(name: .attachLatestScreenshot, object: nil)
+                    }
+                }
             }
     }
 }

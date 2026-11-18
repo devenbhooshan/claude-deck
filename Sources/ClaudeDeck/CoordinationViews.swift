@@ -13,58 +13,65 @@ struct InboxView: View {
         let all = store.inbox
         let isUnread: (Session) -> Bool = { store.unread($0) > 0 }
         let items = all.filter { filter.matches($0, isUnread: isUnread) }
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    HStack(spacing: 10) {
-                        Picker("Show", selection: $filter) {
-                            ForEach(Inbox.Filter.allCases) { f in
-                                let n = all.filter { f.matches($0, isUnread: isUnread) }.count
-                                Text(n > 0 ? "\(f.label) \(n)" : f.label).tag(f)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
-                        .fixedSize()
-                        .help("All items, only new ones, or only errors")
-                        Spacer()
-                        if !items.isEmpty {
-                            Text("↑↓ move · ↩ open").font(.caption).foregroundStyle(.tertiary)
-                        }
-                    }
-                    if items.isEmpty {
-                        VStack(spacing: 10) {
-                            Image(systemName: filter == .errors ? "checkmark.shield" : "checkmark.circle")
-                                .font(.system(size: 36, weight: .light))
-                                .foregroundStyle(Theme.success)
-                            Text(emptyTitle).font(.title3.weight(.medium))
-                            Text("Prompts, errors, questions, finished replies and messages sessions draft for each other show up here.")
-                                .font(.callout).foregroundStyle(.secondary)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.top, 80)
-                    }
-                    ForEach(items) { item in
-                        InboxCard(item: item, highlighted: item.id == highlighted)
-                            .id(item.id)
-                            .simultaneousGesture(TapGesture().onEnded { highlighted = item.id; focused = true })
+        VStack(spacing: 0) {
+            // Above the list, so the filters stay in view while you scroll.
+            HStack(spacing: 10) {
+                Picker("Show", selection: $filter) {
+                    ForEach(Inbox.Filter.allCases) { f in
+                        let n = all.filter { f.matches($0, isUnread: isUnread) }.count
+                        Text(n > 0 ? "\(f.label) \(n)" : f.label).tag(f)
                     }
                 }
-                .frame(maxWidth: 760)
-                .padding(20)
-                .frame(maxWidth: .infinity)
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
+                .help("All items, only new ones, or only errors")
+                Spacer()
+                if !items.isEmpty {
+                    Text("↑↓ move · ↩ open").font(.caption).foregroundStyle(.tertiary)
+                }
             }
-            .focusable()
-            .focused($focused)
-            .focusEffectDisabled()
-            .onKeyPress(.downArrow) { move(items, 1, proxy) }
-            .onKeyPress(.upArrow) { move(items, -1, proxy) }
-            .onKeyPress(.return) {
-                guard let item = items.first(where: { $0.id == highlighted }) else { return .ignored }
-                store.selectedId = item.session.id
-                return .handled
+            .frame(maxWidth: 760)
+            .padding(.horizontal, 20).padding(.vertical, 10)
+            .frame(maxWidth: .infinity)
+            Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 12) {
+                        if items.isEmpty {
+                            VStack(spacing: 10) {
+                                Image(systemName: filter == .errors ? "checkmark.shield" : "checkmark.circle")
+                                    .font(.system(size: 36, weight: .light))
+                                    .foregroundStyle(Theme.success)
+                                Text(emptyTitle).font(.title3.weight(.medium))
+                                Text("Prompts, errors, questions, finished replies and messages sessions draft for each other show up here.")
+                                    .font(.callout).foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 80)
+                        }
+                        ForEach(items) { item in
+                            InboxCard(item: item, highlighted: item.id == highlighted)
+                                .id(item.id)
+                                .simultaneousGesture(TapGesture().onEnded { highlighted = item.id; focused = true })
+                        }
+                    }
+                    .frame(maxWidth: 760)
+                    .padding(20)
+                    .frame(maxWidth: .infinity)
+                }
+                .focusable()
+                .focused($focused)
+                .focusEffectDisabled()
+                .onKeyPress(.downArrow) { move(items, 1, proxy) }
+                .onKeyPress(.upArrow) { move(items, -1, proxy) }
+                .onKeyPress(.return) {
+                    guard let item = items.first(where: { $0.id == highlighted }) else { return .ignored }
+                    store.selectedId = item.session.id
+                    return .handled
+                }
+                .onAppear { focused = true }
             }
-            .onAppear { focused = true }
         }
         .background(Theme.surface)
         .navigationTitle("Needs You")
