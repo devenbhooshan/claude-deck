@@ -10,12 +10,18 @@ struct SlashCommand: Identifiable, Equatable {
         case terminal
         /// Handled by Deck itself.
         case deck
+        /// A snippet: choosing it puts `insert` in the message box (nothing is sent).
+        case snippet
+        /// Deck does it as soon as it's chosen (e.g. opens the Snippets sheet).
+        case action
     }
 
     let command: String      // "/review", "/frontend:design"
     let description: String
     let source: String       // "Built-in", "Project", "Global", "claude.ai", a plugin name
     var kind: Kind = .send
+    /// A snippet's text.
+    var insert: String? = nil
 
     var id: String { command }
 }
@@ -104,9 +110,13 @@ enum CommandCatalog {
     }
 
     /// The command being typed: the text after a leading "/" until the first space, or nil.
+    /// Snippets are typed as "/s name", so "/s " and one word keep the menu open.
     static func query(in draft: String) -> String? {
-        guard draft.hasPrefix("/"), !draft.contains(where: \.isWhitespace) else { return nil }
-        return String(draft.dropFirst())
+        guard draft.hasPrefix("/") else { return nil }
+        let typed = draft.dropFirst()
+        let word = typed.hasPrefix("s ") ? typed.dropFirst(2) : typed
+        guard !word.contains(where: \.isWhitespace) else { return nil }
+        return String(typed)
     }
 
     /// Commands matching `query`: name prefixes first, then names containing it, then descriptions.

@@ -102,6 +102,7 @@ struct SessionCommands: Commands {
             Button("Attach Latest Screenshot") { NotificationCenter.default.post(name: .attachLatestScreenshot, object: nil) }
                 .keyboardShortcut("v", modifiers: [.command, .option])
                 .disabled(store.session(store.selectedId)?.isLive != true)
+            Button("Snippets…") { SnippetStore.shared.open(for: store.session(store.selectedId)); store.bringToFront() }
             Button("Plan Usage…") { store.showUsage = true }
                 .keyboardShortcut("u", modifiers: [.command, .shift])
             Button("Policies…") { store.showPolicies = true; store.bringToFront() }

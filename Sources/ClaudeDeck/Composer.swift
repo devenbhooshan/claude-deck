@@ -13,17 +13,23 @@ struct Composer: View {
 
     @State private var draft = ""
     @State private var refocus = 0
+    private var snippets: SnippetStore { .shared }
 
     /// Typing while a dialog is open would land in the dialog, and Return would pick an option.
     private var promptOpen: Bool { session.status == .waiting }
 
     var body: some View {
         MessageBox(draft: $draft, attachments: $attachments, draftKey: session.sessionId, placeholder: placeholder,
-                   canSend: !promptOpen || routed != nil, commands: toolbox.commands, mentions: mentions,
+                   canSend: !promptOpen || routed != nil,
+                   commands: snippets.library.commands(for: session.sessionId) + toolbox.commands, mentions: mentions,
                    routedTo: routed?.displayTitle,
                    hint: "↩ send · ⇧↩ or ⌘↩ new line · / commands · @session to send elsewhere · paste or drop files",
                    sendHelp: routed.map { "Send to \($0.displayTitle) (↩)" } ?? (promptOpen ? "Answer the prompt first" : "Send (↩)"),
-                   refocus: refocus, takesMenuCommands: true, onSend: send) {
+                   refocus: refocus, takesMenuCommands: true,
+                   standing: snippets.library.standing(for: session.sessionId).map(\.name),
+                   onStandingTap: { snippets.open(for: session) },
+                   onAction: { if $0 == Snippets.manageCommand { snippets.open(for: session) } },
+                   onSend: send) {
             Button { store.openTerminal(session) } label: {
                 FooterLabel(title: "Open Terminal", systemImage: "apple.terminal")
             }
@@ -95,8 +101,10 @@ struct Composer: View {
             return
         }
         // Images are pasted as attachments; other files are named by path for Claude to read.
+        // Snippets set to go with every message come first (shown by the chip over the box).
         let images = staged.filter(\.isImage)
-        let message = AttachmentStore.message(text, files: staged.filter { !$0.isImage })
+        let message = AttachmentStore.message(snippets.library.prepend(text, for: session.sessionId),
+                                              files: staged.filter { !$0.isImage })
         // Show the message immediately; the terminal round trip happens in the background.
         let thumbs = images.compactMap { (try? Data(contentsOf: $0.url)).flatMap { TranscriptParser.thumbnail($0) } }
         let outgoingId = model.addOutgoing(text: message, images: thumbs, whileBusy: session.status == .busy)
@@ -145,6 +153,11 @@ struct MessageBox<Footer: View>: View {
     var autofocus = true
     /// Answers menu commands (Attach Latest Screenshot) even when the cursor is elsewhere.
     var takesMenuCommands = false
+    /// Names of the snippets put before every message, shown as a chip over the box.
+    var standing: [String] = []
+    var onStandingTap: () -> Void = {}
+    /// Runs a "/" menu row of kind `.action` (Manage snippets…).
+    var onAction: (SlashCommand) -> Void = { _ in }
     let onSend: () -> Void
     @ViewBuilder var footer: () -> Footer
 
@@ -181,6 +194,11 @@ struct MessageBox<Footer: View>: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .help("A message starting with @\(SessionAddress.token(routedTo)) is typed into that session as you")
+            }
+            if !standing.isEmpty {
+                StandingSnippetsChip(names: standing, open: onStandingTap)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
             }
             if let notice {
                 Label(notice, systemImage: "camera.viewfinder")
@@ -390,7 +408,13 @@ struct MessageBox<Footer: View>: View {
     }
 
     private func accept(_ command: SlashCommand) {
-        draft = command.command + " "
+        switch command.kind {
+        case .snippet: draft = command.insert ?? ""   // only "/s name" was typed: the snippet replaces it
+        case .action:
+            draft = ""
+            onAction(command)
+        default: draft = command.command + " "
+        }
         menuDismissedFor = nil
         focusSoon()
     }
@@ -532,9 +556,8 @@ struct SlashMenu: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                 Spacer(minLength: 6)
-                                if item.kind != .send {
-                                    Label(item.kind == .terminal ? "opens in terminal" : "in Deck",
-                                          systemImage: item.kind == .terminal ? "apple.terminal" : "macwindow")
+                                if let (label, symbol) = Self.badge(item.kind) {
+                                    Label(label, systemImage: symbol)
                                         .font(.caption2)
                                         .foregroundStyle(Theme.accent)
                                 }
@@ -562,6 +585,17 @@ struct SlashMenu: View {
         .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(.regularMaterial)
             .shadow(color: .black.opacity(0.15), radius: 14, y: 4))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
+    }
+
+    /// What choosing a row does, when it isn't just typing the command.
+    static func badge(_ kind: SlashCommand.Kind) -> (String, String)? {
+        switch kind {
+        case .send: nil
+        case .terminal: ("opens in terminal", "apple.terminal")
+        case .deck: ("in Deck", "macwindow")
+        case .snippet: ("inserts text", "text.quote")
+        case .action: ("opens", "macwindow")
+        }
     }
 }
 

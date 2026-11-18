@@ -173,6 +173,13 @@ Fix the same missing await in refunds.ts too.
 Add search to the orders page.
 ```""", 110),
     ])
+    # Snippets for the "/" menu (type /s), two of them added to every message the coordinator is sent.
+    with open(os.path.join(deck, "snippets.json"), "w") as f:
+        json.dump({"snippets": [
+            {"id": "crisp", "name": "short and crisp", "text": "Keep replies short and crisp.", "scope": "global"},
+            {"id": "dashes", "name": "no em dashes", "text": "No em dashes.", "scope": "global"},
+            {"id": "decide", "name": "decide yourself", "text": "Don't ask me what you can decide yourself.", "scope": lead},
+        ], "everyMessage": {lead: ["crisp", "decide"]}}, f)
     return main, reply, lead
 
 
