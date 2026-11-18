@@ -162,8 +162,13 @@ struct SessionDetailView: View {
     /// conversation keeps clear of it so lines Deck types (fleet updates, receipts) aren't hidden.
     @AppStorage("taskBoardExpanded") private var boardExpanded = true
     @State private var conversationWidth: CGFloat = 0
+    /// Only as much as keeps the centered column clear of the panel (340 wide, 20 from the edge,
+    /// plus a 12pt gap), so wide windows keep the column centered with no extra gutter.
     private var boardInset: CGFloat {
-        session.sessionId == store.coordinatorId && boardExpanded && conversationWidth >= 860 ? 360 : 0
+        guard session.sessionId == store.coordinatorId, boardExpanded, conversationWidth >= 860 else { return 0 }
+        let columnHalf = ColumnTextView.maxColumn / 2 + 28
+        // The column, centered in (width - inset), must end before the panel's left edge (width - 372).
+        return min(360, max(0, 2 * (columnHalf + 372) - conversationWidth))
     }
 
     var body: some View {

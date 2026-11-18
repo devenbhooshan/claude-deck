@@ -402,9 +402,11 @@ func textViewTests() {
         expect(ctl.textView(tv, clickedOnLink: TranscriptRenderer.handoffSend, at: 0))
         expectEqual(clicked.map(\.0.text), ["Merge #234", "Merge #234"])
         expectEqual(clicked.map(\.1), [false, true])
-        // Starting a reply with one.
+        // Starting a reply with one: no lone ✦ above it.
         let first = TranscriptRenderer(width: 700, cwd: "", expanded: []).render(content([.item(item(.assistant("```send-to x\ngo\n```")))]))
-        expect(first.string.hasPrefix("✦\n➤ For x"))
+        expect(first.string.hasPrefix("➤ For x"), first.string)
+        let board = TranscriptRenderer(width: 700, cwd: "", expanded: []).render(content([.item(item(.assistant("```tasks\n- [ ] a\n```")))]))
+        expect(board.string.hasPrefix("☑ Task board updated"), board.string)
     }
     test("a code block copies with one click") {
         let ctl = TranscriptTextController(openURL: { _ in false })

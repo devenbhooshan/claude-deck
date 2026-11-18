@@ -707,18 +707,19 @@ struct TranscriptRenderer {
                 out.append(inline)
                 out.append(NSAttributedString(string: "\n", attributes: [.paragraphStyle: style]))
             case .code(let code) where quotes.isEmpty && Handoff.isCard(info: block.info):
-                if first { out.append(marker()) }
+                // No ✦ above a reply that opens with a card: the card's header says what it is, and a
+                // ✦ on a line of its own read as an empty message.
                 // An empty card has nothing to send: shown as the plain (empty) block it is.
                 if let h = Handoff.from(info: block.info, code: code) {
-                    out.append(handoffCard(h, spacingBefore: first ? 0 : 8))
+                    out.append(handoffCard(h, spacingBefore: first ? 16 : 8))
                 } else {
-                    out.append(codeBlock(code, spacingBefore: first ? 0 : 6))
+                    out.append(codeBlock(code, spacingBefore: first ? 16 : 6))
                 }
             case .code(let code) where quotes.isEmpty && block.info?.trimmingCharacters(in: .whitespaces).lowercased() == TaskBoard.marker:
-                // The coordinator reposts its whole board often; the Tasks panel shows it, so here it's one line.
-                if first { out.append(marker()) }
+                // The coordinator reposts its whole board often; the Tasks panel shows it, so here it's one line
+                // (with no ✦ of its own above it, like a card).
                 let open = code.components(separatedBy: .newlines).compactMap(TaskItem.parse(line:)).filter { $0.state != .done }.count
-                let line = paragraph { $0.firstLineHeadIndent = indent; $0.headIndent = indent; $0.paragraphSpacingBefore = first ? 0 : 6 }
+                let line = paragraph { $0.firstLineHeadIndent = indent; $0.headIndent = indent; $0.paragraphSpacingBefore = first ? 16 : 6 }
                 out.append(NSAttributedString(string: "☑ Task board updated · \(open) open, shown in the Tasks panel\n", attributes: [
                     .font: NSFont.systemFont(ofSize: 12, weight: .medium), .foregroundColor: NSColor.secondaryLabelColor, .paragraphStyle: line,
                 ]))
