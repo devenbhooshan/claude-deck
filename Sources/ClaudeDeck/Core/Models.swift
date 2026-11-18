@@ -95,6 +95,8 @@ struct Session: Identifiable, Equatable {
     var isBackground = false
     /// Its short job id (`claude attach / stop / rm <id>`), for a background session.
     var jobId: String? = nil
+    /// Where its job stands (done, failed…), from `claude agents`, for a background session.
+    var agentState: AgentState? = nil
 
     var isLive: Bool { pid != nil }
     /// Whether Deck may drive it through a terminal (answer prompts, type, restart, end).

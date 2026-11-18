@@ -104,6 +104,16 @@ struct ContentView: View {
                     }
                 }
             }
+            // Background sessions that have exited: how their job went, and their conversation.
+            if !store.backgroundEnded.isEmpty {
+                Section {
+                    ForEach(store.backgroundEnded) { s in
+                        SessionRow(session: s).modifier(SelectableRow(id: s.id)).contextMenu { rowMenu(s) }
+                    }
+                } header: {
+                    SectionHeader(title: "Background", count: nil, tint: nil)
+                }
+            }
             if !store.recent.isEmpty {
                 Section {
                     ForEach(store.recent) { s in

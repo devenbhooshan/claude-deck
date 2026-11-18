@@ -114,16 +114,39 @@ struct BackgroundPromptActions: View {
 }
 
 /// Marks a background session (`claude --bg`), which runs without a terminal.
+/// Once its job has stopped, the badge says how it went (Done, Failed, Stopped).
 struct BackgroundBadge: View {
     let session: Session
 
     var body: some View {
-        Text("Background")
+        Text(text)
             .font(.caption2.weight(.semibold))
             .padding(.horizontal, 6).padding(.vertical, 1)
-            .background(Capsule().fill(Theme.accent.opacity(0.14)))
-            .foregroundStyle(Theme.accent)
-            .help("A background session (claude --bg): it runs without a terminal, so Deck can't answer or type into it")
+            .background(Capsule().fill(tint.opacity(0.14)))
+            .foregroundStyle(tint)
+            .help(help)
+    }
+
+    private var text: String {
+        guard let state = session.agentState, state != .working else { return "Background" }
+        return "Background · \(state.label)"
+    }
+
+    private var tint: Color {
+        switch session.agentState {
+        case .failed: Theme.danger
+        case .blocked: Theme.waiting
+        case .done: Theme.success
+        case .stopped: .secondary
+        case .working, nil: Theme.accent
+        }
+    }
+
+    private var help: String {
+        let job = session.jobId.map { " Job \($0)." } ?? ""
+        return session.isLive
+            ? "A background session (claude --bg): it runs without a terminal, so Deck can't answer or type into it until you open it.\(job)"
+            : "A background session (claude --bg) that has exited. Its conversation is read-only here.\(job)"
     }
 }
 
