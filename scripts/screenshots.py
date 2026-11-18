@@ -14,6 +14,12 @@ DEMO_ID = "com.devenbhooshan.claudedeck.demo"
 BUNDLE = APP = None
 OUT = os.path.join(ROOT, "docs/screenshots")
 COCOA = 978307200  # JSONEncoder's dates count from 2001.
+# Made-up PR, checks and deploy state per session folder, read only by the demo copy (see CIStore).
+DEMO_CI = json.dumps({
+    "orbit-api": {"pr": 482, "checks": "passing", "deployed": True, "deployDetail": "v1.8.2 live on production"},
+    "orbit-web": {"pr": 311, "checks": "pending"},
+    "orbit-mobile": {"pr": 97, "checks": "failing", "failing": ["e2e (android-15)"], "alert": True},
+})
 
 home = claude = deck = routines = None
 sleepers = []
@@ -217,7 +223,7 @@ def crop(name, x, y, width, height):
 def launch(*args):
     """Through `open`: macOS only brings a second launch to the front if LaunchServices started it."""
     subprocess.run(["open", "-n", BUNDLE, "--env", f"CFFIXED_USER_HOME={home}", "--env", f"HOME={home}", "--args",
-                    "-dockShown", "YES", "-dockExpanded", "NO", *args], check=True)
+                    "-dockShown", "YES", "-dockExpanded", "NO", "-demoCIStatus", DEMO_CI, *args], check=True)
     time.sleep(1)
     return int(subprocess.run(["pgrep", "-nf", APP], capture_output=True, text=True).stdout)
 

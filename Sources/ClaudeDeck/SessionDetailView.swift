@@ -273,6 +273,7 @@ struct SessionDetailView: View {
                     Button("End Session") { store.requestEnd(session) }
                         .disabled(store.ending.contains(session.sessionId))
                         .help("Quit Claude and close its terminal (you can resume it later)")
+                    Menu("CI & Deploy") { CIMenuItems(session: session) }
                 }
                 Divider()
                 Button("Copy Transcript") { copy(model.markdown(title: session.displayTitle)) }

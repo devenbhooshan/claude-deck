@@ -150,6 +150,17 @@ enum FleetDigest {
         }
     }
 
+    /// A CI flip in a few words, for `ciFlipped`: "PR #412 checks failed".
+    static func ciText(_ flip: CIFlip, pr: Int?) -> String {
+        let checks = pr.map { "PR #\($0) checks" } ?? "checks"
+        switch flip {
+        case .wentGreen: return "\(checks) passed"
+        case .wentRed: return "\(checks) failed"
+        case .deployed: return "deployed"
+        case .deployFailed: return "deploy failed"
+        }
+    }
+
     static func minutes(since: Date, now: Date) -> Int { max(0, Int(now.timeIntervalSince(since)) / 60) }
 
     /// Whether to type the batch now: there is one, the coordinator is running and at its prompt

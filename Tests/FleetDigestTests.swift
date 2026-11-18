@@ -158,6 +158,22 @@ func fleetDigestTests() {
         expect(Inbox.step([], from: nil, by: 1) == nil)
     }
 
+    test("CI flips: in the fleet line, and as inbox items") {
+        expectEqual(FleetDigest.ciText(.wentRed, pr: 412), "PR #412 checks failed")
+        expectEqual(FleetDigest.ciText(.wentGreen, pr: nil), "checks passed")
+        expectEqual(FleetDigest.ciText(.deployed, pr: 1), "deployed")
+        expectEqual(FleetDigest.ciText(.deployFailed, pr: nil), "deploy failed")
+        expectEqual(FleetDigest.phrase(.ciFlipped(fleet("api"), FleetDigest.ciText(.wentRed, pr: 412)), now: t0), "api PR #412 checks failed")
+        let api = fleet("api")
+        let red = CIAlert(folder: api.cwd, flip: .wentRed, status: CIStatus(), at: t0)
+        let green = CIAlert(folder: api.cwd, flip: .wentGreen, status: CIStatus(), at: t0)
+        let broke = CIAlert(folder: api.cwd, flip: .deployFailed, status: CIStatus(), at: t0)
+        let items = Inbox.items(live: [api], sent: [], dismissed: [], ci: [red, green, broke])
+        expectEqual(items.map(\.isError), [true, false, true])
+        expectEqual(items.map(\.dismissKey), [red.key, green.key, broke.key])
+        expect(items.allSatisfy { Inbox.Filter.unread.matches($0, isUnread: { _ in false }) })
+    }
+
     test("live sessions: when the transcript last changed; a quiet working session's commands are looked up") {
         let box = Sandbox(); defer { box.cleanup() }
         let me = getpid()

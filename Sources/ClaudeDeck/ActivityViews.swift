@@ -111,6 +111,7 @@ struct SessionWorkBar: View {
                         .onAppear { activity.appeared([pr]) }
                 }
             }
+            CIChip(session: session)
             Spacer(minLength: 8)
             DeckTabs(items: [
                 .init(value: DetailTab.conversation, title: "Conversation", help: "The conversation (⌥⌘A)"),

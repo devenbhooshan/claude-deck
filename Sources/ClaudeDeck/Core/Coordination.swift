@@ -121,6 +121,8 @@ enum Inbox {
         case completed(Session, String)
         /// The session's last turn ended on an API error, or it ended while working or at a prompt.
         case error(Session, String, key: String)
+        /// A PR's checks went green or red (or its deploy landed or broke).
+        case ci(Session, CIAlert)
 
         var id: String {
             switch self {
@@ -129,12 +131,13 @@ enum Inbox {
             case let .handoff(s, h): "handoff:" + s.sessionId + ":" + h.key
             case .completed(let s, _): "completed:" + s.sessionId
             case .error(_, _, let key): key
+            case let .ci(s, a): a.key + ":" + s.sessionId
             }
         }
 
         var session: Session {
             switch self {
-            case .prompt(let s), .question(let s, _), .handoff(let s, _), .completed(let s, _), .error(let s, _, _): s
+            case .prompt(let s), .question(let s, _), .handoff(let s, _), .completed(let s, _), .error(let s, _, _), .ci(let s, _): s
             }
         }
 
@@ -146,10 +149,18 @@ enum Inbox {
             case .handoff(_, let h): h.key
             case .completed(let s, _): Inbox.completedKey(s)
             case .error(_, _, let key): key
+            case .ci(_, let a): a.key
             }
         }
 
-        var isError: Bool { if case .error = self { true } else { false } }
+        /// A turn that errored, a session that died mid-work, or checks or a deploy that went red.
+        var isError: Bool {
+            switch self {
+            case .error: true
+            case .ci(_, let a): a.flip == .wentRed || a.flip == .deployFailed
+            default: false
+            }
+        }
 
         /// Everything but a finished reply asks something of you; that one is just news.
         var needsAction: Bool { if case .completed = self { false } else { true } }
@@ -163,10 +174,11 @@ enum Inbox {
         var key: String { "error:\(session.sessionId):\(at.timeIntervalSince1970)" }
     }
 
-    /// Prompts first (they hold a session up), then errors, handoffs, questions, and finished
-    /// replies you haven't read. The coordinator's handoffs come before other sessions'.
+    /// Prompts first (they hold a session up), then errors, handoffs, CI changes, questions, and
+    /// finished replies you haven't read. The coordinator's handoffs come before other sessions'.
+    /// A CI alert shows on the first running session in its folder.
     static func items(live: [Session], sent: Set<String>, dismissed: Set<String>, coordinator: String? = nil,
-                      isAnswered: (Session) -> Bool = { _ in false }, failures: [Failure] = [],
+                      ci: [CIAlert] = [], isAnswered: (Session) -> Bool = { _ in false }, failures: [Failure] = [],
                       isUnread: (Session) -> Bool = { _ in false }) -> [Item] {
         let prompts = live.filter { $0.status == .waiting && !isAnswered($0) }.map(Item.prompt)
         let liveIds = Set(live.map(\.sessionId))
@@ -185,12 +197,15 @@ enum Inbox {
             guard s.status == .idle, let q = question(in: s), !dismissed.contains(questionKey(s)) else { return nil }
             return .question(s, q)
         }
+        let changes = ci.filter { !dismissed.contains($0.key) }.compactMap { a in
+            live.first { $0.cwd == a.folder }.map { Item.ci($0, a) }
+        }
         let completed = live.compactMap { s -> Item? in
             guard s.status == .idle, isUnread(s), let reply = s.replyTexts.last, question(in: s) == nil, turnError(in: s) == nil,
                   s.handoffs.isEmpty, !dismissed.contains(completedKey(s)) else { return nil }
             return .completed(s, lastParagraph(reply))
         }
-        return prompts + turnErrors + ended + handoffs + questions + completed
+        return prompts + turnErrors + ended + handoffs + changes + questions + completed
     }
 
     /// The question a session's last reply ends on: its last paragraph, if that asks something.
@@ -240,15 +255,15 @@ enum Inbox {
             }
         }
 
-        /// Unread: prompts and errors (new until handled), and anything from a session with
-        /// replies you haven't read.
+        /// Unread: prompts, errors and CI changes (new until handled or dismissed), and anything
+        /// from a session with replies you haven't read.
         func matches(_ item: Item, isUnread: (Session) -> Bool) -> Bool {
             switch self {
             case .all: true
             case .errors: item.isError
             case .unread:
                 switch item {
-                case .prompt, .error: true
+                case .prompt, .error, .ci: true
                 default: isUnread(item.session)
                 }
             }

@@ -141,6 +141,13 @@ private struct InboxCard: View {
         case .handoff(_, let h): h.newSession ? "asks you to start a session, \(h.target)" : "drafted a message for \(h.target)"
         case .completed: "finished"
         case .error: isRunning ? "hit an error" : "ended unexpectedly"
+        case .ci(_, let a):
+            switch a.flip {
+            case .wentGreen: "checks passed"
+            case .wentRed: "checks failed"
+            case .deployed: "deployed"
+            case .deployFailed: "deploy check failed"
+            }
         }
     }
 
@@ -151,6 +158,7 @@ private struct InboxCard: View {
         case .handoff: Theme.accent
         case .completed: Theme.success
         case .error: Theme.danger
+        case .ci(_, let a): a.flip == .wentGreen || a.flip == .deployed ? Theme.success : Theme.danger
         }
     }
 
@@ -190,6 +198,8 @@ private struct InboxCard: View {
                     .help(isRunning ? "Open \(session.displayTitle)" : "It isn't running any more; resume it from its transcript")
                 Spacer()
             }
+        case let .ci(s, a):
+            CIAlertActions(session: s, alert: a)
         }
     }
 

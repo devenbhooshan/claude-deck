@@ -57,6 +57,10 @@ final class SessionStore {
     var hookInstalled = PendingRequests.isInstalled
     /// Messages sessions sent each other, and you sent from Deck.
     let comms = CommsStore()
+    /// Each running session's PR checks and deploy state.
+    let ci = CIStore()
+    /// The session whose repo's deploy-status command is being edited.
+    var deployCommandTarget: Session?
 
     // MARK: Coordinating sessions
 
@@ -102,12 +106,14 @@ final class SessionStore {
 
     /// Everything waiting on you, across sessions, and finished replies you haven't read.
     var inbox: [Inbox.Item] {
-        Inbox.items(live: live, sent: sentHandoffs, dismissed: dismissed, coordinator: coordinatorId, isAnswered: isAnswered,
+        Inbox.items(live: live, sent: sentHandoffs, dismissed: dismissed, coordinator: coordinatorId,
+                    ci: ci.alerts.values.sorted { $0.at > $1.at }, isAnswered: isAnswered,
                     failures: failures, isUnread: { self.unread($0) > 0 })
     }
 
     func dismiss(_ item: Inbox.Item) {
         if let key = item.dismissKey { dismissed.insert(key) }
+        if case .ci(_, let a) = item { ci.dismiss(a) }
         updateBadge()
     }
 
@@ -302,6 +308,15 @@ final class SessionStore {
         } else {
             lastError = "There's no running session called \u{201C}\(h.target)\u{201D}."
         }
+    }
+
+    /// Puts a message in a session's message box for you to edit and send (the CI chip's
+    /// Fix Failing Checks, Push and Merge When Green); never sends it.
+    func draftMessage(_ text: String, in s: Session) {
+        guard s.isLive else { return }
+        selectedId = s.id
+        detailTab = .conversation
+        composerInsert = text
     }
 
     func installHook() {
@@ -697,6 +712,12 @@ final class SessionStore {
             updateBadge()
             RoutinePopup.shared.update(store: self)
         }
+        // A flip to red or green (or a deploy) goes to the coordinator with the rest of the fleet's news.
+        ci.onAlert = { [weak self] alert in
+            guard let self, let s = live.first(where: { $0.cwd == alert.folder }) else { return }
+            reportCI(s, FleetDigest.ciText(alert.flip, pr: alert.status.pr?.number))
+            updateBadge()
+        }
         routines.isOpen = { [weak self] in NSApp?.isActive == true && self?.selectedId == "routine:\($0)" }
         routines.start()
         // scripts/screenshots.py runs a copy under its own bundle id, which mustn't ask for anything.
@@ -789,6 +810,7 @@ final class SessionStore {
         markSeen()
         updateBadge()
         comms.refresh(sessions: newLive)
+        ci.refresh(sessions: newLive)
     }
 
     private func syncRecordWatchers(_ pids: Set<Int32>) {
