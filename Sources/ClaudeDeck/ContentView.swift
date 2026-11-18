@@ -512,7 +512,6 @@ struct SessionRow<Accessory: View>: View {
                         .font(.body.weight(session.status == .waiting || unread > 0 ? .semibold : .regular))
                         .lineLimit(1)
                     if session.isLive && session.sessionId == store.coordinatorId { CoordinatorBadge() }
-                    if session.isBackground { BackgroundBadge(session: session) }
                     if session.isLive && store.isMuted(session) {
                         Image(systemName: "bell.slash")
                             .font(.caption2)
@@ -556,6 +555,8 @@ struct SessionRow<Accessory: View>: View {
                     }
                 }
                 HStack(spacing: 6) {
+                    // On this line, not beside the title, so the Open button can't squeeze it to "Background ·…".
+                    if session.isBackground { BackgroundBadge(session: session).fixedSize() }
                     Text(subtitle)
                         .font(.caption)
                         .foregroundStyle(.secondary)

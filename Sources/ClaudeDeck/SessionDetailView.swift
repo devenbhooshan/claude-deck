@@ -158,6 +158,13 @@ struct SessionDetailView: View {
     @State private var model = TranscriptModel()
     @State private var attachments: [Attachment] = []
     @State private var error: String?
+    /// The Tasks panel floats over the coordinator's conversation; when there's room, the
+    /// conversation keeps clear of it so lines Deck types (fleet updates, receipts) aren't hidden.
+    @AppStorage("taskBoardExpanded") private var boardExpanded = true
+    @State private var conversationWidth: CGFloat = 0
+    private var boardInset: CGFloat {
+        session.sessionId == store.coordinatorId && boardExpanded && conversationWidth >= 860 ? 360 : 0
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -202,6 +209,8 @@ struct SessionDetailView: View {
                            onRemoveQueued: drivable ? { store.removeQueued($0, in: session, model: model) } : nil,
                            background: session.background,
                            onStopTask: session.isLive ? { store.stopTask($0, in: session) } : nil)
+                .padding(.trailing, boardInset)
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { conversationWidth = $0 }
                 .overlay(alignment: .bottom) {
                     if session.status == .waiting && !store.isAnswered(session) {
                         PendingCard(session: session,
