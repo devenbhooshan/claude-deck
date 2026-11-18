@@ -67,7 +67,8 @@ def tool(name, input, result, ago):
                    "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": id, "content": result}]}}]
 
 
-def session(name, folder, title, records, status="idle", waiting=None):
+def session(name, folder, title, records, status="idle", waiting=None, quiet=0):
+    """`quiet`: seconds since it last wrote anything (a working session quiet for 10+ minutes shows Stuck)."""
     sid = str(uuid.uuid4())
     cwd = os.path.join(home, "code", folder)
     os.makedirs(cwd, exist_ok=True)
@@ -77,11 +78,13 @@ def session(name, folder, title, records, status="idle", waiting=None):
     with open(os.path.join(claude, "sessions", f"{sleeper.pid}.json"), "w") as f:
         json.dump({"pid": sleeper.pid, "sessionId": sid, "cwd": cwd, "startedAt": now - 3_600_000, "kind": "interactive",
                    "entrypoint": "cli", "name": name, "status": status, "waitingFor": waiting,
-                   "updatedAt": now, "statusUpdatedAt": now}, f)
+                   "updatedAt": now, "statusUpdatedAt": now - quiet * 1000}, f)
     folder = os.path.join(claude, "projects", "".join(c if c.isalnum() else "-" for c in cwd))
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, f"{sid}.jsonl")
     write(path, [{"type": "ai-title", "aiTitle": title}] + records)
+    if quiet:
+        os.utime(path, (time.time() - quiet, time.time() - quiet))
     return sid, path
 
 
@@ -140,7 +143,7 @@ Should I fix those too?""", 790),
     session("orbit-docs", "orbit-docs", "Write the v2 upgrade guide", [
         user("draft the upgrade guide for v2", 200),
         say("Reading the changelog first.", 190),
-    ], status="busy")
+    ], status="busy", quiet=12 * 60)
     _, reply = session("orbit-mobile", "orbit-mobile", "Crash on the settings screen", [
         user("why does settings crash on Android 15?", 600),
     ])
@@ -161,6 +164,8 @@ Should I fix those too?""", 790),
                        "result": text, "denied": 0, "cost": 0.18, "turns": 6}, f)
     lead, _ = session("lead", "orbit", "Coordinate the orbit release", [
         user("where are we on the release? what do you need from me?", 120),
+        # What Deck's fleet feed types into the coordinator (the demo copy never types itself).
+        user("[Claude Deck] Fleet: orbit-api finished · orbit-web waiting on you (Bash) · orbit-docs stuck 12m", 115),
         say("""Two things need you, and I've drafted the next step for the others.
 
 ```tasks

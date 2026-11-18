@@ -5,6 +5,10 @@ import Foundation
 enum Receipt: Equatable {
     case handoff(Handoff)
     case board(BoardEdit)
+    /// The fleet feed's line for the coordinator (FleetDigest.line).
+    case fleet(String)
+
+    var isFleet: Bool { if case .fleet = self { true } else { false } }
 
     /// Text on one line in curly quotes, cut short past 80 characters.
     static func quote(_ text: String) -> String {
@@ -16,10 +20,12 @@ enum Receipt: Equatable {
     static func text(for receipts: [Receipt]) -> String {
         var handoffs: [Handoff] = []
         var edits: [BoardEdit] = []
+        var fleet: [String] = []
         for r in receipts {
             switch r {
             case .handoff(let h): handoffs.append(h)
             case .board(let e): edits.append(e)
+            case .fleet(let line): fleet.append(line)
             }
         }
         var lines: [String] = []
@@ -28,6 +34,7 @@ enum Receipt: Equatable {
             lines.append("[Claude Deck] I changed your task board. Show this in your next board:")
             lines += edits.map(\.line)
         }
+        lines += fleet
         return lines.joined(separator: "\n")
     }
 }

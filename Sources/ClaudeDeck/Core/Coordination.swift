@@ -116,6 +116,10 @@ enum Inbox {
         case question(Session, String)
         /// A message a session drafted for you to send to another.
         case handoff(from: Session, Handoff)
+        /// Claude finished its turn with a reply you haven't read (its last paragraph).
+        case completed(Session, String)
+        /// The session's last turn ended on an API error, or it ended while working or at a prompt.
+        case error(Session, String, key: String)
         /// A PR's checks went green or red (or its deploy landed or broke).
         case ci(Session, CIAlert)
 
@@ -124,23 +128,66 @@ enum Inbox {
             case .prompt(let s): "prompt:" + s.sessionId
             case .question(let s, _): "question:" + s.sessionId
             case let .handoff(s, h): "handoff:" + s.sessionId + ":" + h.key
+            case .completed(let s, _): "completed:" + s.sessionId
+            case .error(_, _, let key): key
             case let .ci(s, a): a.key + ":" + s.sessionId
             }
         }
 
         var session: Session {
             switch self {
-            case .prompt(let s), .question(let s, _), .handoff(let s, _), .ci(let s, _): s
+            case .prompt(let s), .question(let s, _), .handoff(let s, _), .completed(let s, _), .error(let s, _, _), .ci(let s, _): s
             }
         }
+
+        /// What dismissing it remembers (a prompt can't be dismissed: it holds the session up).
+        var dismissKey: String? {
+            switch self {
+            case .prompt: nil
+            case .question(let s, _): Inbox.questionKey(s)
+            case .handoff(_, let h): h.key
+            case .completed(let s, _): Inbox.completedKey(s)
+            case .error(_, _, let key): key
+            case .ci(_, let a): a.key
+            }
+        }
+
+        /// A turn that errored, a session that died mid-work, or checks or a deploy that went red.
+        var isError: Bool {
+            switch self {
+            case .error: true
+            case .ci(_, let a): a.flip == .wentRed || a.flip == .deployFailed
+            default: false
+            }
+        }
+
+        /// Everything but a finished reply asks something of you; that one is just news.
+        var needsAction: Bool { if case .completed = self { false } else { true } }
     }
 
-    /// Prompts first (they hold a session up), then handoffs, then CI changes, then questions.
-    /// The coordinator's handoffs come before other sessions'. A CI alert shows on the first
-    /// running session in its folder.
+    /// A session that ended while working or at a prompt, without you ending it from Deck.
+    struct Failure: Equatable {
+        let session: Session
+        let at: Date
+        var text: String { session.status == .waiting ? "Ended while waiting on you" : "Ended while working" }
+        var key: String { "error:\(session.sessionId):\(at.timeIntervalSince1970)" }
+    }
+
+    /// Prompts first (they hold a session up), then errors, handoffs, CI changes, questions, and
+    /// finished replies you haven't read. The coordinator's handoffs come before other sessions'.
+    /// A CI alert shows on the first running session in its folder.
     static func items(live: [Session], sent: Set<String>, dismissed: Set<String>, coordinator: String? = nil,
-                      ci: [CIAlert] = [], isAnswered: (Session) -> Bool = { _ in false }) -> [Item] {
+                      ci: [CIAlert] = [], isAnswered: (Session) -> Bool = { _ in false }, failures: [Failure] = [],
+                      isUnread: (Session) -> Bool = { _ in false }) -> [Item] {
         let prompts = live.filter { $0.status == .waiting && !isAnswered($0) }.map(Item.prompt)
+        let liveIds = Set(live.map(\.sessionId))
+        let turnErrors = live.compactMap { s -> Item? in
+            guard s.status != .busy, s.status != .waiting, let e = turnError(in: s), !dismissed.contains(errorKey(s)) else { return nil }
+            return .error(s, e, key: errorKey(s))
+        }
+        // An ended session that's running again (resumed) is no longer an error.
+        let ended = failures.filter { !liveIds.contains($0.session.sessionId) && !dismissed.contains($0.key) }
+            .map { Item.error($0.session, $0.text, key: $0.key) }
         let byCoordinator = live.filter { $0.sessionId == coordinator } + live.filter { $0.sessionId != coordinator }
         let handoffs = byCoordinator.flatMap { s in
             s.handoffs.filter { !sent.contains($0.key) && !dismissed.contains($0.key) }.map { Item.handoff(from: s, $0) }
@@ -152,20 +199,82 @@ enum Inbox {
         let changes = ci.filter { !dismissed.contains($0.key) }.compactMap { a in
             live.first { $0.cwd == a.folder }.map { Item.ci($0, a) }
         }
-        return prompts + handoffs + changes + questions
+        let completed = live.compactMap { s -> Item? in
+            guard s.status == .idle, isUnread(s), let reply = s.replyTexts.last, question(in: s) == nil, turnError(in: s) == nil,
+                  s.handoffs.isEmpty, !dismissed.contains(completedKey(s)) else { return nil }
+            return .completed(s, lastParagraph(reply))
+        }
+        return prompts + turnErrors + ended + handoffs + changes + questions + completed
     }
 
     /// The question a session's last reply ends on: its last paragraph, if that asks something.
     static func question(in s: Session) -> String? {
         guard let reply = s.replyTexts.last else { return nil }
+        let q = lastParagraph(reply)
+        return q.hasSuffix("?") ? q : nil
+    }
+
+    /// A reply's last paragraph, at most 400 characters.
+    static func lastParagraph(_ reply: String) -> String {
         let last = reply.components(separatedBy: "\n\n").last { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-        guard let q = last?.trimmingCharacters(in: .whitespacesAndNewlines), q.hasSuffix("?") else { return nil }
-        return q.count > 400 ? "…" + q.suffix(399) : q
+        let p = (last ?? reply).trimmingCharacters(in: .whitespacesAndNewlines)
+        return p.count > 400 ? "…" + p.suffix(399) : p
+    }
+
+    /// The error Claude Code wrote in place of a reply when the turn failed ("API Error: 529 …").
+    static func turnError(in s: Session) -> String? {
+        guard let reply = s.replyTexts.last?.trimmingCharacters(in: .whitespacesAndNewlines), reply.hasPrefix("API Error") else { return nil }
+        let one = SessionLoader.oneLine(reply)
+        return one.count > 300 ? one.prefix(299) + "…" : one
     }
 
     /// A question stays dismissed until Claude writes again.
     static func questionKey(_ s: Session) -> String {
         "question:\(s.sessionId):\(s.replies.last?.timeIntervalSince1970 ?? 0)"
+    }
+
+    static func completedKey(_ s: Session) -> String {
+        "completed:\(s.sessionId):\(s.replies.last?.timeIntervalSince1970 ?? 0)"
+    }
+
+    static func errorKey(_ s: Session) -> String {
+        "error:\(s.sessionId):\(s.replies.last?.timeIntervalSince1970 ?? 0)"
+    }
+
+    /// The inbox's filters.
+    enum Filter: String, CaseIterable, Identifiable {
+        case all, unread, errors
+        var id: String { rawValue }
+
+        var label: String {
+            switch self {
+            case .all: "All"
+            case .unread: "Unread"
+            case .errors: "Errors"
+            }
+        }
+
+        /// Unread: prompts, errors and CI changes (new until handled or dismissed), and anything
+        /// from a session with replies you haven't read.
+        func matches(_ item: Item, isUnread: (Session) -> Bool) -> Bool {
+            switch self {
+            case .all: true
+            case .errors: item.isError
+            case .unread:
+                switch item {
+                case .prompt, .error, .ci: true
+                default: isUnread(item.session)
+                }
+            }
+        }
+    }
+
+    /// The item after (or before, for a negative step) the highlighted one, staying in the list;
+    /// with none highlighted, the first.
+    static func step(_ items: [Item], from id: String?, by offset: Int) -> String? {
+        guard !items.isEmpty else { return nil }
+        guard let id, let i = items.firstIndex(where: { $0.id == id }) else { return items[0].id }
+        return items[min(max(i + offset, 0), items.count - 1)].id
     }
 }
 

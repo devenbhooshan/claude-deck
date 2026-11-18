@@ -1,59 +1,121 @@
 import SwiftUI
 
-/// Everything waiting on you across sessions, answered in place: prompts, messages a session
-/// drafted for another, and questions a session stopped on.
+/// Everything waiting on you across sessions, answered in place: prompts, errors, messages a
+/// session drafted for another, questions a session stopped on, and finished replies you haven't
+/// read. Filter with All / Unread / Errors; ↑/↓ move between cards and Return opens the session.
 struct InboxView: View {
     @Environment(SessionStore.self) private var store
+    @AppStorage("inboxFilter") private var filter = Inbox.Filter.all
+    @State private var highlighted: String?
+    @FocusState private var focused: Bool
 
     var body: some View {
-        let items = store.inbox
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
-                if items.isEmpty {
-                    VStack(spacing: 10) {
-                        Image(systemName: "checkmark.circle")
-                            .font(.system(size: 36, weight: .light))
-                            .foregroundStyle(Theme.success)
-                        Text("Nothing is waiting on you").font(.title3.weight(.medium))
-                        Text("Prompts, questions and messages sessions draft for each other show up here.")
-                            .font(.callout).foregroundStyle(.secondary)
+        let all = store.inbox
+        let isUnread: (Session) -> Bool = { store.unread($0) > 0 }
+        let items = all.filter { filter.matches($0, isUnread: isUnread) }
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 10) {
+                        Picker("Show", selection: $filter) {
+                            ForEach(Inbox.Filter.allCases) { f in
+                                let n = all.filter { f.matches($0, isUnread: isUnread) }.count
+                                Text(n > 0 ? "\(f.label) \(n)" : f.label).tag(f)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                        .fixedSize()
+                        .help("All items, only new ones, or only errors")
+                        Spacer()
+                        if !items.isEmpty {
+                            Text("↑↓ move · ↩ open").font(.caption).foregroundStyle(.tertiary)
+                        }
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 80)
+                    if items.isEmpty {
+                        VStack(spacing: 10) {
+                            Image(systemName: filter == .errors ? "checkmark.shield" : "checkmark.circle")
+                                .font(.system(size: 36, weight: .light))
+                                .foregroundStyle(Theme.success)
+                            Text(emptyTitle).font(.title3.weight(.medium))
+                            Text("Prompts, errors, questions, finished replies and messages sessions draft for each other show up here.")
+                                .font(.callout).foregroundStyle(.secondary)
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.top, 80)
+                    }
+                    ForEach(items) { item in
+                        InboxCard(item: item, highlighted: item.id == highlighted)
+                            .id(item.id)
+                            .simultaneousGesture(TapGesture().onEnded { highlighted = item.id; focused = true })
+                    }
                 }
-                ForEach(items) { item in
-                    InboxCard(item: item)
-                }
+                .frame(maxWidth: 760)
+                .padding(20)
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: 760)
-            .padding(20)
-            .frame(maxWidth: .infinity)
+            .focusable()
+            .focused($focused)
+            .focusEffectDisabled()
+            .onKeyPress(.downArrow) { move(items, 1, proxy) }
+            .onKeyPress(.upArrow) { move(items, -1, proxy) }
+            .onKeyPress(.return) {
+                guard let item = items.first(where: { $0.id == highlighted }) else { return .ignored }
+                store.selectedId = item.session.id
+                return .handled
+            }
+            .onAppear { focused = true }
         }
         .background(Theme.surface)
         .navigationTitle("Needs You")
-        .navigationSubtitle(items.isEmpty ? "All clear" : "\(items.count) waiting")
+        .navigationSubtitle(subtitle(all))
+    }
+
+    private var emptyTitle: String {
+        switch filter {
+        case .all: "Nothing is waiting on you"
+        case .unread: "Nothing new"
+        case .errors: "No errors"
+        }
+    }
+
+    private func subtitle(_ all: [Inbox.Item]) -> String {
+        let waiting = all.filter(\.needsAction).count
+        let errors = all.filter(\.isError).count
+        if all.isEmpty { return "All clear" }
+        return ["\(waiting) waiting", errors > 0 ? "\(errors) error\(errors == 1 ? "" : "s")" : nil]
+            .compactMap { $0 }.joined(separator: " · ")
+    }
+
+    private func move(_ items: [Inbox.Item], _ offset: Int, _ proxy: ScrollViewProxy) -> KeyPress.Result {
+        guard let id = Inbox.step(items, from: highlighted, by: offset) else { return .ignored }
+        highlighted = id
+        withAnimation(.easeOut(duration: 0.12)) { proxy.scrollTo(id, anchor: .center) }
+        return .handled
     }
 }
 
 private struct InboxCard: View {
     @Environment(SessionStore.self) private var store
     let item: Inbox.Item
+    var highlighted = false
     @State private var reply = ""
     @State private var attachments: [Attachment] = []
 
     private var session: Session { item.session }
+    private var isRunning: Bool { store.live.contains { $0.sessionId == session.sessionId } }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
-                StatusIcon(status: session.status, size: 20)
+                StatusIcon(status: isRunning ? session.status : .ended, size: 20)
                 Button { store.selectedId = session.id } label: {
                     Text(session.displayTitle).font(.headline)
                 }
                 .buttonStyle(.deckPlain)
                 .help("Open this session")
                 if session.sessionId == store.coordinatorId { CoordinatorBadge() }
-                Text(kind).font(.subheadline).foregroundStyle(.secondary)
+                Text(kind).font(.subheadline).foregroundStyle(item.isError ? AnyShapeStyle(Theme.danger) : AnyShapeStyle(.secondary))
                 Spacer()
                 if canDismiss {
                     Button { store.dismiss(item) } label: {
@@ -69,7 +131,7 @@ private struct InboxCard: View {
         .padding(14)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous).fill(Theme.panel))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.large, style: .continuous)
-            .strokeBorder(tint.opacity(0.35), lineWidth: 1))
+            .strokeBorder(highlighted ? Theme.accent : tint.opacity(0.35), lineWidth: highlighted ? 2 : 1))
     }
 
     private var kind: String {
@@ -77,6 +139,8 @@ private struct InboxCard: View {
         case .prompt: Theme.isPermission(session) ? "wants to run a tool" : "is waiting for \(session.waitingFor ?? "you")"
         case .question: "asked you"
         case .handoff(_, let h): h.newSession ? "asks you to start a session, \(h.target)" : "drafted a message for \(h.target)"
+        case .completed: "finished"
+        case .error: isRunning ? "hit an error" : "ended unexpectedly"
         case .ci(_, let a):
             switch a.flip {
             case .wentGreen: "checks passed"
@@ -92,6 +156,8 @@ private struct InboxCard: View {
         case .prompt: Theme.waiting
         case .question: Theme.idle
         case .handoff: Theme.accent
+        case .completed: Theme.success
+        case .error: Theme.danger
         case .ci(_, let a): a.flip == .wentGreen || a.flip == .deployed ? Theme.success : Theme.danger
         }
     }
@@ -121,6 +187,17 @@ private struct InboxCard: View {
                 .padding(.horizontal, -20)
         case .handoff(_, let h):
             HandoffActions(handoff: h)
+        case .completed(_, let text), .error(_, let text, _):
+            Text(LocalizedStringKey(text))
+                .lineLimit(6)
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(spacing: 8) {
+                Button(isRunning ? "Open" : "Open Transcript") { store.selectedId = session.id }
+                    .buttonStyle(.deck(item.isError ? .primary : .secondary))
+                    .help(isRunning ? "Open \(session.displayTitle)" : "It isn't running any more; resume it from its transcript")
+                Spacer()
+            }
         case let .ci(s, a):
             CIAlertActions(session: s, alert: a)
         }

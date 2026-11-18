@@ -10,8 +10,8 @@ final class CIStore {
     private(set) var status: [String: CIStatus] = [:]
     /// The latest flip per folder, shown in Needs You until dismissed.
     private(set) var alerts: [String: CIAlert] = [:]
-    /// Called when a new alert comes in (to update the badge).
-    var onAlert: (() -> Void)?
+    /// Called when a new alert comes in (the fleet feed tells the coordinator).
+    var onAlert: ((CIAlert) -> Void)?
 
     private var due: [String: Date] = [:]
     private var polling: Set<String> = []
@@ -97,7 +97,7 @@ final class CIStore {
 
     private func raise(_ alert: CIAlert) {
         alerts[alert.folder] = alert
-        onAlert?()
+        onAlert?(alert)
     }
 
     /// One look, off the main thread: the branch's PR, its checks (or, when it reports none, the

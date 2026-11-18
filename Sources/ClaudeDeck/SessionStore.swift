@@ -104,21 +104,16 @@ final class SessionStore {
     /// A handoff you're editing before sending: sent once you send it to its session.
     private var editing: Handoff?
 
-    /// Everything waiting on you, across sessions.
+    /// Everything waiting on you, across sessions, and finished replies you haven't read.
     var inbox: [Inbox.Item] {
         Inbox.items(live: live, sent: sentHandoffs, dismissed: dismissed, coordinator: coordinatorId,
-                    ci: ci.alerts.values.sorted { $0.at > $1.at }, isAnswered: isAnswered)
+                    ci: ci.alerts.values.sorted { $0.at > $1.at }, isAnswered: isAnswered,
+                    failures: failures, isUnread: { self.unread($0) > 0 })
     }
 
     func dismiss(_ item: Inbox.Item) {
-        switch item {
-        case .handoff(_, let h): dismissed.insert(h.key)
-        case .question(let s, _): dismissed.insert(Inbox.questionKey(s))
-        case .ci(_, let a):
-            dismissed.insert(a.key)
-            ci.dismiss(a)
-        case .prompt: break
-        }
+        if let key = item.dismissKey { dismissed.insert(key) }
+        if case .ci(_, let a) = item { ci.dismiss(a) }
         updateBadge()
     }
 
@@ -205,7 +200,12 @@ final class SessionStore {
             try? await Task.sleep(for: .seconds(2))
             guard let done = receipts.removeValue(forKey: target.id), let s = session(target.id), s.isLive else { return }
             do { try await Ghostty.send(text: Receipt.text(for: done), images: [], to: s) } catch {
-                lastError = "Couldn't tell \(s.displayTitle) what you did: \(error.localizedDescription)"
+                // A fleet update is only news: no alert if that's all it was; the next change brings a new one.
+                if done.allSatisfy(\.isFleet) {
+                    DebugLog.write("fleet line not typed: \(error.localizedDescription)")
+                } else {
+                    lastError = "Couldn't tell \(s.displayTitle) what you did: \(error.localizedDescription)"
+                }
             }
         }
     }
@@ -226,6 +226,83 @@ final class SessionStore {
         board.record(edit, coordinator: c.sessionId)
         queueReceipt(.board(edit), for: c)
         HUD.show(edit.pendingLabel, detail: task.title, symbol: "checklist", tint: Theme.accent)
+    }
+
+    // MARK: Fleet feed
+
+    /// Type a line into the coordinator when something changes in the fleet.
+    var fleetFeedOn = UserDefaults.standard.object(forKey: "fleetFeed") as? Bool ?? true {
+        didSet {
+            UserDefaults.standard.set(fleetFeedOn, forKey: "fleetFeed")
+            if !fleetFeedOn { fleetBatch = [] }
+        }
+    }
+    /// How long a working session can go without writing anything before it counts as stuck.
+    var stuckMinutes = UserDefaults.standard.object(forKey: "stuckMinutes") as? Int ?? FleetDigest.defaultStuckMinutes {
+        didSet { UserDefaults.standard.set(stuckMinutes, forKey: "stuckMinutes") }
+    }
+    private var stuckThreshold: TimeInterval { TimeInterval(max(1, stuckMinutes)) * 60 }
+
+    /// The fleet at the last poll, what's waiting to be typed, and when the last line went.
+    private var fleetSnapshot: FleetSnapshot?
+    private var fleetBatch: [FleetEvent] = []
+    private var fleetSentAt: Date?
+    /// Deck's own ends and restarts, so they read as such rather than as crashes or new sessions.
+    private var endedByDeck: Set<String> = []
+    private var restartedByDeck: Set<String> = []
+    private var replacedByRestart: Set<String> = []
+    /// Sessions that ended while working or at a prompt (Needs You's errors), newest last.
+    private(set) var failures: [Inbox.Failure] = []
+
+    /// Since when a working session has written nothing, once that's past the stuck threshold.
+    func stuckSince(_ s: Session, now: Date = Date()) -> Date? {
+        FleetDigest.stuckSince(s, now: now, threshold: stuckThreshold)
+    }
+
+    /// A session's CI or deploy changed ("CI failed on #412"): told to the coordinator with the rest.
+    func reportCI(_ s: Session, _ text: String) {
+        guard s.sessionId != coordinatorId, !isMuted(s) else { return }
+        queueFleet([.ciFlipped(s, text)])
+    }
+
+    /// Compares this poll with the last, records sessions that died mid-work, and queues the rest.
+    private func updateFleet(_ live: [Session]) {
+        let now = Date()
+        let snapshot = FleetDigest.snapshot(live, now: now, threshold: stuckThreshold)
+        let known = (fleetSnapshot?.sessions ?? []) + live
+        var context = FleetDigest.Context(endedByDeck: endedByDeck, restartedByDeck: restartedByDeck, replaced: replacedByRestart)
+        // Every session's unexpected end is an error in Needs You, the coordinator's and muted ones' too.
+        for case .ended(let s, true) in FleetDigest.events(from: fleetSnapshot, to: snapshot, now: now, threshold: stuckThreshold, context: context) {
+            failures = (failures + [Inbox.Failure(session: s, at: now)]).suffix(20)
+        }
+        context.excluded = Set(known.filter { $0.sessionId == coordinatorId || isMuted($0) }.map(\.sessionId))
+        let events = FleetDigest.events(from: fleetSnapshot, to: snapshot, now: now, threshold: stuckThreshold, context: context)
+        fleetSnapshot = snapshot
+        let ids = Set(live.map(\.sessionId))
+        endedByDeck = endedByDeck.filter(ids.contains)
+        restartedByDeck = []
+        replacedByRestart = []
+        queueFleet(events)
+    }
+
+    private func queueFleet(_ events: [FleetEvent]) {
+        guard fleetFeedOn, coordinator != nil else { fleetBatch = []; return }
+        fleetBatch = FleetDigest.merge(fleetBatch, events)
+        deliverFleet()
+    }
+
+    /// Types the batch into the coordinator, as one line, when it's at its prompt and the last
+    /// line went two minutes ago or more. Not in the screenshot copy, whose sessions are made up.
+    private func deliverFleet() {
+        let now = Date()
+        fleetBatch = FleetDigest.current(fleetBatch, live: live, now: now, threshold: stuckThreshold)
+        guard Bundle.main.bundleIdentifier?.hasSuffix(".demo") != true,
+              FleetDigest.shouldDeliver(fleetBatch, coordinator: coordinator, lastSent: fleetSentAt, now: now),
+              let c = coordinator, let line = FleetDigest.line(fleetBatch, now: now) else { return }
+        fleetBatch = []
+        fleetSentAt = now
+        DebugLog.write("fleet → \(c.displayTitle): \(line)")
+        queueReceipt(.fleet(line), for: c)
     }
 
     /// A handoff card's Edit First: into the open message box, addressed to its session, or
@@ -509,6 +586,7 @@ final class SessionStore {
     func end(_ s: Session) {
         guard s.isLive, !ending.contains(s.sessionId) else { return }
         ending.insert(s.sessionId)
+        endedByDeck.insert(s.sessionId)
         HUD.show("Ending session", detail: s.displayTitle, symbol: "xmark.circle.fill", tint: Theme.accent)
         Task {
             defer { ending.remove(s.sessionId) }
@@ -516,6 +594,7 @@ final class SessionStore {
                 try await Ghostty.end(s)
                 HUD.show("Session ended", detail: s.displayTitle, symbol: "checkmark.circle.fill", tint: Theme.accent)
             } catch {
+                endedByDeck.remove(s.sessionId)
                 lastError = error.localizedDescription
             }
             refresh()
@@ -647,6 +726,12 @@ final class SessionStore {
             updateBadge()
             RoutinePopup.shared.update(store: self)
         }
+        // A flip to red or green (or a deploy) goes to the coordinator with the rest of the fleet's news.
+        ci.onAlert = { [weak self] alert in
+            guard let self, let s = live.first(where: { $0.cwd == alert.folder }) else { return }
+            reportCI(s, FleetDigest.ciText(alert.flip, pr: alert.status.pr?.number))
+            updateBadge()
+        }
         routines.isOpen = { [weak self] in NSApp?.isActive == true && self?.selectedId == "routine:\($0)" }
         routines.start()
         // scripts/screenshots.py runs a copy under its own bundle id, which mustn't ask for anything.
@@ -699,6 +784,10 @@ final class SessionStore {
         pendingNames = named.pending
         if let t = restarting {
             if let back = SessionNav.restarted(t, in: named.live) {
+                if back.sessionId != t.session.sessionId {
+                    restartedByDeck.insert(back.sessionId)
+                    replacedByRestart.insert(t.session.sessionId)
+                }
                 slots[back.sessionId] = t.session.startedAt
                 if selectedId == t.session.id { selectedId = back.id }
                 restarting = nil
@@ -709,6 +798,7 @@ final class SessionStore {
         slots = slots.filter { id, _ in named.live.contains { $0.sessionId == id } }
         let newLive = SessionNav.keepSlots(live: named.live, slots: slots, restarting: restarting)
         if newLive != live { live = newLive }
+        updateFleet(newLive)
         // Select a session we just started (by the id it was given) once Claude Code registers it.
         // Wait for Ghostty to report the new terminal, so the session is bound to it.
         if let start = starting, let terminal = start.terminal {
