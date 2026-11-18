@@ -39,114 +39,124 @@ struct ContentView: View {
         @Bindable var store = store
         // Selection is drawn by Deck, not the system list: the system highlight switches from the
         // accent colour to grey when focus moves to the message box, which made the row flicker.
-        return List {
-            Section {
-                CoordinationRow(title: "Needs You", systemImage: "tray.full", count: store.inbox.filter(\.needsAction).count, tint: Theme.waiting,
-                                help: "Prompts, questions, errors and messages drafted for other sessions, answered in one place, plus finished replies you haven't read (⇧⌘I)")
-                    .modifier(SelectableRow(id: SessionStore.inboxId))
-                CoordinationRow(title: "Messages Between Sessions", systemImage: "bubble.left.and.bubble.right", count: nil, tint: nil,
-                                help: "Everything sessions sent each other, and you sent from Deck (⇧⌘M)")
-                    .modifier(SelectableRow(id: SessionStore.commsId))
-            }
-            // The coordinator in its own section, set apart; it keeps its ⌘ number.
-            if let c = store.coordinator, let i = store.live.firstIndex(of: c) {
+        // The usage strip sits below the list, not over it, so the last rows never draw under it.
+        return VStack(spacing: 0) {
+            List {
                 Section {
-                    sessionRow(c, number: i + 1)
-                        .modifier(SelectableRow(id: c.id))
-                        .contextMenu { rowMenu(c) }
-                } header: {
-                    HStack {
-                        SectionHeader(title: "Coordinator", count: nil, tint: nil)
-                        Spacer()
-                        let on = store.focusOnCoordinator
-                        Button { store.focusOnCoordinator.toggle() } label: {
-                            Label(on ? "Others Muted" : "Mute Others", systemImage: on ? "bell.slash.fill" : "bell.slash")
-                                .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 7).padding(.vertical, 2)
-                                .background(Capsule().fill(on ? Theme.accent.opacity(0.18) : Color.primary.opacity(0.06)))
-                                .foregroundStyle(on ? Theme.accent : .secondary)
-                        }
-                        .buttonStyle(.deckBorderless)
-                        .help(store.focusOnCoordinator
-                              ? "Only the coordinator counts as unread or makes a sound. Other sessions' prompts still show in the sidebar and Needs You. Click to hear from every session again."
-                              : "Hear only from the coordinator: other sessions' replies stop counting as unread, and their prompts make no banner or sound")
-                    }
+                    CoordinationRow(title: "Needs You", systemImage: "tray.full", count: store.inbox.filter(\.needsAction).count, tint: Theme.waiting,
+                                    help: "Prompts, questions, errors and messages drafted for other sessions, answered in one place, plus finished replies you haven't read (⇧⌘I)")
+                        .modifier(SelectableRow(id: SessionStore.inboxId))
+                    CoordinationRow(title: "Messages Between Sessions", systemImage: "bubble.left.and.bubble.right", count: nil, tint: nil,
+                                    help: "Everything sessions sent each other, and you sent from Deck (⇧⌘M)")
+                        .modifier(SelectableRow(id: SessionStore.commsId))
                 }
-            }
-            // One fixed list: a session keeps its place and number (⌘1–9) whatever its status.
-            // Sessions waiting on you stay put and show Allow / Deny in place.
-            Section {
-                if store.live.isEmpty {
-                    Text("No running sessions").foregroundStyle(.tertiary).font(.callout)
-                }
-                ForEach(Array(store.live.enumerated()).filter { $0.element.sessionId != store.coordinatorId }, id: \.element.id) { i, s in
-                    sessionRow(s, number: i + 1)
-                    .modifier(SelectableRow(id: s.id))
-                    .contextMenu { rowMenu(s) }
-                }
-            } header: {
-                HStack(spacing: 6) {
-                    SectionHeader(title: "Running", count: store.live.count, tint: nil)
-                    if store.focusOnCoordinator && store.coordinator != nil {
-                        Text("muted")
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Capsule().fill(Color.primary.opacity(0.06)))
-                            .foregroundStyle(.secondary)
-                            .help("You're only hearing from the coordinator")
-                    }
-                    if !waiting.isEmpty {
-                        Text("\(waiting.count) need\(waiting.count == 1 ? "s" : "") you")
-                            .font(.caption2.weight(.semibold))
-                            .padding(.horizontal, 6).padding(.vertical, 1)
-                            .background(Capsule().fill(Theme.waiting.opacity(0.18)))
-                            .foregroundStyle(Theme.waiting)
-                    }
-                }
-            }
-            // Background sessions that have exited: how their job went, and their conversation.
-            if !store.backgroundEnded.isEmpty {
-                Section {
-                    ForEach(store.backgroundEnded) { s in
-                        SessionRow(session: s).modifier(SelectableRow(id: s.id)).contextMenu { rowMenu(s) }
-                    }
-                } header: {
-                    SectionHeader(title: "Background", count: nil, tint: nil)
-                }
-            }
-            if !store.recent.isEmpty {
-                Section {
-                    ForEach(store.recent) { s in
-                        SessionRow(session: s).modifier(SelectableRow(id: s.id)).contextMenu { rowMenu(s) }
-                    }
-                } header: {
-                    SectionHeader(title: "Recent", count: nil, tint: nil)
-                }
-            }
-            if !store.routines.routines.isEmpty {
-                Section {
-                    ForEach(store.routines.routines) { r in
-                        RoutineSidebarRow(routine: r)
-                            .modifier(SelectableRow(id: "routine:" + r.id))
-                            .contextMenu {
-                                Button("Run Now") { store.routines.runNow(r) }
-                                Toggle("On", isOn: Binding(get: { r.enabled }, set: { store.routines.setEnabled(r, $0) }))
-                                Divider()
-                                Button("Manage Routines…") { store.showRoutines = true }
+                // The coordinator in its own section, set apart; it keeps its ⌘ number.
+                if let c = store.coordinator, let i = store.live.firstIndex(of: c) {
+                    Section {
+                        sessionRow(c, number: i + 1)
+                            .modifier(SelectableRow(id: c.id))
+                            .contextMenu { rowMenu(c) }
+                    } header: {
+                        HStack {
+                            SectionHeader(title: "Coordinator", count: nil, tint: nil)
+                            Spacer()
+                            let on = store.focusOnCoordinator
+                            Button { store.focusOnCoordinator.toggle() } label: {
+                                Label(on ? "Others Muted" : "Mute Others", systemImage: on ? "bell.slash.fill" : "bell.slash")
+                                    .font(.caption2.weight(.semibold))
+                                    .padding(.horizontal, 7).padding(.vertical, 2)
+                                    .background(Capsule().fill(on ? Theme.accent.opacity(0.18) : Color.primary.opacity(0.06)))
+                                    .foregroundStyle(on ? Theme.accent : .secondary)
                             }
+                            .buttonStyle(.deckBorderless)
+                            .help(store.focusOnCoordinator
+                                  ? "Only the coordinator counts as unread or makes a sound. Other sessions' prompts still show in the sidebar and Needs You. Click to hear from every session again."
+                                  : "Hear only from the coordinator: other sessions' replies stop counting as unread, and their prompts make no banner or sound")
+                        }
+                    }
+                }
+                // One fixed list: a session keeps its place and number (⌘1–9) whatever its status.
+                // Sessions waiting on you stay put and show Allow / Deny in place.
+                Section {
+                    if store.live.isEmpty {
+                        Text("No running sessions").foregroundStyle(.tertiary).font(.callout)
+                    }
+                    ForEach(Array(store.live.enumerated()).filter { $0.element.sessionId != store.coordinatorId }, id: \.element.id) { i, s in
+                        sessionRow(s, number: i + 1)
+                        .modifier(SelectableRow(id: s.id))
+                        .contextMenu { rowMenu(s) }
                     }
                 } header: {
-                    HStack {
-                        SectionHeader(title: "Routines", count: nil, tint: nil)
-                        Spacer()
-                        Button { store.showRoutines = true } label: { Image(systemName: "plus").font(.caption.weight(.semibold)) }
-                            .buttonStyle(.deckBorderless)
-                            .help("New or manage routines (⇧⌘R)")
+                    HStack(spacing: 6) {
+                        SectionHeader(title: "Running", count: store.live.count, tint: nil)
+                        if store.focusOnCoordinator && store.coordinator != nil {
+                            Text("muted")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .background(Capsule().fill(Color.primary.opacity(0.06)))
+                                .foregroundStyle(.secondary)
+                                .help("You're only hearing from the coordinator")
+                        }
+                        if !waiting.isEmpty {
+                            Text("\(waiting.count) need\(waiting.count == 1 ? "s" : "") you")
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 6).padding(.vertical, 1)
+                                .background(Capsule().fill(Theme.waiting.opacity(0.18)))
+                                .foregroundStyle(Theme.waiting)
+                        }
+                    }
+                }
+                // Background sessions that have exited: how their job went, and their conversation.
+                if !store.backgroundEnded.isEmpty {
+                    Section {
+                        ForEach(store.backgroundEnded) { s in
+                            SessionRow(session: s).modifier(SelectableRow(id: s.id)).contextMenu { rowMenu(s) }
+                        }
+                    } header: {
+                        SectionHeader(title: "Background", count: nil, tint: nil)
+                    }
+                }
+                if !store.recent.isEmpty {
+                    Section {
+                        ForEach(store.recent) { s in
+                            SessionRow(session: s).modifier(SelectableRow(id: s.id)).contextMenu { rowMenu(s) }
+                        }
+                    } header: {
+                        SectionHeader(title: "Recent", count: nil, tint: nil)
+                    }
+                }
+                if !store.routines.routines.isEmpty {
+                    Section {
+                        ForEach(store.routines.routines) { r in
+                            RoutineSidebarRow(routine: r)
+                                .modifier(SelectableRow(id: "routine:" + r.id))
+                                .contextMenu {
+                                    Button("Run Now") { store.routines.runNow(r) }
+                                    Toggle("On", isOn: Binding(get: { r.enabled }, set: { store.routines.setEnabled(r, $0) }))
+                                    Divider()
+                                    Button("Manage Routines…") { store.showRoutines = true }
+                                }
+                        }
+                    } header: {
+                        HStack {
+                            SectionHeader(title: "Routines", count: nil, tint: nil)
+                            Spacer()
+                            Button { store.showRoutines = true } label: { Image(systemName: "plus").font(.caption.weight(.semibold)) }
+                                .buttonStyle(.deckBorderless)
+                                .help("New or manage routines (⇧⌘R)")
+                        }
                     }
                 }
             }
+            .listStyle(.sidebar)
+            VStack(spacing: 8) {
+                if !store.hookInstalled {
+                    HookSetupCard { confirmHook = true }
+                }
+                UsageStrip { store.showUsage = true }
+            }
+            .padding(10)
         }
-        .listStyle(.sidebar)
         .modifier(ThemedSidebar())
         .toolbar {
             ToolbarItem {
@@ -206,15 +216,6 @@ struct ContentView: View {
         .sheet(item: Binding(get: { SnippetStore.shared.sheet }, set: { SnippetStore.shared.sheet = $0 })) { SnippetsSheet(target: $0) }
         .sheet(item: $store.viewing) { file in
             if FileLinks.kind(of: file.url) == .markdown { MarkdownEditor(url: file.url) } else { FileViewer(url: file.url) }
-        }
-        .safeAreaInset(edge: .bottom) {
-            VStack(spacing: 8) {
-                if !store.hookInstalled {
-                    HookSetupCard { confirmHook = true }
-                }
-                UsageStrip { store.showUsage = true }
-            }
-            .padding(10)
         }
         .confirmationDialog("Show what each permission prompt is asking?", isPresented: $confirmHook) {
             Button("Add Hook to ~/.claude/settings.json") { store.installHook() }
