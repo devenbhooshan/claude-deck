@@ -98,7 +98,8 @@ struct ApprovalButtons: View {
     }
 }
 
-/// A background session's prompt: it has no terminal, so Deck can't answer it in place.
+/// A background session's prompt: it has no terminal, so Deck can't answer it in place. Open
+/// attaches a window to it (`claude attach`); then Allow / Deny work through that window.
 struct BackgroundPromptActions: View {
     let session: Session
     var size: ControlSize = .small
@@ -106,10 +107,33 @@ struct BackgroundPromptActions: View {
     var compact = false
 
     var body: some View {
-        if !compact {
-            Label("Background session: no terminal to answer in", systemImage: "moon.stars")
+        if compact {
+            BackgroundOpenButton(session: session, label: "Open")
+                .buttonStyle(.deck(.secondary, size: size))
+        } else {
+            BackgroundOpenButton(session: session, label: "Open to answer")
+                .buttonStyle(.deck(.primary, size: size))
+            Text("Background session: no terminal to answer in until you open it")
                 .font(.caption).foregroundStyle(.secondary)
         }
+    }
+}
+
+/// Opens a running background session in a new Ghostty window (`claude attach <id>`).
+struct BackgroundOpenButton: View {
+    @Environment(SessionStore.self) private var store
+    let session: Session
+    var label = "Open"
+
+    var body: some View {
+        Button {
+            store.openBackground(session)
+        } label: {
+            Label(label, systemImage: "rectangle.portrait.and.arrow.forward")
+        }
+        .disabled(!session.isLive || session.jobId == nil)
+        .help(session.jobId.map { "Open a Ghostty window attached to it (claude attach \($0)); its prompts and messages then go through that window" }
+              ?? "Deck doesn't know this background session's job id yet")
     }
 }
 

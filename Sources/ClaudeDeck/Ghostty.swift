@@ -40,7 +40,7 @@ enum Ghostty {
             case .queueTaken: "Claude already picked that message up, or is showing a prompt. Nothing was removed."
             case .queuedImage: "Another queued message has an image, which Deck can't put back. Press ↑ in the terminal to edit the queue there."
             case .notPutBack: "That message was removed, but your other queued messages couldn't go back, so they're on the clipboard."
-            case .background: "This is a background session (claude --bg). It has no terminal, so nothing was typed or pressed."
+            case .background: "This is a background session (claude --bg), and Deck has no attached window for it that's ready, so nothing was typed or pressed. Click Open to attach one (or give a just-opened one a moment), then try again."
             }
         }
     }
@@ -64,6 +64,9 @@ enum Ghostty {
     /// Terminals Deck opened for a session, by session id: the way to tell apart two Claude
     /// sessions in the same folder before the new one has a title. Survives restarts.
     private static let opened = IdCache()
+    /// Windows Deck opened to attach a background session (`claude attach`), by session id. Never
+    /// picked for any other session, though they're Claude terminals in that session's folder.
+    private static let attachWindows = IdCache()
 
     /// Remembers that `terminalId` (from `newSession`) is running this session.
     static func adopt(_ terminalId: String, for sessionId: String) {
@@ -323,6 +326,24 @@ enum Ghostty {
         return try await openWindow(in: folder, typing: command)
     }
 
+    /// Opens a new Ghostty window in a background session's folder running `claude attach <id>`, and
+    /// makes it the one window that session is answered and typed in. Returns its id.
+    static func attach(_ session: Session) async throws -> String {
+        guard session.isBackground, let command = session.jobId.flatMap(BackgroundAgents.attachCommand) else {
+            throw Failure.invalidSession
+        }
+        let id = try await openWindow(in: session.cwd, typing: command)
+        adopt(id, for: session.sessionId)
+        attachWindows[session.sessionId] = id
+        return id
+    }
+
+    /// Whether the window Deck attached to this background session is still open.
+    static func attachWindowIsOpen(for sessionId: String) async -> Bool {
+        guard let id = attachWindows[sessionId], let all = try? await terminals() else { return false }
+        return all.contains { $0.id == id }
+    }
+
     /// The folder is passed as Ghostty's working directory (never through the shell); `command`
     /// is a fixed string we built, typed into the new shell.
     private static func openWindow(in folder: String, typing command: String) async throws -> String {
@@ -385,7 +406,8 @@ enum Ghostty {
         let key = cacheKey(session)
         if let id = cache[key] { return id }
         let found = TerminalMatch.find(for: session, in: try await terminals(),
-                                       claimed: cache.values(except: key), preferred: opened[session.sessionId])
+                                       claimed: cache.values(except: key).union(attachWindows.values(except: session.sessionId)),
+                                       preferred: opened[session.sessionId])
         guard let id = found?.id else { throw session.isBackground ? Failure.background : Failure.notFound }
         cache[key] = id
         return id

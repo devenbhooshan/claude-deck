@@ -97,10 +97,12 @@ struct Session: Identifiable, Equatable {
     var jobId: String? = nil
     /// Where its job stands (done, failed…), from `claude agents`, for a background session.
     var agentState: AgentState? = nil
+    /// A background session Deck opened a window for (`claude attach`): driven through that window only.
+    var attached = false
 
     var isLive: Bool { pid != nil }
     /// Whether Deck may drive it through a terminal (answer prompts, type, restart, end).
-    var canDrive: Bool { !isBackground }
+    var canDrive: Bool { !isBackground || attached }
     /// Where to open it on claude.ai or the Claude app; only a well-formed id becomes a link.
     var remoteURL: URL? {
         guard let remoteId, remoteId.range(of: #"^session_[A-Za-z0-9]+$"#, options: .regularExpression) != nil

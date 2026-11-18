@@ -40,6 +40,21 @@ enum BackgroundAgents {
     /// How often to list them: the command takes about a tenth of a second.
     static let pollInterval: TimeInterval = 5
 
+    /// Only a plain job id is ever typed into a shell or passed to `claude`.
+    static func isJobId(_ id: String) -> Bool {
+        id.range(of: #"^[A-Za-z0-9_-]{1,64}$"#, options: .regularExpression) != nil
+    }
+
+    /// Typed into a new terminal in the session's folder: attaches it there, so its prompts can be
+    /// answered and messages typed (through that window only).
+    static func attachCommand(_ jobId: String) -> String? { isJobId(jobId) ? "claude attach \(jobId)" : nil }
+
+    /// `claude stop <id>`: stops the job, keeping its conversation.
+    static func stopArguments(_ jobId: String) -> [String]? { isJobId(jobId) ? ["stop", jobId] : nil }
+
+    /// `claude rm <id>`: takes it off the list (and deletes its worktree, if it's safe to).
+    static func removeArguments(_ jobId: String) -> [String]? { isJobId(jobId) ? ["rm", jobId] : nil }
+
     /// The command's output, or nil when it isn't the JSON list (an old Claude Code, an error).
     static func parse(_ output: String) -> [AgentEntry]? {
         guard let start = output.firstIndex(of: "[") else { return nil }
@@ -50,16 +65,20 @@ enum BackgroundAgents {
     /// state; a session it calls background is one, whatever its record says), and the background
     /// sessions that have exited, as ended sessions whose transcript can be read (with the title
     /// cache's updates for those transcripts).
-    static func merge(live: [Session], agents: [AgentEntry], cache: [String: TitleInfo])
+    /// `attached`: background sessions Deck has opened a window for (`claude attach`), which can then
+    /// be driven through that window.
+    static func merge(live: [Session], agents: [AgentEntry], cache: [String: TitleInfo], attached: Set<String> = [])
         -> (live: [Session], exited: [Session], updates: [String: TitleInfo]) {
         let background = agents.filter(\.isBackground)
         let byId = Dictionary(background.compactMap { a in a.sessionId.map { ($0, a) } }, uniquingKeysWith: { a, _ in a })
         let merged = live.map { s -> Session in
-            guard let a = byId[s.sessionId] else { return s }
             var s = s
-            s.isBackground = true
-            s.jobId = a.id ?? s.jobId
-            s.agentState = a.agentState
+            if let a = byId[s.sessionId] {
+                s.isBackground = true
+                s.jobId = a.id ?? s.jobId
+                s.agentState = a.agentState
+            }
+            s.attached = s.isBackground && attached.contains(s.sessionId)
             return s
         }
         let liveIds = Set(live.map(\.sessionId))

@@ -42,10 +42,39 @@ func backgroundAgentTests() {
         let only = [GhosttyTerminal(id: "T1", name: "✳ bg-job", workingDirectory: "/p/app")]
         // The interactive session's terminal: same folder, and even the session's own name in the title.
         expect(TerminalMatch.find(for: bgSession("bg"), in: only) == nil)
-        expect(TerminalMatch.find(for: bgSession("bg"), in: only, preferred: "T1") == nil)
+        expect(TerminalMatch.find(for: bgSession("bg"), in: only, preferred: "gone") == nil)
         var tty = bgSession("tty", status: .idle)
         tty.isBackground = false
         expectEqual(TerminalMatch.find(for: tty, in: only)?.id, "T1")
+    }
+
+    test("once opened (claude attach), only that window drives it") {
+        let terms = [GhosttyTerminal(id: "T1", name: "✳ other", workingDirectory: "/p/app"),
+                     GhosttyTerminal(id: "W", name: "✳ bg-job", workingDirectory: "/p/app"),
+                     GhosttyTerminal(id: "X", name: "✳ bg-job", workingDirectory: "/p/elsewhere")]
+        var bg = bgSession("bg")
+        bg.attached = true
+        expect(bg.canDrive)
+        expect(PromptGuard.canAnswerHere(bg), "answered through its window, like any session")
+        expectEqual(TerminalMatch.find(for: bg, in: terms, preferred: "W")?.id, "W")
+        // Never by title or by being alone in the folder, and not a window that left the folder.
+        expect(TerminalMatch.find(for: bg, in: terms) == nil)
+        expect(TerminalMatch.find(for: bg, in: [terms[1]]) == nil)
+        expect(TerminalMatch.find(for: bg, in: terms, preferred: "X") == nil)
+        // The window closed (or isn't Claude any more): nothing.
+        expect(TerminalMatch.find(for: bg, in: [GhosttyTerminal(id: "W", name: "zsh", workingDirectory: "/p/app")], preferred: "W") == nil)
+    }
+
+    test("open, stop and remove take only a plain job id") {
+        expectEqual(BackgroundAgents.attachCommand("a1b2c3"), "claude attach a1b2c3")
+        expectEqual(BackgroundAgents.stopArguments("a1b2c3"), ["stop", "a1b2c3"])
+        expectEqual(BackgroundAgents.removeArguments("job_9-x"), ["rm", "job_9-x"])
+        for bad in ["", "a b", "a;rm -rf ~", "$(x)", String(repeating: "a", count: 65), "a\nb"] {
+            expect(BackgroundAgents.attachCommand(bad) == nil, bad)
+            expect(BackgroundAgents.stopArguments(bad) == nil, bad)
+            expect(BackgroundAgents.removeArguments(bad) == nil, bad)
+        }
+        expect(BackgroundAgents.isJobId("-rf"), "passed as its own argument, never through a shell, so a dash is harmless")
     }
 
     test("claude agents --json --all: parsed, and anything else is nil") {
@@ -126,6 +155,11 @@ func backgroundAgentTests() {
         expectEqual(gone.updatedAt, Date(timeIntervalSince1970: 5))
         expectEqual(gone.agentState, .failed)
         // No job id in the list: the record's is kept.
+        // Opened from Deck: drivable through that window, while it runs.
+        let opened = BackgroundAgents.merge(live: live, agents: agents, cache: [:], attached: ["live-bg", "tty"]).live
+        expect(opened[1].attached && opened[1].canDrive)
+        expect(!opened[0].attached, "only a background session is attached")
+        expect(!opened[2].attached)
         let kept = BackgroundAgents.merge(live: [bgSession("r", jobId: "rec")], agents: [AgentEntry(cwd: "/p/app", kind: "background", pid: 1, sessionId: "r")], cache: [:])
         expectEqual(kept.live[0].jobId, "rec")
         // A started time unknown and no transcript: last in the list.

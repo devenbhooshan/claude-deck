@@ -411,17 +411,33 @@ private struct PendingCard: View {
 
 }
 
-/// In place of the message box for a background session: it has no terminal to type into.
+/// In place of the message box for a background session: it has no terminal to type into until
+/// you open it (`claude attach`). Stop and Remove run `claude stop` / `claude rm`.
 private struct BackgroundBar: View {
+    @Environment(SessionStore.self) private var store
     let session: Session
 
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "moon.stars").foregroundStyle(.secondary)
-            Text(session.isLive ? "Background session: it runs without a terminal, so Deck can't type into it."
-                 : "This background session has ended. Its conversation is read-only.")
+            Text(session.isLive ? "Background session: open it to answer its prompts or type to it."
+                 : "This background session has exited\(session.agentState.map { " (\($0.label.lowercased()))" } ?? ""). Its conversation is read-only.")
                 .foregroundStyle(.secondary)
+                .lineLimit(2)
             Spacer()
+            let busy = store.backgroundBusy.contains(session.sessionId)
+            Button("Remove…") { store.removeTarget = session }
+                .buttonStyle(.deck(.secondary))
+                .disabled(session.jobId == nil || busy)
+                .help("Take it off the list (claude rm); asks first")
+            if session.isLive {
+                Button("Stop") { store.stopBackground(session) }
+                    .buttonStyle(.deck(.secondary))
+                    .disabled(session.jobId == nil || busy)
+                    .help("Stop it (claude stop); its conversation is kept")
+                BackgroundOpenButton(session: session)
+                    .buttonStyle(.deck(.primary))
+            }
         }
         .padding(.horizontal, 20).padding(.vertical, 12)
         .background(.bar)

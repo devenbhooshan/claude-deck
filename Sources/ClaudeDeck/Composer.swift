@@ -34,11 +34,20 @@ struct Composer: View {
                 FooterLabel(title: "Open Terminal", systemImage: "apple.terminal")
             }
             .help("Jump to this session's Ghostty terminal (⇧⌘T)")
-            Button { store.requestEnd(session) } label: {
-                FooterLabel(title: "End Session", systemImage: "stop.circle")
+            // A background session (typed into through the window Deck attached) is stopped, not ended.
+            if session.isBackground {
+                Button { store.stopBackground(session) } label: {
+                    FooterLabel(title: "Stop", systemImage: "stop.circle")
+                }
+                .disabled(store.backgroundBusy.contains(session.sessionId))
+                .help("Stop this background session (claude stop); its conversation is kept")
+            } else {
+                Button { store.requestEnd(session) } label: {
+                    FooterLabel(title: "End Session", systemImage: "stop.circle")
+                }
+                .disabled(store.ending.contains(session.sessionId))
+                .help("Quit Claude and close its terminal; you can resume it later (⇧⌘E)")
             }
-            .disabled(store.ending.contains(session.sessionId))
-            .help("Quit Claude and close its terminal; you can resume it later (⇧⌘E)")
         }
         // Switching sessions (click, ⌘K, ⌘1–9, ⌥⌘↑/↓) lands you in the message box.
         .onChange(of: store.selectedId) { refocus += 1 }

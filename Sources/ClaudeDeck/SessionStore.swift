@@ -123,7 +123,12 @@ final class SessionStore {
     /// Types a message into another session as you, as its own message box would.
     func send(_ text: String, attachments: [Attachment] = [], to target: Session) async throws {
         let message = AttachmentStore.message(text, files: attachments.filter { !$0.isImage })
-        try await Ghostty.send(text: message, images: attachments.filter(\.isImage).map(\.url), to: target)
+        do {
+            try await Ghostty.send(text: message, images: attachments.filter(\.isImage).map(\.url), to: target)
+        } catch {
+            noteDetached(target, error)
+            throw error
+        }
         comms.record(CommsMessage(from: "You", to: target.displayTitle, summary: nil, text: message, at: Date()))
         if let h = editing, SessionAddress.token(h.target) == SessionAddress.token(target.displayTitle) {
             sentHandoffs.insert(h.key)
@@ -470,6 +475,7 @@ final class SessionStore {
             do {
                 try await Ghostty.press(key: key, on: s, expectedSince: since)
             } catch {
+                noteDetached(s, error)
                 answered[s.id] = nil
                 lastError = error.localizedDescription
             }
@@ -621,7 +627,7 @@ final class SessionStore {
         }
     }
 
-    static let backgroundRefusal = "This is a background session (claude --bg). It has no terminal, so Deck can't do that here."
+    static let backgroundRefusal = "This is a background session (claude --bg). It has no terminal, so Deck can't do that here. Click Open to attach a window to it first."
 
     /// A background session has no terminal: says so instead of acting. True when refused.
     private func refuseBackground(_ s: Session) -> Bool {
@@ -691,7 +697,7 @@ final class SessionStore {
     func openTerminal(_ s: Session) {
         guard !refuseBackground(s) else { return }
         Task {
-            do { try await Ghostty.focus(s) } catch { lastError = error.localizedDescription }
+            do { try await Ghostty.focus(s) } catch { noteDetached(s, error); lastError = error.localizedDescription }
         }
     }
 
@@ -801,10 +807,10 @@ final class SessionStore {
         let scanRecent = Date().timeIntervalSince(lastRecentScan) > 20
         if scanRecent { lastRecentScan = Date() }
         let cache = titleCache
-        let agents = agents
+        let agents = agents, attached = attached
         Task.detached(priority: .utility) {
             let (loaded, liveUpdates) = SessionLoader.loadLive(cache: cache)
-            let (live, exited, exitedUpdates) = BackgroundAgents.merge(live: loaded, agents: agents, cache: cache)
+            let (live, exited, exitedUpdates) = BackgroundAgents.merge(live: loaded, agents: agents, cache: cache, attached: attached)
             let recent = scanRecent ? SessionLoader.loadRecent(excluding: Set(live.map(\.sessionId)), cache: cache) : nil
             await MainActor.run {
                 self.apply(live: live, recent: recent, exited: exited, cacheUpdates: liveUpdates.merging(exitedUpdates) { a, _ in a })
@@ -816,6 +822,74 @@ final class SessionStore {
 
     /// The last `claude agents --json --all`: every session, background ones with their job state.
     private var agents: [AgentEntry] = []
+    /// Background sessions Deck opened a window for (`claude attach`): driven through that window.
+    private var attached: Set<String> = []
+    /// The background session whose Remove is being confirmed.
+    var removeTarget: Session?
+    /// Background sessions being stopped or removed, by id.
+    private(set) var backgroundBusy: Set<String> = []
+
+    /// Opens a new Ghostty window in the session's folder running `claude attach <id>`. Once it's
+    /// attached, its prompts are answered and messages typed through that window, and only that one.
+    func openBackground(_ s: Session) {
+        guard s.isBackground, s.isLive, let job = s.jobId, BackgroundAgents.isJobId(job) else {
+            lastError = "This background session isn't running, so there's nothing to open."
+            return
+        }
+        Task {
+            // Already open: bring that window forward rather than attach a second one.
+            if attached.contains(s.sessionId), (try? await Ghostty.focus(s)) != nil { return }
+            do {
+                _ = try await Ghostty.attach(s)
+                attached.insert(s.sessionId)
+                refresh()
+                HUD.show("Opening \(s.displayTitle)", detail: "claude attach \(job)", symbol: "rectangle.portrait.and.arrow.forward",
+                         tint: Theme.accent)
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    /// `claude stop <id>`: stops the job; its conversation is kept.
+    func stopBackground(_ s: Session) {
+        runBackground(s, BackgroundAgents.stopArguments, done: "Stopped", symbol: "stop.circle.fill", tint: Theme.danger)
+    }
+
+    /// `claude rm <id>`: takes it off the list (Claude Code refuses if that would lose work, and says why).
+    func removeBackground(_ s: Session) {
+        runBackground(s, BackgroundAgents.removeArguments, done: "Removed", symbol: "trash.fill", tint: Theme.accent)
+    }
+
+    private func runBackground(_ s: Session, _ arguments: (String) -> [String]?, done: String, symbol: String, tint: Color) {
+        guard let job = s.jobId, let args = arguments(job), !backgroundBusy.contains(s.sessionId) else { return }
+        backgroundBusy.insert(s.sessionId)
+        let folder = s.cwd
+        Task.detached(priority: .userInitiated) {
+            let result = ClaudeRunner.runWithStatus(args, in: folder)
+            await MainActor.run {
+                self.backgroundBusy.remove(s.sessionId)
+                if result.status == 0 {
+                    HUD.show(done, detail: s.displayTitle, symbol: symbol, tint: tint)
+                } else {
+                    let said = Safety.stripANSI(result.output).trimmingCharacters(in: .whitespacesAndNewlines)
+                    self.lastError = "claude \(args.joined(separator: " ")) didn't work" + (said.isEmpty ? "." : ":\n\n\(said)")
+                }
+                self.listAgents()
+            }
+        }
+    }
+
+    /// An attached background session's window has gone (closed, not just still starting `claude attach`):
+    /// it can't be driven until it's opened again.
+    private func noteDetached(_ s: Session, _ error: Error) {
+        guard s.isBackground, attached.contains(s.sessionId), case Ghostty.Failure.background = error else { return }
+        Task {
+            guard await !Ghostty.attachWindowIsOpen(for: s.sessionId) else { return }
+            attached.remove(s.sessionId)
+            refresh()
+        }
+    }
     private var listingAgents = false
     private var agentTimer: Timer?
 
