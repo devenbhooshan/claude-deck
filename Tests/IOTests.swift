@@ -283,6 +283,22 @@ func attachmentTests() {
         AttachmentStore.dir = box.write("a-file", "x").appendingPathComponent("sub")
         expect(AttachmentStore.from(fileURL: csv) == nil, "unwritable cache")
     }
+    test("long text: over the limit it becomes a .txt attachment, so the message box never holds it") {
+        let box = Sandbox(); defer { box.cleanup() }
+        let saved = AttachmentStore.dir; defer { AttachmentStore.dir = saved }
+        AttachmentStore.dir = box.root.appendingPathComponent("cache")
+        expect(!AttachmentStore.isLong(String(repeating: "a", count: AttachmentStore.longTextLimit)))
+        let long = String(repeating: "line of a pasted log\n", count: 5_000)
+        expect(AttachmentStore.isLong(long))
+        let when = Date(timeIntervalSince1970: 1_800_000_000)
+        let a = AttachmentStore.from(longText: long, now: when)!
+        expect(!a.isImage)
+        expect(a.name.hasPrefix("long-text-") && a.name.hasSuffix(".txt"), a.name)
+        expectEqual(try String(contentsOf: a.url, encoding: .utf8), long)
+        expect(a.url.path.hasPrefix(AttachmentStore.dir.path))
+        AttachmentStore.dir = box.write("not-a-folder", "x").appendingPathComponent("sub")
+        expect(AttachmentStore.from(longText: long) == nil, "unwritable cache")
+    }
     test("drops: a dragged file's path typed into the text becomes an attachment") {
         let shot = URL(fileURLWithPath: "/tmp/Screenshot 1.png"), doc = URL(fileURLWithPath: "/tmp/a.pdf")
         let one = AttachmentStore.droppedFiles(old: "look at ", new: "look at /tmp/Screenshot 1.png", dragged: [shot])

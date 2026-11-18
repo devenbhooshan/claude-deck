@@ -82,6 +82,24 @@ enum AttachmentStore {
         return Attachment(url: dest, thumbnail: nil)
     }
 
+    /// Text longer than this is attached as a file rather than kept in the message box: a box
+    /// holding tens of thousands of characters lays all of it out again on every update, and an
+    /// 86,000-character draft froze Deck whenever its session was opened.
+    static let longTextLimit = 20_000
+    static func isLong(_ text: String) -> Bool { text.utf16.count > longTextLimit }
+
+    /// Long text saved as a .txt file to attach (Claude reads it like any attached file).
+    static func from(longText text: String, now: Date = Date()) -> Attachment? {
+        let stamp = DateFormatter()
+        stamp.locale = Locale(identifier: "en_US_POSIX")
+        stamp.dateFormat = "yyyy-MM-dd-HHmmss"
+        let folder = dir.appendingPathComponent(UUID().uuidString)
+        let dest = folder.appendingPathComponent("long-text-\(stamp.string(from: now)).txt")
+        guard (try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)) != nil,
+              (try? text.write(to: dest, atomically: true, encoding: .utf8)) != nil else { return nil }
+        return Attachment(url: dest, thumbnail: nil)
+    }
+
     /// The message typed into Claude: your text, then one line per attached (non-image) file.
     static func message(_ text: String, files: [Attachment]) -> String {
         let lines = files.map { "Attached file: \($0.url.path)" }.joined(separator: "\n")

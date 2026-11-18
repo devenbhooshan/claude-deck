@@ -241,14 +241,17 @@ struct MessageBox<Footer: View>: View {
         }
         .onAppear {
             let saved = Drafts.draft(for: draftKey)
-            draft = saved.text
             attachments = saved.files.compactMap(AttachmentStore.restore)
+            // A long draft (from before this limit existed) goes in as a file, never into the box.
+            if !attachLongText(saved.text) { draft = saved.text }
             if autofocus { focusSoon() }
             installKeyMonitor()
         }
         .onChange(of: refocus) { focusSoon() }
         .onChange(of: draft) { before, after in
             menuIndex = 0
+            // Pasted or typed past the limit: the text becomes an attached file, like a chat app.
+            if attachLongText(after) { return }
             // Dropping a file on the text types its path: attach the file instead. (Never while
             // typing or pasting, which are key presses.)
             if NSApp.currentEvent?.type != .keyDown,
@@ -346,6 +349,19 @@ struct MessageBox<Footer: View>: View {
         guard !rescued.attached.isEmpty else { return false }
         attachments += rescued.attached
         draft = rescued.text
+        return true
+    }
+
+    /// Moves text over `AttachmentStore.longTextLimit` out of the box into an attached .txt file,
+    /// so the box never holds (and re-lays out) tens of thousands of characters. False if it's
+    /// short, or if the file couldn't be saved (then the text stays where it was).
+    private func attachLongText(_ text: String) -> Bool {
+        guard AttachmentStore.isLong(text), let file = AttachmentStore.from(longText: text) else { return false }
+        attachments.append(file)
+        draft = ""
+        // Saved now too: when it came from the saved draft, `draft` was already empty and wouldn't change.
+        Drafts.update(draftKey) { $0.text = ""; $0.files = attachments.map(\.url.path) }
+        show("Long text (\(text.count.formatted()) characters) attached as a file, sent with your message")
         return true
     }
 
@@ -501,7 +517,7 @@ private struct Thumbnail: View {
 
     var body: some View {
         preview
-            .frame(width: 64, height: 64)
+            .frame(width: attachment.isImage ? 64 : 200, height: 64)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).strokeBorder(.separator))
             .overlay(alignment: .topTrailing) {
@@ -517,28 +533,39 @@ private struct Thumbnail: View {
                 .opacity(hovering ? 1 : 0.85)
             }
             .onHover { hovering = $0 }
-            .help(attachment.name)
+            .help(attachment.isImage ? attachment.name : "\(attachment.name): click to open")
     }
 
     @ViewBuilder private var preview: some View {
         if let image = attachment.thumbnail {
             Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
         } else {
-            // A file: its Finder icon and name.
-            VStack(spacing: 3) {
+            // A file: its icon, name and size, like a chat app's file chip. Click to open it.
+            HStack(spacing: 8) {
                 Image(nsImage: NSWorkspace.shared.icon(forFile: attachment.url.path))
-                    .resizable().frame(width: 30, height: 30)
-                Text(attachment.name)
-                    .font(.system(size: 9))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .truncationMode(.middle)
-                    .multilineTextAlignment(.center)
+                    .resizable().frame(width: 32, height: 32)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(attachment.name)
+                        .font(.caption.weight(.medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    if let size {
+                        Text(size).font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
+                Spacer(minLength: 0)
             }
-            .padding(.horizontal, 4)
+            .padding(.leading, 10).padding(.trailing, 22)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .onTapGesture { NSWorkspace.shared.open(attachment.url) }
             .background(Color.primary.opacity(0.04))
         }
+    }
+
+    private var size: String? {
+        guard let bytes = (try? attachment.url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize else { return nil }
+        return ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file)
     }
 }
 
