@@ -13,17 +13,23 @@ struct Composer: View {
 
     @State private var draft = ""
     @State private var refocus = 0
+    private var snippets: SnippetStore { .shared }
 
     /// Typing while a dialog is open would land in the dialog, and Return would pick an option.
     private var promptOpen: Bool { session.status == .waiting }
 
     var body: some View {
         MessageBox(draft: $draft, attachments: $attachments, draftKey: session.sessionId, placeholder: placeholder,
-                   canSend: !promptOpen || routed != nil, commands: toolbox.commands, mentions: mentions,
+                   canSend: !promptOpen || routed != nil,
+                   commands: snippets.library.commands(for: session.sessionId) + toolbox.commands, mentions: mentions,
                    routedTo: routed?.displayTitle,
                    hint: "↩ send · ⇧↩ or ⌘↩ new line · / commands · @session to send elsewhere · paste or drop files",
                    sendHelp: routed.map { "Send to \($0.displayTitle) (↩)" } ?? (promptOpen ? "Answer the prompt first" : "Send (↩)"),
-                   refocus: refocus, onSend: send) {
+                   refocus: refocus, takesMenuCommands: true,
+                   standing: snippets.library.standing(for: session.sessionId).map(\.name),
+                   onStandingTap: { snippets.open(for: session) },
+                   onAction: { if $0 == Snippets.manageCommand { snippets.open(for: session) } },
+                   onSend: send) {
             Button { store.openTerminal(session) } label: {
                 FooterLabel(title: "Open Terminal", systemImage: "apple.terminal")
             }
@@ -95,8 +101,10 @@ struct Composer: View {
             return
         }
         // Images are pasted as attachments; other files are named by path for Claude to read.
+        // Snippets set to go with every message come first (shown by the chip over the box).
         let images = staged.filter(\.isImage)
-        let message = AttachmentStore.message(text, files: staged.filter { !$0.isImage })
+        let message = AttachmentStore.message(snippets.library.prepend(text, for: session.sessionId),
+                                              files: staged.filter { !$0.isImage })
         // Show the message immediately; the terminal round trip happens in the background.
         let thumbs = images.compactMap { (try? Data(contentsOf: $0.url)).flatMap { TranscriptParser.thumbnail($0) } }
         let outgoingId = model.addOutgoing(text: message, images: thumbs, whileBusy: session.status == .busy)
@@ -143,6 +151,13 @@ struct MessageBox<Footer: View>: View {
     var refocus = 0
     /// Takes the cursor when it appears (off where several boxes share a screen).
     var autofocus = true
+    /// Answers menu commands (Attach Latest Screenshot) even when the cursor is elsewhere.
+    var takesMenuCommands = false
+    /// Names of the snippets put before every message, shown as a chip over the box.
+    var standing: [String] = []
+    var onStandingTap: () -> Void = {}
+    /// Runs a "/" menu row of kind `.action` (Manage snippets…).
+    var onAction: (SlashCommand) -> Void = { _ in }
     let onSend: () -> Void
     @ViewBuilder var footer: () -> Footer
 
@@ -150,6 +165,8 @@ struct MessageBox<Footer: View>: View {
     @State private var menuIndex = 0
     /// Esc closes the menu for the text typed so far; typing more reopens it.
     @State private var menuDismissedFor: String?
+    /// A short note shown above the box ("No screenshots in ~/Desktop"), cleared after a moment.
+    @State private var notice: String?
     @FocusState private var focused: Bool
 
     /// Commands matching what's typed after "/", or none when the menu shouldn't show.
@@ -177,6 +194,19 @@ struct MessageBox<Footer: View>: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
                     .help("A message starting with @\(SessionAddress.token(routedTo)) is typed into that session as you")
+            }
+            if !standing.isEmpty {
+                StandingSnippetsChip(names: standing, open: onStandingTap)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 8)
+            }
+            if let notice {
+                Label(notice, systemImage: "camera.viewfinder")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 12)
+                    .transition(.opacity)
             }
             inputBox
         }
@@ -219,11 +249,17 @@ struct MessageBox<Footer: View>: View {
                 draft = drop.text
                 return
             }
+            // A screenshot's temporary path dropped or pasted from the menu: copy the file now,
+            // before macOS deletes it.
+            if NSApp.currentEvent?.type != .keyDown, rescueScreenshots() { return }
             Drafts.update(draftKey) { $0.text = draft }
         }
         .onChange(of: attachments) { Drafts.update(draftKey) { $0.files = attachments.map(\.url.path) } }
         .onDisappear {
             if let m = keyMonitor { NSEvent.removeMonitor(m) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .attachLatestScreenshot)) { _ in
+            if focused || takesMenuCommands { attachLatestScreenshot() }
         }
     }
 
@@ -251,7 +287,7 @@ struct MessageBox<Footer: View>: View {
                 }
                 .buttonStyle(.deckPlain)
                 .foregroundStyle(.secondary)
-                .help("Attach images or files (you can also paste or drop them)")
+                .help("Attach images or files (you can also paste or drop them; ⌥⌘V attaches your latest screenshot)")
 
                 TextField(placeholder, text: $draft, axis: .vertical)
                     .textFieldStyle(.plain)
@@ -289,7 +325,37 @@ struct MessageBox<Footer: View>: View {
 
     private func send() {
         guard sendable else { return }
+        _ = rescueScreenshots()
         onSend()
+    }
+
+    /// Copies screenshots whose temporary paths are in the text into Deck's cache and attaches
+    /// them instead (macOS deletes those files when the thumbnail closes). True if any were.
+    private func rescueScreenshots() -> Bool {
+        guard draft.contains(Screenshots.tempMarker) else { return false }
+        let rescued = Screenshots.rescue(draft, attach: AttachmentStore.from(fileURL:))
+        guard !rescued.attached.isEmpty else { return false }
+        attachments += rescued.attached
+        draft = rescued.text
+        return true
+    }
+
+    /// ⌥⌘V: the newest image in the screenshot folder (Screenshot.app's "Save to").
+    private func attachLatestScreenshot() {
+        let folder = Screenshots.folder()
+        guard let latest = Screenshots.latest(in: folder) else {
+            return show("No screenshots in \(Theme.shortPath(folder.path))")
+        }
+        guard let a = AttachmentStore.from(fileURL: latest) else { return show("Couldn't attach \(latest.lastPathComponent)") }
+        attachments.append(a)
+        focusSoon()
+    }
+
+    private func show(_ text: String) {
+        withAnimation { notice = text }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            if notice == text { withAnimation { notice = nil } }
+        }
     }
 
     /// Handles keys before the text field sees them (it would otherwise swallow Esc and the arrows):
@@ -314,8 +380,23 @@ struct MessageBox<Footer: View>: View {
                 NSApp.sendAction(#selector(NSResponder.insertNewlineIgnoringFieldEditor(_:)), to: nil, from: nil)
                 return nil
             }
+            if mods == [.command, .option], event.charactersIgnoringModifiers == "v" {
+                attachLatestScreenshot()
+                return nil
+            }
             if mods == .command, event.charactersIgnoringModifiers == "v" {
                 let pb = NSPasteboard.general
+                // A copied screenshot path: attach a copy of the file, paste the rest as text.
+                if let text = pb.string(forType: .string), text.contains(Screenshots.tempMarker) {
+                    let rescued = Screenshots.rescue(text, attach: AttachmentStore.from(fileURL:))
+                    if !rescued.attached.isEmpty {
+                        attachments += rescued.attached
+                        if !rescued.text.isEmpty, let editor = NSApp.keyWindow?.firstResponder as? NSTextView {
+                            editor.insertText(rescued.text, replacementRange: editor.selectedRange())
+                        }
+                        return nil
+                    }
+                }
                 guard AttachmentStore.shouldAttach(from: pb) else { return event }
                 let found = AttachmentStore.from(pasteboard: pb)
                 guard !found.isEmpty else { return event }
@@ -327,7 +408,13 @@ struct MessageBox<Footer: View>: View {
     }
 
     private func accept(_ command: SlashCommand) {
-        draft = command.command + " "
+        switch command.kind {
+        case .snippet: draft = command.insert ?? ""   // only "/s name" was typed: the snippet replaces it
+        case .action:
+            draft = ""
+            onAction(command)
+        default: draft = command.command + " "
+        }
         menuDismissedFor = nil
         focusSoon()
     }
@@ -344,6 +431,11 @@ struct MessageBox<Footer: View>: View {
             }
         }
     }
+}
+
+extension Notification.Name {
+    /// The Attach Latest Screenshot menu command, for the message box that's showing.
+    static let attachLatestScreenshot = Notification.Name("ClaudeDeck.attachLatestScreenshot")
 }
 
 /// Drop images or files anywhere on the conversation to attach them.
@@ -464,9 +556,8 @@ struct SlashMenu: View {
                                     .foregroundStyle(.secondary)
                                     .lineLimit(1)
                                 Spacer(minLength: 6)
-                                if item.kind != .send {
-                                    Label(item.kind == .terminal ? "opens in terminal" : "in Deck",
-                                          systemImage: item.kind == .terminal ? "apple.terminal" : "macwindow")
+                                if let (label, symbol) = Self.badge(item.kind) {
+                                    Label(label, systemImage: symbol)
                                         .font(.caption2)
                                         .foregroundStyle(Theme.accent)
                                 }
@@ -494,6 +585,17 @@ struct SlashMenu: View {
         .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(.regularMaterial)
             .shadow(color: .black.opacity(0.15), radius: 14, y: 4))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).strokeBorder(Color.primary.opacity(0.1)))
+    }
+
+    /// What choosing a row does, when it isn't just typing the command.
+    static func badge(_ kind: SlashCommand.Kind) -> (String, String)? {
+        switch kind {
+        case .send: nil
+        case .terminal: ("opens in terminal", "apple.terminal")
+        case .deck: ("in Deck", "macwindow")
+        case .snippet: ("inserts text", "text.quote")
+        case .action: ("opens", "macwindow")
+        }
     }
 }
 
