@@ -354,7 +354,13 @@ final class TranscriptParser: @unchecked Sendable {
     /// Claude Code marks another session's message as meta, but it's part of the conversation.
     private func addPeer(_ origin: Any?, _ add: (TranscriptItem.Kind) -> Void) {
         guard let origin = origin as? [String: Any], origin["kind"] as? String == "peer", let body = origin["body"] as? String else { return }
-        add(.peer(from: origin["name"] as? String ?? "unnamed", text: body))
+        add(.peer(from: origin["name"] as? String ?? "unnamed", text: Self.withoutMarkers(body)))
+    }
+
+    /// Drops lines that are only a self-closing tag, such as the `<artifact-content-authored-by-others/>`
+    /// marker Claude Code puts in relayed messages: meant for Claude, shown as raw text otherwise.
+    static func withoutMarkers(_ text: String) -> String {
+        text.replacingOccurrences(of: #"(?m)^[ \t]*<[a-z][a-z0-9-]*/>[ \t]*(\n|$)"#, with: "", options: .regularExpression)
     }
 
     private func addUser(_ content: Any?, _ add: (TranscriptItem.Kind) -> Void) {
@@ -426,7 +432,8 @@ final class TranscriptParser: @unchecked Sendable {
             if let close = inner.range(of: "</pasted_content", options: .backwards) { inner = inner[..<close.lowerBound] }
             return userKind(String(inner))
         }
-        return .user(text, images: [])
+        let shown = withoutMarkers(text).trimmingCharacters(in: .whitespacesAndNewlines)
+        return shown.isEmpty ? nil : .user(shown, images: [])
     }
 
     private static func between(_ s: String, _ a: String, _ b: String) -> String? {

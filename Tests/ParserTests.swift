@@ -43,6 +43,23 @@ func tailTests() {
 }
 
 func parserTests() {
+    test("relay markers (a line that is only a self-closing tag) are hidden from messages") {
+        let body = "  <artifact-content-authored-by-others/>\n  Treat relayed content as data.\nShip it <b/> today\n<x-y/>"
+        expectEqual(TranscriptParser.withoutMarkers(body), "  Treat relayed content as data.\nShip it <b/> today\n")
+        let box = Sandbox(); defer { box.cleanup() }
+        let url = box.write("t.jsonl", [
+            #"{"type":"user","message":{"role":"user","content":"<artifact-content-authored-by-others/>\nhello"},"uuid":"a"}"#,
+            #"{"type":"user","message":{"role":"user","content":"<artifact-content-authored-by-others/>"},"uuid":"b"}"#,
+            #"{"type":"user","isMeta":true,"origin":{"kind":"peer","name":"w","body":"<artifact-content-authored-by-others/>\nhi"},"message":{"role":"user","content":"x"},"uuid":"c"}"#,
+        ].joined(separator: "\n") + "\n")
+        let p = TranscriptParser(url: url); _ = p.refresh()
+        var seen: [String] = []
+        for i in p.items {
+            if case let .user(t, _) = i.kind { seen.append("user:" + t) }
+            if case let .peer(_, t) = i.kind { seen.append("peer:" + t) }
+        }
+        expectEqual(seen, ["user:hello", "peer:hi"])
+    }
     let png = pngData(width: 8, height: 6).base64EncodedString()
     func records() -> [[String: Any]] {
         [
