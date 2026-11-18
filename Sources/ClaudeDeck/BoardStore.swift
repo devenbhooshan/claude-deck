@@ -18,6 +18,8 @@ final class BoardStore {
 
     func pending(_ task: TaskItem) -> BoardEdit? { state.pending(task) }
     func isSnoozed(_ task: TaskItem) -> Bool { state.isSnoozed(task, now: now) }
+    func visible(_ board: TaskBoard) -> [TaskItem] { state.visible(board, now: now) }
+    func needsYou(_ board: TaskBoard) -> Int { state.needsYou(board, now: now) }
 
     func record(_ edit: BoardEdit, coordinator: String) {
         use(coordinator)

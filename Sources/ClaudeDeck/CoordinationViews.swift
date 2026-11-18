@@ -341,7 +341,7 @@ struct TaskBoardPanel: View {
 
     private func list(_ board: TaskBoard) -> some View {
         // Snoozed tasks stay out of sight here (the board itself is the coordinator's) until the snooze ends.
-        let shown = board.items.filter { !store.board.isSnoozed($0) }
+        let shown = store.board.visible(board)
         let done = shown.filter { $0.state == .done }
         let states = TaskItem.State.allCases.filter { $0 != .done || showDone }
         return VStack(alignment: .leading, spacing: 0) {
@@ -402,8 +402,9 @@ struct TaskBoardPanel: View {
 
     /// How many need you, in plain words, and how many are moving.
     private func counts(_ board: TaskBoard) -> some View {
-        let you = board.items.filter { $0.state == .you }.count
-        let doing = board.items.filter { $0.state == .doing }.count
+        // What the list below shows: snoozed tasks and ones you've already answered don't count.
+        let you = store.board.needsYou(board)
+        let doing = store.board.visible(board).filter { $0.state == .doing }.count
         return HStack(spacing: 4) {
             if you > 0 {
                 Text("\(you) need you").foregroundStyle(Theme.waiting).fontWeight(.semibold)

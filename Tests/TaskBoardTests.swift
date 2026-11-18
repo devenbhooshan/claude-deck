@@ -72,6 +72,22 @@ func taskBoardTests() {
         expect(s.reconciled(with: stubborn, now: t0).edits.isEmpty)
     }
 
+    test("the header's need-you count leaves out snoozed and answered tasks") {
+        let board = TaskBoard(items: [item("Approve", .you), item("Pick DB", .you), item("Invoice", .you), item("Wire", .you),
+                                      item("Docs", .you), item("Later one", .you), item("Spec", .doing)], at: t0)
+        var s = BoardState()
+        expectEqual(s.needsYou(board, now: t0), 6)
+        s.record(BoardEdit(task: "Pick DB", action: .answer("Postgres"), at: t0))
+        s.record(BoardEdit(task: "Invoice", action: .didIt, at: t0))
+        s.record(BoardEdit(task: "Wire", action: .done, at: t0))
+        s.record(BoardEdit(task: "Later one", action: .later, at: t0))
+        s.record(BoardEdit(task: "Docs", action: .snooze(hours: 1), at: t0))
+        expectEqual(s.needsYou(board, now: t0), 2)
+        expectEqual(s.visible(board, now: t0).map(\.title), ["Approve", "Pick DB", "Invoice", "Wire", "Later one", "Spec"])
+        // Once the snooze ends it counts again.
+        expectEqual(s.needsYou(board, now: t0.addingTimeInterval(3601)), 3)
+    }
+
     test("board state and decisions: saved per coordinator") {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("deck-board-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: root) }

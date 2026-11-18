@@ -150,6 +150,20 @@ struct BoardState: Codable, Equatable {
 
     func isSnoozed(_ task: TaskItem, now: Date) -> Bool { (snoozed[BoardEdit.key(task.title)] ?? .distantPast) > now }
 
+    /// The tasks the board shows: all but the snoozed ones.
+    func visible(_ board: TaskBoard, now: Date) -> [TaskItem] { board.items.filter { !isSnoozed($0, now: now) } }
+
+    /// How many shown tasks still need you: not ones you've sent "I did it", an answer or done for.
+    func needsYou(_ board: TaskBoard, now: Date) -> Int {
+        visible(board, now: now).filter { t in
+            guard t.state == .you else { return false }
+            switch pending(t)?.action {
+            case .didIt, .answer, .done: return false
+            default: return true
+            }
+        }.count
+    }
+
     /// Whether to type the decisions in again: only for a compaction newer than the one already
     /// handled, never for ones from before Deck first looked. Also returns what to remember.
     static func compaction(latest: String?, seen: String?) -> (recap: Bool, seen: String) {
