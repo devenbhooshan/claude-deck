@@ -158,6 +158,14 @@ func fleetDigestTests() {
         expect(Inbox.step([], from: nil, by: 1) == nil)
     }
 
+    test("the fleet line goes out on the shared receipt path, after any other receipts") {
+        let line = "[Claude Deck] Fleet: api finished"
+        expectEqual(Receipt.text(for: [.fleet(line)]), line)
+        let both = Receipt.text(for: [.fleet(line), .handoff(Handoff(target: "web", text: "go"))])
+        expect(both.hasSuffix("\n" + line) && both.hasPrefix("[Claude Deck] I sent"))
+        expect(Receipt.fleet(line).isFleet && !Receipt.handoff(Handoff(target: "a", text: "b")).isFleet)
+    }
+
     test("CI flips: in the fleet line, and as inbox items") {
         expectEqual(FleetDigest.ciText(.wentRed, pr: 412), "PR #412 checks failed")
         expectEqual(FleetDigest.ciText(.wentGreen, pr: nil), "checks passed")

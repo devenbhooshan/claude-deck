@@ -98,6 +98,11 @@ def setup(prompt=True):
     os.makedirs(os.path.join(claude, "sessions"))
     os.makedirs(os.path.join(claude, "projects"))
     os.makedirs(os.path.join(routines, "runs"))
+    # A made-up screenshot on the demo Desktop (no screenshot folder is set in the demo home), for
+    # ⌥⌘V / Sessions ▸ Attach Latest Screenshot.
+    desktop = os.path.join(home, "Desktop")
+    os.makedirs(desktop)
+    shutil.copy(os.path.join(ROOT, "docs/screenshots/dock.png"), os.path.join(desktop, "Screenshot 2026-11-18 at 10.15.32.png"))
 
     main, _ = session("orbit-api", "orbit-api", "Fix the flaky checkout test", [
         user("the checkout test fails about one run in five on CI. can you find out why?", 900),
@@ -165,6 +170,7 @@ Should I fix those too?""", 790),
 
 ```tasks
 - [you] Approve the staging migration @orbit-web — click Allow on its prompt in Deck
+- [you] Pick the search backend @orbit-api — Postgres full-text or Meilisearch? (reply here)
 - [blocked] v2 upgrade guide @orbit-docs — waiting on the final API names
 - [doing] Settings crash on Android 15 @orbit-mobile
 - [todo] Same missing await in refunds and invoices
@@ -179,6 +185,24 @@ Fix the same missing await in refunds.ts too.
 Add search to the orders page.
 ```""", 110),
     ])
+    # Snippets for the "/" menu (type /s), two of them added to every message the coordinator is sent.
+    with open(os.path.join(deck, "snippets.json"), "w") as f:
+        json.dump({"snippets": [
+            {"id": "crisp", "name": "short and crisp", "text": "Keep replies short and crisp.", "scope": "global"},
+            {"id": "dashes", "name": "no em dashes", "text": "No em dashes.", "scope": "global"},
+            {"id": "decide", "name": "decide yourself", "text": "Don't ask me what you can decide yourself.", "scope": lead},
+        ], "everyMessage": {lead: ["crisp", "decide"]}}, f)
+    # Two task changes sent from Deck that the board above doesn't show yet (so they read "Sent: …"),
+    # and the answer kept in the decisions log.
+    sent = time.time() - COCOA - 60
+    os.makedirs(os.path.join(deck, "board"))
+    with open(os.path.join(deck, "board", f"{lead}.json"), "w") as f:
+        json.dump({"edits": [{"task": "Pick the search backend", "action": {"answer": {"_0": "Postgres full-text for now"}}, "at": sent},
+                             {"task": "v2 upgrade guide", "action": {"unblock": {}}, "at": sent}], "snoozed": {}}, f)
+    os.makedirs(os.path.join(deck, "decisions"))
+    with open(os.path.join(deck, "decisions", f"{lead}.md"), "w") as f:
+        f.write("# Decisions\n\nAnswers you gave on the coordinator's tasks in Claude Deck.\n\n"
+                f"- {time.strftime('%Y-%m-%d')} “Pick the search backend”: Postgres full-text for now\n")
     return main, reply, lead
 
 
