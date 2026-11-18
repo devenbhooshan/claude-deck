@@ -89,6 +89,11 @@ def setup(prompt=True):
     os.makedirs(os.path.join(claude, "sessions"))
     os.makedirs(os.path.join(claude, "projects"))
     os.makedirs(os.path.join(routines, "runs"))
+    # A made-up screenshot on the demo Desktop (no screenshot folder is set in the demo home), for
+    # ⌥⌘V / Sessions ▸ Attach Latest Screenshot.
+    desktop = os.path.join(home, "Desktop")
+    os.makedirs(desktop)
+    shutil.copy(os.path.join(ROOT, "docs/screenshots/dock.png"), os.path.join(desktop, "Screenshot 2026-11-18 at 10.15.32.png"))
 
     main, _ = session("orbit-api", "orbit-api", "Fix the flaky checkout test", [
         user("the checkout test fails about one run in five on CI. can you find out why?", 900),
