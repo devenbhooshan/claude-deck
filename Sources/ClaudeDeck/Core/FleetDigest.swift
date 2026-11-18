@@ -114,16 +114,18 @@ enum FleetDigest {
 
     /// The batch as it stands now: events no longer true are dropped (a prompt you've since
     /// answered, a session that came back), and the rest carry the session as it is now.
+    /// `live` may include background sessions that have exited (not running, with their job state).
     static func current(_ events: [FleetEvent], live: [Session], now: Date, threshold: TimeInterval) -> [FleetEvent] {
         events.compactMap { e in
             let s = live.first { $0.sessionId == e.session.sessionId }
             switch e {
-            case .finished: return s.flatMap { $0.status == .idle ? .finished($0) : nil }
-            case .waiting: return s.flatMap { $0.status == .waiting ? .waiting($0) : nil }
+            // A background session's job state counts too: it can be done (or blocked) after it has exited.
+            case .finished: return s.flatMap { $0.status == .idle || $0.agentState == .done ? .finished($0) : nil }
+            case .waiting: return s.flatMap { $0.status == .waiting || $0.agentState == .blocked ? .waiting($0) : nil }
             case .stuck: return s.flatMap { s in stuckSince(s, now: now, threshold: threshold).map { .stuck(s, since: $0) } }
             case .restarted: return s.map(FleetEvent.restarted)
             case .started: return s.map(FleetEvent.started)
-            case .ended: return s == nil ? e : nil
+            case .ended: return s?.isLive == true ? nil : e
             case .ciFlipped(_, let text): return .ciFlipped(s ?? e.session, text)
             }
         }

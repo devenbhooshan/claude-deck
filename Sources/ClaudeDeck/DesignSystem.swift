@@ -75,6 +75,8 @@ struct ApprovalButtons: View {
             if store.isAnswered(session) {
                 Label("Sent", systemImage: "checkmark")
                     .font(.caption).foregroundStyle(.secondary)
+            } else if !session.canDrive {
+                BackgroundPromptActions(session: session, size: size)
             } else if PromptGuard.canAnswerHere(session) {
                 Button("Allow") { store.respond(session, key: "enter") }
                     .buttonStyle(.deck(.primary, size: size))
@@ -93,6 +95,82 @@ struct ApprovalButtons: View {
                           : "This kind of prompt has its own options; answer it in the terminal")
             }
         }
+    }
+}
+
+/// A background session's prompt: it has no terminal, so Deck can't answer it in place. Open
+/// attaches a window to it (`claude attach`); then Allow / Deny work through that window.
+struct BackgroundPromptActions: View {
+    let session: Session
+    var size: ControlSize = .small
+    /// Just the button (sidebar rows and the dock), without the explanation.
+    var compact = false
+
+    var body: some View {
+        if compact {
+            BackgroundOpenButton(session: session, label: "Open")
+                .buttonStyle(.deck(.secondary, size: size))
+        } else {
+            BackgroundOpenButton(session: session, label: "Open to answer")
+                .buttonStyle(.deck(.primary, size: size))
+            Text("Background session: no terminal to answer in until you open it")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// Opens a running background session in a new Ghostty window (`claude attach <id>`).
+struct BackgroundOpenButton: View {
+    @Environment(SessionStore.self) private var store
+    let session: Session
+    var label = "Open"
+
+    var body: some View {
+        Button {
+            store.openBackground(session)
+        } label: {
+            Label(label, systemImage: "rectangle.portrait.and.arrow.forward")
+        }
+        .disabled(!session.isLive || session.jobId == nil)
+        .help(session.jobId.map { "Open a Ghostty window attached to it (claude attach \($0)); its prompts and messages then go through that window" }
+              ?? "Deck doesn't know this background session's job id yet")
+    }
+}
+
+/// Marks a background session (`claude --bg`), which runs without a terminal.
+/// Once its job has stopped, the badge says how it went (Done, Failed, Stopped).
+struct BackgroundBadge: View {
+    let session: Session
+
+    var body: some View {
+        Text(text)
+            .font(.caption2.weight(.semibold))
+            .padding(.horizontal, 6).padding(.vertical, 1)
+            .background(Capsule().fill(tint.opacity(0.14)))
+            .foregroundStyle(tint)
+            .help(help)
+    }
+
+    private var text: String {
+        guard let state = session.agentState, state != .working else { return "Background" }
+        return "Background · \(state.label)"
+    }
+
+    private var tint: Color {
+        switch session.agentState {
+        case .failed: Theme.danger
+        case .blocked: Theme.waiting
+        case .done: Theme.success
+        case .stopped: .secondary
+        case .working, nil: Theme.accent
+        }
+    }
+
+    private var help: String {
+        let job = session.jobId.map { " Job \($0)." } ?? ""
+        return session.isLive
+            ? "A background session (claude --bg): it runs without a terminal, so Deck can't answer or type into it until you open it.\(job)"
+            : "A background session (claude --bg) that has exited. Its conversation is read-only here.\(job)"
     }
 }
 
@@ -321,6 +399,8 @@ struct QuickApproval: View {
     var body: some View {
         if store.isAnswered(session) {
             Image(systemName: "checkmark").font(.caption).foregroundStyle(.secondary).help("Sent")
+        } else if !session.canDrive {
+            BackgroundPromptActions(session: session, size: .mini, compact: true)
         } else if PromptGuard.canAnswerHere(session) {
             HStack(spacing: 4) {
                 iconButton("checkmark", tint: Theme.accent, filled: true, help: "Allow: \(request)") {

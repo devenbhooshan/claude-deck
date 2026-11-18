@@ -9,6 +9,16 @@ enum ClaudeRunner {
         return execute(claude, args, in: dir, timeout: timeout)
     }
 
+    /// Runs `claude` and returns its exit status and everything it printed (errors included), for
+    /// commands whose failure needs explaining (`claude rm` says why it won't remove something).
+    static func runWithStatus(_ args: [String], in dir: String, timeout: TimeInterval = 30) -> (status: Int32, output: String) {
+        guard let claude = ClaudeCLI.locate() else { return (127, "Couldn't find the claude command") }
+        switch launch(claude, args, in: dir, timeout: timeout, mergeErrors: true) {
+        case .success(let r): return r
+        case .failure(let e): return (127, e.message)
+        }
+    }
+
     /// Runs GitHub's `gh` (for PR titles and status). Fails when it isn't installed.
     static func gh(_ args: [String], in dir: String, timeout: TimeInterval = 20) -> Result<String, RunError> {
         let home = NSHomeDirectory()

@@ -161,39 +161,35 @@ struct SessionCommands: Commands {
             Button("Deny Next Prompt  ⌥⌘⌫") { store.respondToNext(allow: false) }
             Divider()
             Button("Rename Session…") {
-                if let s = store.session(store.selectedId) { store.renameTarget = s }
+                if let s = store.session(store.selectedId), s.canDrive { store.renameTarget = s }
             }
             .keyboardShortcut("r", modifiers: .command)
-            .disabled(store.selectedId == nil)
+            .disabled(store.session(store.selectedId).map { !$0.canDrive } ?? true)
             Button("Fork Session…") {
-                if let s = store.session(store.selectedId) { store.forkTarget = s }
+                if let s = store.session(store.selectedId), !s.isBackground { store.forkTarget = s }
             }
             .keyboardShortcut("n", modifiers: [.command, .option])
-            .disabled(store.selectedId == nil)
+            .disabled(store.session(store.selectedId).map(\.isBackground) ?? true)
             Button("Restart Session") {
-                if let s = store.session(store.selectedId), s.isLive, s.status == .idle { store.restart(s) }
+                if let s = store.session(store.selectedId), s.isLive, !s.isBackground, s.status == .idle { store.restart(s) }
             }
             .keyboardShortcut("r", modifiers: [.command, .option])
-            .disabled(store.session(store.selectedId).map { !$0.isLive || $0.status != .idle } ?? true || store.restarting != nil)
+            .disabled(store.session(store.selectedId).map { !$0.isLive || $0.isBackground || $0.status != .idle } ?? true || store.restarting != nil)
             Button("End Session") {
-                if let s = store.session(store.selectedId), s.isLive { store.requestEnd(s) }
+                if let s = store.session(store.selectedId), s.isLive, !s.isBackground { store.requestEnd(s) }
             }
             .keyboardShortcut("e", modifiers: [.command, .shift])
-            .disabled(store.session(store.selectedId).map { !$0.isLive || store.ending.contains($0.sessionId) } ?? true)
+            .disabled(store.session(store.selectedId).map { !$0.isLive || $0.isBackground || store.ending.contains($0.sessionId) } ?? true)
             Button("Stop Current Step") {
-                if let s = store.session(store.selectedId), s.isLive, s.status == .busy { store.interrupt(s) }
+                if let s = store.session(store.selectedId), s.isLive, s.canDrive, s.status == .busy { store.interrupt(s) }
             }
-            .disabled(store.session(store.selectedId)?.status != .busy)
+            .disabled(store.session(store.selectedId).map { $0.status != .busy || !$0.canDrive } ?? true)
             Button("Move to Background") {
-                if let s = store.session(store.selectedId), s.isLive, s.status == .busy { store.background(s) }
+                if let s = store.session(store.selectedId), s.isLive, s.canDrive, s.status == .busy { store.background(s) }
             }
-            .disabled(store.session(store.selectedId)?.status != .busy)
+            .disabled(store.session(store.selectedId).map { $0.status != .busy || !$0.canDrive } ?? true)
             Button("Open Terminal") {
-                if let s = store.session(store.selectedId), s.isLive {
-                    Task {
-                        do { try await Ghostty.focus(s) } catch { store.lastError = error.localizedDescription }
-                    }
-                }
+                if let s = store.session(store.selectedId), s.isLive { store.openTerminal(s) }
             }
             .keyboardShortcut("t", modifiers: [.command, .shift])
         }

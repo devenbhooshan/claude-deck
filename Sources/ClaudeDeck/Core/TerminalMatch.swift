@@ -42,11 +42,14 @@ enum TerminalMatch {
     /// A Claude terminal in the session's folder. In order: the terminal Deck opened for this
     /// session (`preferred`), the one with its title, the only Claude terminal in the folder, or
     /// the only one no other session has claimed. Titles alone are never trusted (any program can
-    /// set one), and anything ambiguous returns nil.
+    /// set one), and anything ambiguous returns nil. A background session has no terminal of its
+    /// own: only the window Deck opened for it (`claude attach`, `preferred`) is ever picked, never
+    /// the Claude terminal in its folder, which belongs to some other session.
     static func find(for session: Session, in all: [GhosttyTerminal], claimed: Set<String> = [],
                      preferred: String? = nil) -> GhosttyTerminal? {
         let inDir = all.filter { stillMatches($0, session: session) }
         if let preferred, let t = inDir.first(where: { $0.id == preferred }) { return t }
+        guard !session.isBackground else { return nil }
         let free = inDir.filter { !claimed.contains($0.id) }
         let names = [session.title, session.name].compactMap { $0 }.filter { !$0.isEmpty }
         let titled = free.filter { names.contains(strippedTitle($0.name)) }

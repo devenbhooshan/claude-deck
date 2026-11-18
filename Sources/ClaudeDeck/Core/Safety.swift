@@ -158,7 +158,7 @@ enum PromptGuard {
     /// Whether Deck can answer this prompt with one click: it knows exactly what's being asked,
     /// and the dialog's options mean what the buttons say.
     static func canAnswerHere(_ s: Session) -> Bool {
-        guard SessionNav.isPermission(s), let tool = s.pendingTool else { return false }
+        guard s.canDrive, SessionNav.isPermission(s), let tool = s.pendingTool else { return false }
         return hasStandardDialog(tool.name)
     }
 

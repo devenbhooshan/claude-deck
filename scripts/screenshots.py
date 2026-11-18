@@ -67,18 +67,35 @@ def tool(name, input, result, ago):
                    "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": id, "content": result}]}}]
 
 
-def session(name, folder, title, records, status="idle", waiting=None, quiet=0):
-    """`quiet`: seconds since it last wrote anything (a working session quiet for 10+ minutes shows Stuck)."""
-    sid = str(uuid.uuid4())
+# A background session (`claude --bg`) waiting on a permission prompt: `--open` it to see the
+# Background badge and its prompt card. Fixed, so it can be named on the command line.
+BG_WAITING = "b9c0ffee-0000-4000-8000-000000000001"
+# One that has exited with its job done: listed under Background, its conversation read-only.
+BG_DONE = "b9c0ffee-0000-4000-8000-000000000002"
+# Made-up `claude agents --json --all` output, built by setup() (the paths are per run), read only by the demo copy.
+demo_agents = "[]"
+agents = []
+
+
+def session(name, folder, title, records, status="idle", waiting=None, quiet=0, sid=None, job=None):
+    """`quiet`: seconds since it last wrote anything (a working session quiet for 10+ minutes shows Stuck).
+    `job`: a background session's job id (written with kind "bg", as `claude --bg` does)."""
+    sid = sid or str(uuid.uuid4())
     cwd = os.path.join(home, "code", folder)
     os.makedirs(cwd, exist_ok=True)
     sleeper = subprocess.Popen(["sleep", "600"])
     sleepers.append(sleeper)
     now = time.time() * 1000
+    agents.append({"pid": sleeper.pid, "cwd": cwd, "kind": "background" if job else "interactive", "startedAt": now - 3_600_000,
+                   "sessionId": sid, "name": name, "status": status, "waitingFor": waiting,
+                   **({"id": job, "state": "blocked" if status == "waiting" else "working"} if job else {})})
     with open(os.path.join(claude, "sessions", f"{sleeper.pid}.json"), "w") as f:
-        json.dump({"pid": sleeper.pid, "sessionId": sid, "cwd": cwd, "startedAt": now - 3_600_000, "kind": "interactive",
-                   "entrypoint": "cli", "name": name, "status": status, "waitingFor": waiting,
-                   "updatedAt": now, "statusUpdatedAt": now - quiet * 1000}, f)
+        record = {"pid": sleeper.pid, "sessionId": sid, "cwd": cwd, "startedAt": now - 3_600_000, "kind": "bg" if job else "interactive",
+                  "entrypoint": "cli", "name": name, "status": status, "waitingFor": waiting,
+                  "updatedAt": now, "statusUpdatedAt": now - quiet * 1000}
+        if job:
+            record["jobId"] = job
+        json.dump(record, f)
     folder = os.path.join(claude, "projects", "".join(c if c.isalnum() else "-" for c in cwd))
     os.makedirs(folder, exist_ok=True)
     path = os.path.join(folder, f"{sid}.jsonl")
@@ -95,6 +112,8 @@ def write(path, records, mode="w"):
 
 
 def setup(prompt=True):
+    global demo_agents
+    agents.clear()
     os.makedirs(os.path.join(claude, "sessions"))
     os.makedirs(os.path.join(claude, "projects"))
     os.makedirs(os.path.join(routines, "runs"))
@@ -140,6 +159,27 @@ Should I fix those too?""", 790),
     with open(os.path.join(pending, "demo.json"), "w") as f:
         json.dump({"session_id": waiting, "tool_name": "Bash",
                    "tool_input": {"command": "npm run migrate -- --env staging"}}, f)
+    # A background session in the same folder as orbit-web, waiting on its own prompt: Deck can't answer
+    # it in place (it has no terminal), so its card offers Open to answer instead.
+    session("orbit-bump", "orbit-web", "Bump the payment SDK", [
+        user("bump the payment SDK to v5 and run the tests", 400),
+        say("Updating the lockfile.", 390),
+        *tool("Bash", {"command": "npm install @orbit/pay@5", "description": "Install the new SDK"}, None, 380),
+    ], status="waiting", waiting="permission", sid=BG_WAITING, job="k7f2q9")
+    with open(os.path.join(pending, "demo-bg.json"), "w") as f:
+        json.dump({"session_id": BG_WAITING, "tool_name": "Bash", "tool_input": {"command": "npm install @orbit/pay@5"}}, f)
+    # A background session that finished an hour ago: no process or session record, only its transcript
+    # and its row in `claude agents --all`.
+    done_cwd = os.path.join(home, "code", "orbit-api")
+    done_dir = os.path.join(claude, "projects", "".join(c if c.isalnum() else "-" for c in done_cwd))
+    os.makedirs(done_dir, exist_ok=True)
+    write(os.path.join(done_dir, f"{BG_DONE}.jsonl"), [
+        {"type": "ai-title", "aiTitle": "Update the changelog for 1.8"},
+        user("update CHANGELOG.md for the 1.8 release from the merged PRs", 5400),
+        say("Done: **CHANGELOG.md** now lists the 14 PRs merged since 1.7, grouped into features and fixes.", 3700),
+    ])
+    agents.append({"cwd": done_cwd, "kind": "background", "startedAt": (time.time() - 5400) * 1000,
+                   "sessionId": BG_DONE, "name": "changelog", "id": "m3x8p1", "state": "done"})
     session("orbit-docs", "orbit-docs", "Write the v2 upgrade guide", [
         user("draft the upgrade guide for v2", 200),
         say("Reading the changelog first.", 190),
@@ -203,6 +243,7 @@ Add search to the orders page.
     with open(os.path.join(deck, "decisions", f"{lead}.md"), "w") as f:
         f.write("# Decisions\n\nAnswers you gave on the coordinator's tasks in Claude Deck.\n\n"
                 f"- {time.strftime('%Y-%m-%d')} “Pick the search backend”: Postgres full-text for now\n")
+    demo_agents = json.dumps(agents)
     return main, reply, lead
 
 
@@ -247,7 +288,7 @@ def crop(name, x, y, width, height):
 def launch(*args):
     """Through `open`: macOS only brings a second launch to the front if LaunchServices started it."""
     subprocess.run(["open", "-n", BUNDLE, "--env", f"CFFIXED_USER_HOME={home}", "--env", f"HOME={home}", "--args",
-                    "-dockShown", "YES", "-dockExpanded", "NO", "-demoCIStatus", DEMO_CI, *args], check=True)
+                    "-dockShown", "YES", "-dockExpanded", "NO", "-demoCIStatus", DEMO_CI, "-demoAgents", demo_agents, *args], check=True)
     time.sleep(1)
     return int(subprocess.run(["pgrep", "-nf", APP], capture_output=True, text=True).stdout)
 

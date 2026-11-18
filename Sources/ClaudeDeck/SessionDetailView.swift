@@ -184,7 +184,7 @@ struct SessionDetailView: View {
             model.start(url: transcript, focus: store.focus?.sessionId == session.sessionId ? store.focus : nil)
             // Pointing at a reply is done once; switching back later returns to where you were.
             if store.focus?.sessionId == session.sessionId, store.focus?.offset == nil { store.focus = nil }
-            if session.isLive { Task { await Ghostty.prewarm(session) } }
+            if session.isLive && session.canDrive { Task { await Ghostty.prewarm(session) } }
         }
         .onDisappear { model.stop() }
         .alert("Couldn't reach the terminal", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
@@ -197,9 +197,9 @@ struct SessionDetailView: View {
     private var conversation: some View {
         VStack(spacing: 0) {
             TranscriptView(model: model, placeKey: session.sessionId, cwd: session.cwd, status: session.status, statusSince: session.statusSince,
-                           onStop: session.isLive ? { store.interrupt(session) } : nil,
-                           onBackground: session.isLive ? { store.background(session) } : nil,
-                           onRemoveQueued: session.isLive ? { store.removeQueued($0, in: session, model: model) } : nil,
+                           onStop: drivable ? { store.interrupt(session) } : nil,
+                           onBackground: drivable ? { store.background(session) } : nil,
+                           onRemoveQueued: drivable ? { store.removeQueued($0, in: session, model: model) } : nil,
                            background: session.background,
                            onStopTask: session.isLive ? { store.stopTask($0, in: session) } : nil)
                 .overlay(alignment: .bottom) {
@@ -218,7 +218,9 @@ struct SessionDetailView: View {
                             .padding(.top, 12).padding(.trailing, 20)
                     }
                 }
-            if session.isLive {
+            if session.isBackground && !session.canDrive {
+                BackgroundBar(session: session)
+            } else if session.isLive {
                 Composer(session: session, model: model, attachments: $attachments, onError: { error = $0 })
             } else {
                 EndedBar { act { try await Ghostty.resume(session) } }
@@ -234,8 +236,11 @@ struct SessionDetailView: View {
             model.start(url: transcript)
         }
         .background(Theme.surface)
-        .modifier(AttachmentDrop(attachments: $attachments, enabled: session.isLive))
+        .modifier(AttachmentDrop(attachments: $attachments, enabled: drivable))
     }
+
+    /// Running and reachable through a terminal: a background session isn't.
+    private var drivable: Bool { session.isLive && session.canDrive }
 
     /// The session's conversation; for a fork without one yet, the one it copied.
     private var transcript: URL? { session.transcriptURL ?? store.forkedFrom[session.sessionId] }
@@ -245,16 +250,18 @@ struct SessionDetailView: View {
             : store.ending.contains(session.sessionId) ? "Ending…"
             : session.status == .waiting ? "Waiting for \(session.waitingFor ?? "you")" : session.status.label
         let remote = session.isLive && store.isRemote(session) ? " · Remote Control" : ""
-        return "\(status)\(remote) · \(Theme.shortPath(session.cwd))"
+        let kind = session.isBackground ? " · Background" : ""
+        return "\(status)\(kind)\(remote) · \(Theme.shortPath(session.cwd))"
     }
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
-            if session.isLive {
+            if drivable {
                 RemoteControlToggle(session: session)
             }
-            if !session.isLive {
+            // Resuming a background session would start a copy of it.
+            if !session.isLive && !session.isBackground {
                 Button {
                     act { try await Ghostty.resume(session) }
                 } label: {
@@ -263,10 +270,12 @@ struct SessionDetailView: View {
                 .help("Open a Ghostty window running claude --resume")
             }
             Menu {
-                Button("Rename…") { store.renameTarget = session }
-                Button("Fork…") { store.forkTarget = session }
-                    .help("Start a new session with a copy of this conversation; this one carries on unchanged")
-                if session.isLive {
+                if !session.isBackground {
+                    Button("Rename…") { store.renameTarget = session }
+                    Button("Fork…") { store.forkTarget = session }
+                        .help("Start a new session with a copy of this conversation; this one carries on unchanged")
+                }
+                if session.isLive && !session.isBackground {
                     Button("Restart Session") { store.restart(session) }
                         .disabled(session.status != .idle || store.restarting != nil)
                         .help("Quit and resume Claude here so new skills, MCP servers and settings load")
@@ -278,8 +287,10 @@ struct SessionDetailView: View {
                 Divider()
                 Button("Copy Transcript") { copy(model.markdown(title: session.displayTitle)) }
                 Button("Copy Session ID") { copy(session.sessionId) }
-                Button("Copy Resume Command") {
-                    copy("cd \(Safety.shellQuote(session.cwd)) && claude --resume \(Safety.shellQuote(session.sessionId))")
+                if !session.isBackground {
+                    Button("Copy Resume Command") {
+                        copy("cd \(Safety.shellQuote(session.cwd)) && claude --resume \(Safety.shellQuote(session.sessionId))")
+                    }
                 }
                 Divider()
                 Button("Show Project in Finder") {
@@ -327,14 +338,18 @@ private struct PendingCard: View {
             HStack(spacing: 10) {
                 StatusIcon(status: .waiting, size: 28)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(isPermission ? "Claude wants to run a tool" : "Claude is waiting for you")
+                    Text(session.isBackground && !session.canDrive
+                         ? (isPermission ? "A background session wants to run a tool" : "A background session is waiting for you")
+                         : (isPermission ? "Claude wants to run a tool" : "Claude is waiting for you"))
                         .font(.headline)
                     Text((session.waitingFor ?? "input").capitalizedFirst)
                         .font(.subheadline).foregroundStyle(.secondary)
                 }
                 Spacer()
-                OpenTerminalButton(session: session)
-                    .buttonStyle(.deck(.link))
+                if session.canDrive {
+                    OpenTerminalButton(session: session)
+                        .buttonStyle(.deck(.link))
+                }
             }
 
             if isPermission, let tool {
@@ -394,6 +409,40 @@ private struct PendingCard: View {
         .frame(maxWidth: 760)
     }
 
+}
+
+/// In place of the message box for a background session: it has no terminal to type into until
+/// you open it (`claude attach`). Stop and Remove run `claude stop` / `claude rm`.
+private struct BackgroundBar: View {
+    @Environment(SessionStore.self) private var store
+    let session: Session
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "moon.stars").foregroundStyle(.secondary)
+            Text(session.isLive ? "Background session: open it to answer its prompts or type to it."
+                 : "This background session has exited\(session.agentState.map { " (\($0.label.lowercased()))" } ?? ""). Its conversation is read-only.")
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+            Spacer()
+            let busy = store.backgroundBusy.contains(session.sessionId)
+            Button("Remove…") { store.removeTarget = session }
+                .buttonStyle(.deck(.secondary))
+                .disabled(session.jobId == nil || busy)
+                .help("Take it off the list (claude rm); asks first")
+            if session.isLive {
+                Button("Stop") { store.stopBackground(session) }
+                    .buttonStyle(.deck(.secondary))
+                    .disabled(session.jobId == nil || busy)
+                    .help("Stop it (claude stop); its conversation is kept")
+                BackgroundOpenButton(session: session)
+                    .buttonStyle(.deck(.primary))
+            }
+        }
+        .padding(.horizontal, 20).padding(.vertical, 12)
+        .background(.bar)
+        .overlay(alignment: .top) { Divider() }
+    }
 }
 
 private struct EndedBar: View {

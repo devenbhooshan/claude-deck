@@ -10,6 +10,9 @@ import UserNotifications
 final class SessionStore {
     private(set) var live: [Session] = []
     private(set) var recent: [Session] = []
+    /// Background sessions (`claude --bg`) that have exited, newest first: their job's state, and
+    /// their conversation to read.
+    private(set) var backgroundEnded: [Session] = []
     var selectedId: String? {
         didSet { markSeen() }
     }
@@ -120,7 +123,12 @@ final class SessionStore {
     /// Types a message into another session as you, as its own message box would.
     func send(_ text: String, attachments: [Attachment] = [], to target: Session) async throws {
         let message = AttachmentStore.message(text, files: attachments.filter { !$0.isImage })
-        try await Ghostty.send(text: message, images: attachments.filter(\.isImage).map(\.url), to: target)
+        do {
+            try await Ghostty.send(text: message, images: attachments.filter(\.isImage).map(\.url), to: target)
+        } catch {
+            noteDetached(target, error)
+            throw error
+        }
         comms.record(CommsMessage(from: "You", to: target.displayTitle, summary: nil, text: message, at: Date()))
         if let h = editing, SessionAddress.token(h.target) == SessionAddress.token(target.displayTitle) {
             sentHandoffs.insert(h.key)
@@ -247,6 +255,8 @@ final class SessionStore {
     private var fleetSnapshot: FleetSnapshot?
     private var fleetBatch: [FleetEvent] = []
     private var fleetSentAt: Date?
+    /// Background sessions' job states at the last look (nil before the first).
+    private var agentStates: [String: AgentState]?
     /// Deck's own ends and restarts, so they read as such rather than as crashes or new sessions.
     private var endedByDeck: Set<String> = []
     private var restartedByDeck: Set<String> = []
@@ -266,17 +276,21 @@ final class SessionStore {
     }
 
     /// Compares this poll with the last, records sessions that died mid-work, and queues the rest.
-    private func updateFleet(_ live: [Session]) {
+    private func updateFleet(_ live: [Session], exited: [Session]) {
         let now = Date()
         let snapshot = FleetDigest.snapshot(live, now: now, threshold: stuckThreshold)
-        let known = (fleetSnapshot?.sessions ?? []) + live
+        let known = (fleetSnapshot?.sessions ?? []) + live + exited
         var context = FleetDigest.Context(endedByDeck: endedByDeck, restartedByDeck: restartedByDeck, replaced: replacedByRestart)
         // Every session's unexpected end is an error in Needs You, the coordinator's and muted ones' too.
         for case .ended(let s, true) in FleetDigest.events(from: fleetSnapshot, to: snapshot, now: now, threshold: stuckThreshold, context: context) {
             failures = (failures + [Inbox.Failure(session: s, at: now)]).suffix(20)
         }
         context.excluded = Set(known.filter { $0.sessionId == coordinatorId || isMuted($0) }.map(\.sessionId))
-        let events = FleetDigest.events(from: fleetSnapshot, to: snapshot, now: now, threshold: stuckThreshold, context: context)
+        var events = FleetDigest.events(from: fleetSnapshot, to: snapshot, now: now, threshold: stuckThreshold, context: context)
+        // Background sessions' jobs: done, failed or blocked.
+        let background = live.filter(\.isBackground) + exited
+        events += BackgroundAgents.events(from: agentStates, to: background, excluded: context.excluded)
+        agentStates = BackgroundAgents.states(background)
         fleetSnapshot = snapshot
         let ids = Set(live.map(\.sessionId))
         endedByDeck = endedByDeck.filter(ids.contains)
@@ -295,7 +309,7 @@ final class SessionStore {
     /// line went two minutes ago or more. Not in the screenshot copy, whose sessions are made up.
     private func deliverFleet() {
         let now = Date()
-        fleetBatch = FleetDigest.current(fleetBatch, live: live, now: now, threshold: stuckThreshold)
+        fleetBatch = FleetDigest.current(fleetBatch, live: live + backgroundEnded, now: now, threshold: stuckThreshold)
         guard Bundle.main.bundleIdentifier?.hasSuffix(".demo") != true,
               FleetDigest.shouldDeliver(fleetBatch, coordinator: coordinator, lastSent: fleetSentAt, now: now),
               let c = coordinator, let line = FleetDigest.line(fleetBatch, now: now) else { return }
@@ -345,6 +359,7 @@ final class SessionStore {
     /// Renames via Claude Code's own /rename for running sessions, so the name shows everywhere.
     /// Ended sessions get the same custom-title record appended to their transcript.
     func rename(_ s: Session, to raw: String) {
+        guard !refuseBackground(s) else { return }
         if s.isLive && s.status == .waiting {
             lastError = "Claude is showing a prompt. Answer it first, then rename."
             return
@@ -446,19 +461,21 @@ final class SessionStore {
     }
 
     /// Sessions in sidebar order, for keyboard navigation.
-    var ordered: [Session] { SessionNav.ordered(live: live, recent: recent) }
+    var ordered: [Session] { SessionNav.ordered(live: live, recent: backgroundEnded + recent) }
 
     func isAnswered(_ s: Session) -> Bool { SessionNav.isAnswered(at: answered[s.id]) }
 
     /// Answers a session's prompt by pressing a key in its terminal (enter = allow, escape = deny),
     /// only if it's still the prompt you saw (`expectedSince` defaults to the one on screen).
     func respond(_ s: Session, key: String, expectedSince: Double? = nil) {
+        guard !refuseBackground(s) else { return }
         answered[s.id] = Date()
         let since = expectedSince ?? s.statusStamp
         Task {
             do {
                 try await Ghostty.press(key: key, on: s, expectedSince: since)
             } catch {
+                noteDetached(s, error)
                 answered[s.id] = nil
                 lastError = error.localizedDescription
             }
@@ -471,6 +488,11 @@ final class SessionStore {
         guard let (target, remaining) = SessionNav.approvalTarget(live: live, selected: selectedId,
                                                                    isAnswered: isAnswered) else {
             HUD.show("Nothing waiting", symbol: "checkmark.circle", tint: Color.secondary)
+            return
+        }
+        guard target.canDrive else {
+            HUD.show("Open this one to answer", detail: "\(target.displayTitle) is a background session with no terminal",
+                     symbol: "moon.stars", tint: Theme.waiting)
             return
         }
         // Never approve blind: Deck must know exactly what's being asked.
@@ -521,6 +543,7 @@ final class SessionStore {
 
     /// Stops the session's current step.
     func interrupt(_ s: Session) {
+        guard !refuseBackground(s) else { return }
         Task {
             do {
                 try await Ghostty.interrupt(s)
@@ -547,6 +570,7 @@ final class SessionStore {
 
     /// Moves what Claude is waiting on to the background, so it can carry on.
     func background(_ s: Session) {
+        guard !refuseBackground(s) else { return }
         Task {
             do {
                 try await Ghostty.background(s)
@@ -560,6 +584,7 @@ final class SessionStore {
     /// Quits and resumes the session in its terminal so new skills and MCP servers load. It keeps
     /// its place in the list (and its ⌘ number) throughout.
     func restart(_ s: Session) {
+        guard !s.isBackground else { lastError = Self.backgroundRefusal; return }
         guard restarting == nil else {
             lastError = "Another session is restarting. Try again in a moment."
             return
@@ -584,6 +609,7 @@ final class SessionStore {
 
     /// Quits Claude in its terminal and closes the terminal. The session stays resumable.
     func end(_ s: Session) {
+        guard !s.isBackground else { lastError = Self.backgroundRefusal; return }
         guard s.isLive, !ending.contains(s.sessionId) else { return }
         ending.insert(s.sessionId)
         endedByDeck.insert(s.sessionId)
@@ -599,6 +625,15 @@ final class SessionStore {
             }
             refresh()
         }
+    }
+
+    static let backgroundRefusal = "This is a background session (claude --bg). It has no terminal, so Deck can't do that here. Click Open to attach a window to it first."
+
+    /// A background session has no terminal: says so instead of acting. True when refused.
+    private func refuseBackground(_ s: Session) -> Bool {
+        guard !s.canDrive else { return false }
+        lastError = Self.backgroundRefusal
+        return true
     }
 
     /// Stops a command Claude left running in the background (and everything it started).
@@ -625,7 +660,7 @@ final class SessionStore {
     /// Connects or disconnects a running session with Remote Control, so you can drive it from the
     /// Claude app or claude.ai. Checks the session's record afterwards and says if it didn't take.
     func setRemote(_ s: Session, on: Bool) {
-        guard remoteSwitching[s.sessionId] == nil else { return }
+        guard !refuseBackground(s), remoteSwitching[s.sessionId] == nil else { return }
         remoteSwitching[s.sessionId] = on
         Task {
             do {
@@ -660,8 +695,9 @@ final class SessionStore {
     }
 
     func openTerminal(_ s: Session) {
+        guard !refuseBackground(s) else { return }
         Task {
-            do { try await Ghostty.focus(s) } catch { lastError = error.localizedDescription }
+            do { try await Ghostty.focus(s) } catch { noteDetached(s, error); lastError = error.localizedDescription }
         }
     }
 
@@ -681,7 +717,8 @@ final class SessionStore {
 
     func session(_ id: String?) -> Session? {
         guard let id else { return nil }
-        return live.first { $0.id == id } ?? recent.first { $0.id == id } ?? opened.first { $0.id == id }
+        return live.first { $0.id == id } ?? backgroundEnded.first { $0.id == id } ?? recent.first { $0.id == id }
+            ?? opened.first { $0.id == id }
     }
 
     /// Opens a session at a moment (or its latest part when there's no offset), bringing Deck forward.
@@ -744,6 +781,10 @@ final class SessionStore {
         timer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.refresh() }
         }
+        listAgents()
+        agentTimer = Timer.scheduledTimer(withTimeInterval: BackgroundAgents.pollInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.listAgents() }
+        }
         // Coming back to Deck counts as reading the open session.
         NotificationCenter.default.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.markSeen() }
@@ -766,15 +807,121 @@ final class SessionStore {
         let scanRecent = Date().timeIntervalSince(lastRecentScan) > 20
         if scanRecent { lastRecentScan = Date() }
         let cache = titleCache
+        let agents = agents, attached = attached
         Task.detached(priority: .utility) {
-            let (live, cacheUpdates) = SessionLoader.loadLive(cache: cache)
+            let (loaded, liveUpdates) = SessionLoader.loadLive(cache: cache)
+            let (live, exited, exitedUpdates) = BackgroundAgents.merge(live: loaded, agents: agents, cache: cache, attached: attached)
             let recent = scanRecent ? SessionLoader.loadRecent(excluding: Set(live.map(\.sessionId)), cache: cache) : nil
-            await MainActor.run { self.apply(live: live, recent: recent, cacheUpdates: cacheUpdates) }
+            await MainActor.run {
+                self.apply(live: live, recent: recent, exited: exited, cacheUpdates: liveUpdates.merging(exitedUpdates) { a, _ in a })
+            }
         }
     }
 
-    private func apply(live newLive: [Session], recent newRecent: [Session]?, cacheUpdates: [String: TitleInfo]) {
+    // MARK: Background sessions
+
+    /// The last `claude agents --json --all`: every session, background ones with their job state.
+    private var agents: [AgentEntry] = []
+    /// Background sessions Deck opened a window for (`claude attach`): driven through that window.
+    private var attached: Set<String> = []
+    /// The background session whose Remove is being confirmed.
+    var removeTarget: Session?
+    /// Background sessions being stopped or removed, by id.
+    private(set) var backgroundBusy: Set<String> = []
+
+    /// Opens a new Ghostty window in the session's folder running `claude attach <id>`. Once it's
+    /// attached, its prompts are answered and messages typed through that window, and only that one.
+    func openBackground(_ s: Session) {
+        guard s.isBackground, s.isLive, let job = s.jobId, BackgroundAgents.isJobId(job) else {
+            lastError = "This background session isn't running, so there's nothing to open."
+            return
+        }
+        Task {
+            // Already open: bring that window forward rather than attach a second one.
+            if attached.contains(s.sessionId), (try? await Ghostty.focus(s)) != nil { return }
+            do {
+                _ = try await Ghostty.attach(s)
+                attached.insert(s.sessionId)
+                refresh()
+                HUD.show("Opening \(s.displayTitle)", detail: "claude attach \(job)", symbol: "rectangle.portrait.and.arrow.forward",
+                         tint: Theme.accent)
+            } catch {
+                lastError = error.localizedDescription
+            }
+        }
+    }
+
+    /// `claude stop <id>`: stops the job; its conversation is kept.
+    func stopBackground(_ s: Session) {
+        runBackground(s, BackgroundAgents.stopArguments, done: "Stopped", symbol: "stop.circle.fill", tint: Theme.danger)
+    }
+
+    /// `claude rm <id>`: takes it off the list (Claude Code refuses if that would lose work, and says why).
+    func removeBackground(_ s: Session) {
+        runBackground(s, BackgroundAgents.removeArguments, done: "Removed", symbol: "trash.fill", tint: Theme.accent)
+    }
+
+    private func runBackground(_ s: Session, _ arguments: (String) -> [String]?, done: String, symbol: String, tint: Color) {
+        guard let job = s.jobId, let args = arguments(job), !backgroundBusy.contains(s.sessionId) else { return }
+        backgroundBusy.insert(s.sessionId)
+        let folder = s.cwd
+        Task.detached(priority: .userInitiated) {
+            let result = ClaudeRunner.runWithStatus(args, in: folder)
+            await MainActor.run {
+                self.backgroundBusy.remove(s.sessionId)
+                if result.status == 0 {
+                    HUD.show(done, detail: s.displayTitle, symbol: symbol, tint: tint)
+                } else {
+                    let said = Safety.stripANSI(result.output).trimmingCharacters(in: .whitespacesAndNewlines)
+                    self.lastError = "claude \(args.joined(separator: " ")) didn't work" + (said.isEmpty ? "." : ":\n\n\(said)")
+                }
+                self.listAgents()
+            }
+        }
+    }
+
+    /// An attached background session's window has gone (closed, not just still starting `claude attach`):
+    /// it can't be driven until it's opened again.
+    private func noteDetached(_ s: Session, _ error: Error) {
+        guard s.isBackground, attached.contains(s.sessionId), case Ghostty.Failure.background = error else { return }
+        Task {
+            guard await !Ghostty.attachWindowIsOpen(for: s.sessionId) else { return }
+            attached.remove(s.sessionId)
+            refresh()
+        }
+    }
+    private var listingAgents = false
+    private var agentTimer: Timer?
+
+    /// scripts/screenshots.py's made-up `claude agents` output (`-demoAgents '[…]'`), only in its demo copy.
+    nonisolated private static let demoAgents: String? = {
+        guard Bundle.main.bundleIdentifier?.hasSuffix(".demo") == true else { return nil }
+        let args = CommandLine.arguments
+        return args.firstIndex(of: "-demoAgents").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
+    }()
+
+    /// Lists the background sessions with `claude agents` off the main thread, and refreshes when
+    /// the list changed. Without the command (or with an older one), there's simply nothing listed.
+    func listAgents() {
+        guard !listingAgents else { return }
+        listingAgents = true
+        Task.detached(priority: .utility) {
+            let output: String? = if let demo = Self.demoAgents { demo } else {
+                try? ClaudeRunner.run(BackgroundAgents.listArguments, in: NSHomeDirectory(), timeout: 10).get()
+            }
+            let entries = output.flatMap(BackgroundAgents.parse)
+            await MainActor.run {
+                self.listingAgents = false
+                guard let entries, entries != self.agents else { return }
+                self.agents = entries
+                self.refresh()
+            }
+        }
+    }
+
+    private func apply(live newLive: [Session], recent newRecent: [Session]?, exited: [Session], cacheUpdates: [String: TitleInfo]) {
         for (k, v) in cacheUpdates { titleCache[k] = v }
+        if exited != backgroundEnded { backgroundEnded = exited }
         for s in newLive where s.status == .waiting && previousStatus[s.id] != nil && previousStatus[s.id] != .waiting {
             notify(s)
         }
@@ -798,7 +945,7 @@ final class SessionStore {
         slots = slots.filter { id, _ in named.live.contains { $0.sessionId == id } }
         let newLive = SessionNav.keepSlots(live: named.live, slots: slots, restarting: restarting)
         if newLive != live { live = newLive }
-        updateFleet(newLive)
+        updateFleet(newLive, exited: exited)
         // Select a session we just started (by the id it was given) once Claude Code registers it.
         // Wait for Ghostty to report the new terminal, so the session is bound to it.
         if let start = starting, let terminal = start.terminal {
@@ -816,10 +963,15 @@ final class SessionStore {
         let waitingIds = Set(newLive.filter { $0.status == .waiting }.map(\.sessionId))
         DispatchQueue.global(qos: .utility).async { PendingRequests.prune(keeping: waitingIds) }
         syncRecordWatchers(Set(newLive.compactMap(\.pid)))
+        // A background session is listed as one (running, or under Background once it has exited), never
+        // as a recent session to resume: resuming it would start a copy.
+        let backgroundIds = Set(agents.filter(\.isBackground).compactMap(\.sessionId))
         if let newRecent {
             let liveIds = Set(newLive.map(\.id))
-            recent = newRecent.filter { !liveIds.contains($0.id) }
+            recent = newRecent.filter { !liveIds.contains($0.id) && !backgroundIds.contains($0.id) }
             applyNames()
+        } else if recent.contains(where: { backgroundIds.contains($0.id) }) {
+            recent.removeAll { backgroundIds.contains($0.id) }
         }
         markSeen()
         updateBadge()

@@ -18,9 +18,14 @@ struct SessionRecord: Decodable {
     let detail: String?
     /// Set while the session is connected with Remote Control.
     var bridgeSessionId: String? = nil
+    /// A background session's (`claude --bg`) short job id, for `claude attach / stop / rm`.
+    var jobId: String? = nil
 }
 
 extension SessionRecord {
+    /// A background session (`claude --bg`, kind "bg"): it has no terminal of its own.
+    var isBackground: Bool { kind == "bg" || jobId != nil }
+
     /// Headless runs (Deck's own `claude -p /usage` checks, scripts, the Agent SDK) have no
     /// terminal to type into, so they aren't shown as sessions.
     var isHeadless: Bool { entrypoint == "sdk-cli" }
@@ -85,8 +90,19 @@ struct Session: Identifiable, Equatable {
     var remoteId: String? = nil
     /// When its transcript last changed: the last time Claude (or you) wrote anything.
     var activeAt: Date? = nil
+    /// A background session (`claude --bg`): it runs without a terminal, so Deck never looks for
+    /// one to type into or answer in.
+    var isBackground = false
+    /// Its short job id (`claude attach / stop / rm <id>`), for a background session.
+    var jobId: String? = nil
+    /// Where its job stands (done, failed…), from `claude agents`, for a background session.
+    var agentState: AgentState? = nil
+    /// A background session Deck opened a window for (`claude attach`): driven through that window only.
+    var attached = false
 
     var isLive: Bool { pid != nil }
+    /// Whether Deck may drive it through a terminal (answer prompts, type, restart, end).
+    var canDrive: Bool { !isBackground || attached }
     /// Where to open it on claude.ai or the Claude app; only a well-formed id becomes a link.
     var remoteURL: URL? {
         guard let remoteId, remoteId.range(of: #"^session_[A-Za-z0-9]+$"#, options: .regularExpression) != nil

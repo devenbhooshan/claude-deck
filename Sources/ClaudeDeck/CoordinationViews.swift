@@ -188,10 +188,14 @@ private struct InboxCard: View {
             Text(LocalizedStringKey(question))
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            MessageBox(draft: $reply, attachments: $attachments, draftKey: "inbox:" + session.sessionId,
-                       placeholder: "Reply to \(session.displayTitle)…", hint: "↩ send to \(session.displayTitle)",
-                       autofocus: false, onSend: sendReply) { EmptyView() }
-                .padding(.horizontal, -20)
+            if session.canDrive {
+                MessageBox(draft: $reply, attachments: $attachments, draftKey: "inbox:" + session.sessionId,
+                           placeholder: "Reply to \(session.displayTitle)…", hint: "↩ send to \(session.displayTitle)",
+                           autofocus: false, onSend: sendReply) { EmptyView() }
+                    .padding(.horizontal, -20)
+            } else {
+                BackgroundPromptActions(session: session)
+            }
         case .handoff(_, let h):
             HandoffActions(handoff: h)
         case .completed(_, let text), .error(_, let text, _):

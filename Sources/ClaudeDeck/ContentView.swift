@@ -104,6 +104,16 @@ struct ContentView: View {
                     }
                 }
             }
+            // Background sessions that have exited: how their job went, and their conversation.
+            if !store.backgroundEnded.isEmpty {
+                Section {
+                    ForEach(store.backgroundEnded) { s in
+                        SessionRow(session: s).modifier(SelectableRow(id: s.id)).contextMenu { rowMenu(s) }
+                    }
+                } header: {
+                    SectionHeader(title: "Background", count: nil, tint: nil)
+                }
+            }
             if !store.recent.isEmpty {
                 Section {
                     ForEach(store.recent) { s in
@@ -279,11 +289,24 @@ private struct Dialogs: ViewModifier {
                      ? "A background task Claude started is still running. Ending stops it, quits Claude and closes its terminal. You can resume the session later."
                      : "Claude is still working. Ending stops this step, quits Claude and closes its terminal. You can resume it later.")
             }
+            .alert("Remove this background session?", isPresented: confirmingRemove) {
+                Button("Remove", role: .destructive) {
+                    if let s = store.removeTarget { store.removeBackground(s) }
+                    store.removeTarget = nil
+                }
+                Button("Cancel", role: .cancel) { store.removeTarget = nil }
+            } message: {
+                Text("Runs claude rm \(store.removeTarget?.jobId ?? ""): takes \(store.removeTarget?.displayTitle ?? "it") off the list and deletes its worktree, if that's safe. Claude Code refuses if work would be lost, and says why. Its conversation is kept.")
+            }
             .alert("Couldn't reach the terminal", isPresented: failed) {
                 Button("OK") { store.lastError = nil }
             } message: {
                 Text(store.lastError ?? "")
             }
+    }
+
+    private var confirmingRemove: Binding<Bool> {
+        Binding(get: { store.removeTarget != nil }, set: { if !$0 { store.removeTarget = nil } })
     }
 
     private var confirmingEnd: Binding<Bool> {
@@ -304,6 +327,10 @@ extension ContentView {
     func sessionRow(_ s: Session, number: Int) -> some View {
         if s.status == .waiting {
             ApprovalRow(session: s, number: number)
+        } else if s.isBackground && !s.canDrive {
+            SessionRow(session: s, number: number) {
+                BackgroundOpenButton(session: s).labelStyle(.titleOnly).buttonStyle(.deck(.secondary, size: .mini))
+            }
         } else {
             SessionRow(session: s, number: number)
         }
@@ -317,23 +344,42 @@ extension ContentView {
             Button("Deny") { store.respond(s, key: "escape") }
             Divider()
         }
-        Button("Rename…") { store.renameTarget = s }
-        Button("Fork…") { store.forkTarget = s }
+        if s.isBackground {
+            if s.isLive {
+                Button(s.attached ? "Show Its Window" : "Open (claude attach)") { store.openBackground(s) }
+                Button("Stop (claude stop)") { store.stopBackground(s) }
+                    .disabled(store.backgroundBusy.contains(s.sessionId))
+            }
+            Button("Remove… (claude rm)") { store.removeTarget = s }
+                .disabled(s.jobId == nil || store.backgroundBusy.contains(s.sessionId))
+            Divider()
+        }
+        // A background session has no terminal of its own: nothing here may type into one.
+        if !s.isBackground {
+            Button("Rename…") { store.renameTarget = s }
+            Button("Fork…") { store.forkTarget = s }
+        }
         if s.isLive {
             Menu("CI & Deploy") { CIMenuItems(session: s) }
-            Toggle("Coordinator", isOn: Binding(get: { store.coordinatorId == s.sessionId },
-                                                set: { store.coordinatorId = $0 ? s.sessionId : nil }))
+            if !s.isBackground {
+                Toggle("Coordinator", isOn: Binding(get: { store.coordinatorId == s.sessionId },
+                                                    set: { store.coordinatorId = $0 ? s.sessionId : nil }))
+            }
             Toggle("Mute", isOn: Binding(get: { store.mutedIds.contains(s.sessionId) }, set: { store.setMuted(s, $0) }))
                 .disabled(store.focusOnCoordinator && s.sessionId != store.coordinatorId)
-            Toggle("Remote Control", isOn: Binding(get: { store.isRemote(s) }, set: { store.setRemote(s, on: $0) }))
+            if !s.isBackground {
+                Toggle("Remote Control", isOn: Binding(get: { store.isRemote(s) }, set: { store.setRemote(s, on: $0) }))
+            }
             if let url = s.remoteURL {
                 Button("Open on claude.ai") { NSWorkspace.shared.open(url) }
             }
-            Button("Open Terminal") { store.openTerminal(s) }
-            Button("Restart Session") { store.restart(s) }
-                .disabled(s.status != .idle || store.restarting != nil)
-            Button("End Session") { store.requestEnd(s) }
-                .disabled(store.ending.contains(s.sessionId))
+            if !s.isBackground {
+                Button("Open Terminal") { store.openTerminal(s) }
+                Button("Restart Session") { store.restart(s) }
+                    .disabled(s.status != .idle || store.restarting != nil)
+                Button("End Session") { store.requestEnd(s) }
+                    .disabled(store.ending.contains(s.sessionId))
+            }
         }
         Divider()
         Button("Copy Session ID") {
@@ -465,6 +511,7 @@ struct SessionRow<Accessory: View>: View {
                         .font(.body.weight(session.status == .waiting || unread > 0 ? .semibold : .regular))
                         .lineLimit(1)
                     if session.isLive && session.sessionId == store.coordinatorId { CoordinatorBadge() }
+                    if session.isBackground { BackgroundBadge(session: session) }
                     if session.isLive && store.isMuted(session) {
                         Image(systemName: "bell.slash")
                             .font(.caption2)
