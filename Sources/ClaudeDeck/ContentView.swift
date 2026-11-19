@@ -570,7 +570,6 @@ struct SessionRow<Accessory: View>: View {
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
                     Spacer(minLength: 0)
-                    CIChip(session: session, compact: true)
                 }
             }
         }

@@ -1,30 +1,25 @@
 import AppKit
 import SwiftUI
 
-/// A session's PR, checks and deploy state in one chip: small in the sidebar, with words and a
-/// menu of ship actions in the session's bar. Clicking it opens the PR.
+/// A session's PR, checks and deploy state in one chip, with a menu of ship actions, in the
+/// session's bar. Clicking it opens the PR. Not in the sidebar: it's the folder's checked-out
+/// branch, so every session in one folder would show the same PR.
 struct CIChip: View {
     @Environment(SessionStore.self) private var store
     let session: Session
-    /// The sidebar's: number and icons only.
-    var compact = false
 
     var body: some View {
         if session.isLive, let status = store.ci.status(for: session), !status.isEmpty {
-            if compact {
+            HStack(spacing: 2) {
                 chip(status)
-            } else {
-                HStack(spacing: 2) {
-                    chip(status)
-                    Menu { CIMenuItems(session: session) } label: {
-                        Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
-                    }
-                    .menuStyle(.borderlessButton)
-                    .menuIndicator(.hidden)
-                    .fixedSize()
-                    .foregroundStyle(.secondary)
-                    .help("Fix failing checks, push, merge when green, or set this repo's deploy-status command")
+                Menu { CIMenuItems(session: session) } label: {
+                    Image(systemName: "chevron.down").font(.caption2.weight(.semibold))
                 }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .foregroundStyle(.secondary)
+                .help("Fix failing checks, push, merge when green, or set this repo's deploy-status command")
             }
         }
     }
@@ -33,7 +28,7 @@ struct CIChip: View {
         Button {
             if let url = status.pr?.url.flatMap(URL.init(string:)) { NSWorkspace.shared.open(url) }
         } label: {
-            HStack(spacing: compact ? 4 : 6) {
+            HStack(spacing: 6) {
                 if let pr = status.pr {
                     HStack(spacing: 3) {
                         Image(systemName: "arrow.triangle.pull").font(.caption2.weight(.semibold))
@@ -41,24 +36,22 @@ struct CIChip: View {
                     }
                     .foregroundStyle(pr.state == .merged ? Color.purple : .secondary)
                     if pr.state == .merged || pr.state == .closed {
-                        if !compact { Text(pr.state == .merged ? "Merged" : "Closed").font(.caption2.weight(.medium)).foregroundStyle(.secondary) }
+                        Text(pr.state == .merged ? "Merged" : "Closed").font(.caption2.weight(.medium)).foregroundStyle(.secondary)
                     } else {
                         CIStateIcon(state: status.checks.state)
-                        if !compact { Text(checksLabel(status.checks)).font(.caption2.weight(.medium)).foregroundStyle(tint(status.checks.state)) }
+                        Text(checksLabel(status.checks)).font(.caption2.weight(.medium)).foregroundStyle(tint(status.checks.state))
                     }
                 }
                 if let deploy = status.deploy {
-                    if status.pr != nil && !compact { Divider().frame(height: 10) }
+                    if status.pr != nil { Divider().frame(height: 10) }
                     Image(systemName: deploy.deployed ? "shippingbox.fill" : "shippingbox")
                         .font(.caption2.weight(.semibold))
                         .foregroundStyle(deploy.deployed ? Theme.success : Theme.danger)
-                    if !compact {
-                        Text(deploy.deployed ? "Deployed" : "Not deployed").font(.caption2.weight(.medium))
-                            .foregroundStyle(deploy.deployed ? Theme.success : Theme.danger)
-                    }
+                    Text(deploy.deployed ? "Deployed" : "Not deployed").font(.caption2.weight(.medium))
+                        .foregroundStyle(deploy.deployed ? Theme.success : Theme.danger)
                 }
             }
-            .padding(.horizontal, compact ? 6 : 8).padding(.vertical, compact ? 1 : 4)
+            .padding(.horizontal, 8).padding(.vertical, 4)
             .background(Capsule().fill(tint(status.checks.state).opacity(0.12)))
             .overlay(Capsule().strokeBorder(tint(status.checks.state).opacity(0.3), lineWidth: 0.5))
         }
