@@ -10,7 +10,7 @@ let suites: [(String, () -> Void)] = [
     ("Skills", skillTests), ("Slash commands", commandTests), ("Command kinds", commandKindTests), ("Plan usage", planUsageTests), ("Diffs", diffTests), ("claude command", claudeCLITests),
     ("Activity", activityTests), ("Activity index", activityIndexTests), ("Activity summaries", activitySummaryTests), ("Search", searchTests),
     ("Background tasks", backgroundTaskTests), ("Unread replies", unreadTests), ("Policies", policyTests), ("Policy history & suggestions", policyHistoryTests), ("Policy files & hook", policyIOTests), ("File links", fileLinkTests), ("Earlier history", historyTests), ("Markdown editor", markdownEditorTests), ("Drafts", draftTests), ("Image zoom", imageZoomTests), ("Image zoom input", imageZoomInputTests), ("Routines", routineTests), ("Coordination", coordinationTests), ("CI status", ciStatusTests),
-    ("Screenshot attach", screenshotAttachTests), ("Snippets", snippetTests),
+    ("Screenshot attach", screenshotAttachTests), ("Snippets", snippetTests), ("Snippet suggestions", snippetSuggestionTests),
     ("Task board edits", taskBoardTests), ("Fleet digest", fleetDigestTests),
     ("Background agents", backgroundAgentTests),
 ]

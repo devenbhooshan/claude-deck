@@ -248,6 +248,10 @@ struct MessageBox<Footer: View>: View {
             installKeyMonitor()
         }
         .onChange(of: refocus) { focusSoon() }
+        // The key monitor holds a copy of this view, so it's renewed when the "/" and "@" menus
+        // change (a snippet added while the box is open); otherwise ↩ would pick from the old menu.
+        .onChange(of: commands) { installKeyMonitor() }
+        .onChange(of: mentions) { installKeyMonitor() }
         .onChange(of: draft) { before, after in
             menuIndex = 0
             // Pasted or typed past the limit: the text becomes an attached file, like a chat app.
@@ -386,6 +390,7 @@ struct MessageBox<Footer: View>: View {
     /// Handles keys before the text field sees them (it would otherwise swallow Esc and the arrows):
     /// the "/" menu's ↑/↓, Tab, Return and Esc, and ⌘V of images.
     private func installKeyMonitor() {
+        if let m = keyMonitor { NSEvent.removeMonitor(m) }
         keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
             guard focused else { return event }
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting([.numericPad, .function])

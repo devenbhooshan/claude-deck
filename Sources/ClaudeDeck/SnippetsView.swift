@@ -32,6 +32,7 @@ struct SnippetsSheet: View {
     let target: SnippetsTarget
     @State private var editing: Snippet?
     @State private var isNew = false
+    @State private var suggesting: SnippetSuggestState = .idle
 
     private var store: SnippetStore { .shared }
     private var session: String? { target.sessionId }
@@ -52,6 +53,7 @@ struct SnippetsSheet: View {
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     if let editing { editor(editing) }
+                    suggestions
                     group("Everywhere", everywhere)
                     if let title = target.title { group("Only in \(title)", here) }
                     group("Other sessions", elsewhere, everyMessage: false)
@@ -82,18 +84,24 @@ struct SnippetsSheet: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Snippets").font(.title3.weight(.semibold))
                 Text(target.title.map {
-                    "Type /s in the message box to insert one. Turn on “Every message” to put it before each message you send \($0) from Deck."
-                } ?? "Type /s in a session's message box to insert one.")
+                    "Type /s and a name in the message box to insert one. Turn on “Add to every message I send” to put it before each message you send \($0) from Deck."
+                } ?? "Type /s and a name in a session's message box to insert one.")
                     .font(.callout).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
-            Button {
-                isNew = true
-                editing = Snippet(name: "", text: "", scope: .global)
-            } label: { Label("New Snippet", systemImage: "plus") }
-                .buttonStyle(.deck(.secondary))
-                .disabled(editing != nil)
+            VStack(alignment: .trailing, spacing: 8) {
+                Button {
+                    isNew = true
+                    editing = Snippet(name: "", text: "", scope: .global)
+                } label: { Label("New Snippet", systemImage: "plus") }
+                    .buttonStyle(.deck(.secondary))
+                    .disabled(editing != nil)
+                Button { suggest() } label: { Label("Suggest from History", systemImage: "sparkles") }
+                    .buttonStyle(.deck(size: .small))
+                    .disabled(suggesting.isBusy)
+                    .help("Claude reads what you typed to your sessions in the last 30 days and suggests snippets for what you keep repeating")
+            }
         }
     }
 
@@ -117,16 +125,18 @@ struct SnippetsSheet: View {
                 Text(snippet.text).font(.callout).foregroundStyle(.secondary)
                     .lineLimit(3).fixedSize(horizontal: false, vertical: true)
                     .textSelection(.enabled)
+                // Under the text, so its long label never squeezes the snippet's name.
+                if everyMessage, let session {
+                    Toggle("Add to every message I send", isOn: Binding(
+                        get: { store.library.everyMessage[session]?.contains(snippet.id) == true },
+                        set: { on in store.change { $0.setEveryMessage(session, snippet.id, on: on) } }))
+                        .toggleStyle(.switch).controlSize(.mini)
+                        .font(.caption)
+                        .padding(.top, 4)
+                        .help("Put this before every message you send this session from Deck")
+                }
             }
             Spacer(minLength: 8)
-            if everyMessage, let session {
-                Toggle("Every message", isOn: Binding(
-                    get: { store.library.everyMessage[session]?.contains(snippet.id) == true },
-                    set: { on in store.change { $0.setEveryMessage(session, snippet.id, on: on) } }))
-                    .toggleStyle(.switch).controlSize(.mini)
-                    .font(.caption)
-                    .help("Put this before every message you send this session from Deck")
-            }
             Button("Edit") { isNew = false; editing = snippet }
                 .buttonStyle(.deck(.secondary, size: .small))
                 .disabled(editing != nil)
@@ -139,6 +149,71 @@ struct SnippetsSheet: View {
         }
         .padding(12)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(Theme.panel))
+    }
+
+    @ViewBuilder private var suggestions: some View {
+        switch suggesting {
+        case .idle:
+            EmptyView()
+        case .reading, .asking:
+            HStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text(suggesting == .reading ? "Reading what you typed in the last 30 days…" : "Claude is looking for what you keep retyping…")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+        case .failed(let message):
+            HStack(spacing: 8) {
+                Label(message, systemImage: "exclamationmark.triangle").font(.callout).foregroundStyle(.secondary)
+                Spacer()
+                Button("Dismiss") { suggesting = .idle }.buttonStyle(.deckBorderless)
+            }
+        case .done(let found, let messages):
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(found.isEmpty ? "Nothing new to suggest from \(messages) messages: you don't retype much that your snippets don't cover."
+                                       : "Suggested from \(messages) messages in the last 30 days")
+                        .font(.callout).foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Dismiss All") { suggesting = .idle }.buttonStyle(.deckBorderless).font(.callout)
+                }
+                ForEach(found) { s in
+                    SnippetSuggestionCard(suggestion: s,
+                                          onAdd: { store.change { $0.save(s.snippet) }; dropSuggestion(s.id) },
+                                          onEdit: { isNew = true; editing = s.snippet; dropSuggestion(s.id) },
+                                          onDismiss: { dropSuggestion(s.id) })
+                        .disabled(editing != nil)
+                }
+            }
+        }
+    }
+
+    /// Reads what you typed, asks Claude for snippets, and keeps the ones you really did repeat.
+    private func suggest() {
+        suggesting = .reading
+        let existing = store.library.snippets
+        Task.detached(priority: .userInitiated) {
+            let messages = SnippetHistory.messages(days: 30)
+            guard !messages.isEmpty else {
+                await MainActor.run { suggesting = .failed("No messages you typed in the last 30 days.") }
+                return
+            }
+            await MainActor.run { suggesting = .asking }
+            let prompt = SnippetSuggestions.prompt(messages: messages, days: 30, existing: existing)
+            let run = ClaudeRunner.run(ActivitySummarizer.arguments(prompt: prompt, schema: SnippetSuggestions.schema, model: "sonnet"),
+                                       in: NSHomeDirectory(), timeout: 180)
+            let found = (try? run.get()).flatMap { SnippetSuggestions.parse($0, messages: messages, existing: existing) }
+            await MainActor.run {
+                if let found { suggesting = .done(found, messages: messages.count) } else { suggesting = .failed("Couldn't reach Claude. Try again.") }
+            }
+        }
+    }
+
+    private func dropSuggestion(_ id: String) {
+        if case .done(var found, let messages) = suggesting {
+            found.removeAll { $0.id == id }
+            suggesting = .done(found, messages: messages)
+        }
     }
 
     private func editor(_ snippet: Snippet) -> some View {
@@ -163,9 +238,9 @@ struct SnippetsSheet: View {
             }
             if let session, let title = target.title {
                 HStack(spacing: 10) {
-                    Text("Use in").frame(width: 60, alignment: .leading)
+                    Text("Show in").frame(width: 60, alignment: .leading)
                     Picker("", selection: draft.scope) {
-                        Text("Every session").tag(Snippet.Scope.global)
+                        Text("All sessions").tag(Snippet.Scope.global)
                         Text("Only \(title)").tag(Snippet.Scope.session(session))
                     }
                     .labelsHidden().pickerStyle(.segmented).fixedSize()
@@ -213,5 +288,54 @@ struct StandingSnippetsChip: View {
         }
         .buttonStyle(.deckPlain)
         .help("These snippets are put before every message you send from Deck. Click to change.")
+    }
+}
+
+private enum SnippetSuggestState: Equatable {
+    case idle, reading, asking
+    case done([SnippetSuggestions.Suggestion], messages: Int)
+    case failed(String)
+
+    var isBusy: Bool { self == .reading || self == .asking }
+}
+
+/// One suggested snippet: its text, why, and how often you typed it.
+private struct SnippetSuggestionCard: View {
+    let suggestion: SnippetSuggestions.Suggestion
+    let onAdd: () -> Void
+    let onEdit: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        let s = suggestion
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Image(systemName: "sparkles").font(.caption).foregroundStyle(Theme.accent)
+                Text(s.snippet.name).font(.callout.weight(.medium))
+                Text(s.snippet.command).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                Spacer()
+                Button(action: onDismiss) { Image(systemName: "xmark") }
+                    .buttonStyle(.deckBorderless)
+                    .foregroundStyle(.secondary)
+                    .help("Dismiss this suggestion")
+            }
+            Text(s.snippet.text).font(.callout).fixedSize(horizontal: false, vertical: true)
+            if !s.why.isEmpty { Text(s.why).font(.caption).foregroundStyle(.secondary) }
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text("You typed this \(s.count)× in \(s.sessions) session\(s.sessions == 1 ? "" : "s")")
+                    .font(.caption.weight(.medium)).foregroundStyle(.secondary)
+                Text("“\(s.phrase)”").font(.caption).foregroundStyle(.tertiary)
+                    .lineLimit(1).truncationMode(.tail)
+                    .help(s.phrase)
+            }
+            HStack(spacing: 8) {
+                Button("Add Snippet", action: onAdd).buttonStyle(.deck(.primary, size: .small))
+                Button("Edit First…", action: onEdit).buttonStyle(.deck(size: .small))
+            }
+            .padding(.top, 2)
+        }
+        .padding(12)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).fill(Theme.accent.opacity(0.06)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).strokeBorder(Theme.accent.opacity(0.2)))
     }
 }
