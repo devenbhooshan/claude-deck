@@ -170,6 +170,7 @@ struct MessageBox<Footer: View>: View {
     let onSend: () -> Void
     @ViewBuilder var footer: () -> Footer
 
+    @Environment(SessionStore.self) private var store
     @State private var keyMonitor: Any?
     @State private var menuIndex = 0
     /// Esc closes the menu for the text typed so far; typing more reopens it.
@@ -285,7 +286,7 @@ struct MessageBox<Footer: View>: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 8) {
                         ForEach(attachments) { a in
-                            Thumbnail(attachment: a) { attachments.removeAll { $0.id == a.id } }
+                            Thumbnail(attachment: a, open: { store.previewing = a }) { attachments.removeAll { $0.id == a.id } }
                         }
                     }
                     .padding(.horizontal, 12).padding(.top, 12)
@@ -517,12 +518,19 @@ struct AttachmentDrop: ViewModifier {
 
 private struct Thumbnail: View {
     let attachment: Attachment
+    /// Shows it full size (an image) or previewed (a file), still unsent.
+    let open: () -> Void
     let remove: () -> Void
     @State private var hovering = false
 
     var body: some View {
-        preview
-            .frame(width: attachment.isImage ? 64 : 200, height: 64)
+        // A button (not a tap gesture), so a click, the keyboard and VoiceOver all open it.
+        Button(action: open) {
+            preview
+                .frame(width: attachment.isImage ? 64 : 200, height: 64)
+                .contentShape(Rectangle())
+        }
+            .buttonStyle(.deckPlain)
             .clipShape(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.medium, style: .continuous).strokeBorder(.separator))
             .overlay(alignment: .topTrailing) {
@@ -538,14 +546,14 @@ private struct Thumbnail: View {
                 .opacity(hovering ? 1 : 0.85)
             }
             .onHover { hovering = $0 }
-            .help(attachment.isImage ? attachment.name : "\(attachment.name): click to open")
+            .help("\(attachment.name): click to preview")
     }
 
     @ViewBuilder private var preview: some View {
         if let image = attachment.thumbnail {
             Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
         } else {
-            // A file: its icon, name and size, like a chat app's file chip. Click to open it.
+            // A file: its icon, name and size, like a chat app's file chip. Click to preview it.
             HStack(spacing: 8) {
                 Image(nsImage: NSWorkspace.shared.icon(forFile: attachment.url.path))
                     .resizable().frame(width: 32, height: 32)
@@ -562,8 +570,6 @@ private struct Thumbnail: View {
             }
             .padding(.leading, 10).padding(.trailing, 22)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .contentShape(Rectangle())
-            .onTapGesture { NSWorkspace.shared.open(attachment.url) }
             .background(Color.primary.opacity(0.04))
         }
     }

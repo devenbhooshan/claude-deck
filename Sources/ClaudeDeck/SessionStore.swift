@@ -32,6 +32,9 @@ final class SessionStore {
     let routines = RoutineStore()
     /// A PDF, image, web page or markdown file opened from the transcript, shown over the session.
     var viewing: ViewedFile?
+    /// An attachment in a message box, not sent yet, shown full size over the window (click it to
+    /// preview; Esc or a click outside closes it, and it stays attached).
+    var previewing: Attachment?
     private var removingQueued = false
     /// A session we just started (and the terminal it's in): selected, and Deck brought back, once
     /// Claude Code registers it. Until then the sidebar shows it waiting on you in the terminal.

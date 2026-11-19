@@ -27,12 +27,17 @@ struct ContentView: View {
         .tint(Theme.accent)
         .overlay(alignment: .top) { switcherOverlay }
         .overlay { historyOverlay }
+        .overlay { if let a = store.previewing { AttachmentPreviewOverlay(attachment: a).transition(.opacity) } }
+        .animation(.easeOut(duration: 0.12), value: store.previewing?.id)
         .animation(.easeOut(duration: 0.12), value: store.showSwitcher)
         .animation(.easeOut(duration: 0.15), value: store.showHistory)
         .modifier(Dialogs(newName: $newName))
         .modifier(DeployCommandDialog())
         // The "/" menu's commands and skills follow the selected session's project.
-        .onChange(of: store.selectedId, initial: true) { toolbox.focus(cwd: store.session(store.selectedId)?.cwd) }
+        .onChange(of: store.selectedId, initial: true) {
+            toolbox.focus(cwd: store.session(store.selectedId)?.cwd)
+            store.previewing = nil
+        }
     }
 
     private var sidebar: some View {

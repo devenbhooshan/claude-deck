@@ -560,7 +560,8 @@ private final class PreviewWebView: WKWebView {
     }
 }
 
-private struct MarkdownPreview: NSViewRepresentable {
+/// Markdown rendered in Deck's colors (the editor's preview, and an unsent .md attachment's).
+struct MarkdownPreview: NSViewRepresentable {
     let text: String
     let base: URL
     let open: (URL) -> Void
