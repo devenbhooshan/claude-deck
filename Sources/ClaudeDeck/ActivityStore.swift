@@ -59,7 +59,11 @@ final class ActivityStore {
     private var attempted: Set<String> = []
 
     /// Most summary calls a day, so a huge backlog can't eat into your plan.
-    static let dailyCallLimit = 150
+    static let dailyCallLimit = 300
+    /// Summaries, recaps, the digest and search answers share this; naming tasks has its own, so a
+    /// backlog of summaries can't leave the sidebar's task names stale.
+    private static let summaryBudget = DailyBudget(name: "activityCalls", limit: dailyCallLimit)
+    private static let namingBudget = DailyBudget(name: "taskNameCalls", limit: 200)
     /// Seconds without keyboard or mouse input before a summary call starts (not mid-typing).
     static let idleSeconds: Double = 3
 
@@ -88,6 +92,7 @@ final class ActivityStore {
             MainActor.assumeIsolated {
                 self?.refresh()
                 self?.pumpSummaries()
+                self?.retryNaming()
             }
         }
     }
@@ -138,7 +143,7 @@ final class ActivityStore {
         asking = true
         let local = quickSearch(q)
         answer = SearchAnswer(question: q, sessions: local.sessions, order: local.order)
-        Self.countCall()
+        Self.summaryBudget.spend()
         Task.detached(priority: .userInitiated) {
             let intentOut = (try? ClaudeRunner.run(ActivitySummarizer.arguments(prompt: SessionSearch.intentPrompt(q), schema: SessionSearch.intentSchema),
                                                    in: NSHomeDirectory(), timeout: 60).get()) ?? ""
@@ -163,7 +168,7 @@ final class ActivityStore {
             }
             let top = Array(sessions.prefix(8))
             let prompt = await MainActor.run { SessionSearch.answerPrompt(q, order: intent.order, sessions: top, title: title) }
-            await MainActor.run { Self.countCall() }
+            await MainActor.run { Self.summaryBudget.spend() }
             let out = (try? ClaudeRunner.run(ActivitySummarizer.arguments(prompt: prompt, schema: SessionSearch.answerSchema),
                                              in: NSHomeDirectory(), timeout: 90).get()) ?? ""
             let byId = Dictionary(top.flatMap(\.hits).map { ($0.doc.id, $0) }, uniquingKeysWith: { a, _ in a })
@@ -210,18 +215,26 @@ final class ActivityStore {
     /// The message each session's task was last named for.
     private var taskAsk: [String: String] = [:]
     private var naming: Set<String> = []
+    private var namingRetries = NamingRetries()
 
     /// The task a session is on now.
     func task(for sessionId: String) -> String? { taskEvents[sessionId]?.last?.title }
 
     /// Names what the session is on, once per new message of yours (Claude Haiku, a few words). A
     /// new task adds a timeline entry at that message; the same task just gets the better name.
+    /// Skipped (summaries off, transcript not read yet, one already running, no budget left) or
+    /// failed, it's tried again from the timer instead of waiting for your next message.
     func nameTask(_ sessionId: String) {
-        guard aiSummaries, let asks = index[sessionId]?.extractor.asks, let last = asks.last,
-              taskAsk[sessionId] != last.id, !naming.contains(sessionId),
-              Self.callsToday() < Self.dailyCallLimit else { return }
+        let asks = index[sessionId]?.extractor.asks
+        if let last = asks?.last, taskAsk[sessionId] == last.id { return namingRetries.done(sessionId) }
+        guard aiSummaries, loaded, let asks, let last = asks.last, !naming.contains(sessionId),
+              Self.namingBudget.available() else {
+            if !loaded || asks?.isEmpty == false || !aiSummaries { namingRetries.skipped(sessionId) }
+            return
+        }
         naming.insert(sessionId)
-        Self.countCall()
+        namingRetries.done(sessionId)
+        Self.namingBudget.spend()
         let previous = task(for: sessionId)
         let prompt = ActivitySummarizer.taskPrompt(asks, previous: previous)
         Task.detached(priority: .utility) {
@@ -230,7 +243,7 @@ final class ActivityStore {
             let named = ActivitySummarizer.parseTask(out)
             await MainActor.run {
                 self.naming.remove(sessionId)
-                guard let named else { return }
+                guard let named else { return self.namingRetries.skipped(sessionId, failed: true) }
                 self.taskAsk[sessionId] = last.id
                 var list = self.taskEvents[sessionId] ?? []
                 if named.isNew || list.isEmpty {
@@ -244,6 +257,10 @@ final class ActivityStore {
                 self.saveExtras()
             }
         }
+    }
+
+    private func retryNaming() {
+        for id in namingRetries.due() { nameTask(id) }
     }
 
     /// Your latest message in a session (changes when you send one).
@@ -332,7 +349,7 @@ final class ActivityStore {
     // MARK: - AI summaries
 
     private func pumpSummaries() {
-        guard aiSummaries, !summarizing, !summaryQueue.isEmpty, Self.callsToday() < Self.dailyCallLimit else { return }
+        guard aiSummaries, !summarizing, !summaryQueue.isEmpty, Self.summaryBudget.available() else { return }
         // Only while you're away from the keyboard, so it never competes with your own sessions.
         let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
         guard idle >= Self.idleSeconds else { return }
@@ -342,7 +359,7 @@ final class ActivityStore {
         guard !batch.isEmpty else { return pumpSummaries() }
         for e in batch { attempted.insert(e.id) }
         summarizing = true
-        Self.countCall()
+        Self.summaryBudget.spend()
         let prompt = ActivitySummarizer.eventsPrompt(batch, pr: { self.pr(for: $0) })
         let ids = Set(batch.map(\.id))
         Task.detached(priority: .utility) {
@@ -364,7 +381,7 @@ final class ActivityStore {
         let events = Array(events(for: sessionId).prefix(40).reversed())
         guard !events.isEmpty else { return }
         recapping.insert(sessionId)
-        Self.countCall()
+        Self.summaryBudget.spend()
         let prompt = ActivitySummarizer.recapPrompt(title: title, events: events, summaries: summaries)
         Task.detached(priority: .userInitiated) {
             let out = (try? ClaudeRunner.run(ActivitySummarizer.arguments(prompt: prompt, schema: ActivitySummarizer.textSchema),
@@ -386,7 +403,7 @@ final class ActivityStore {
     func makeDigest(day: String, events: [ActivityEvent], sessionTitle: @escaping (String) -> String) {
         guard !digestLoading, !events.isEmpty else { return }
         digestLoading = true
-        Self.countCall()
+        Self.summaryBudget.spend()
         let prompt = ActivitySummarizer.digestPrompt(day: day, events: Array(events.prefix(80).reversed()),
                                                      summaries: summaries, sessionTitle: sessionTitle)
         Task.detached(priority: .userInitiated) {
@@ -431,15 +448,4 @@ final class ActivityStore {
         }
     }
 
-    private static func dayKey() -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        return "activityCalls-" + f.string(from: Date())
-    }
-
-    static func callsToday() -> Int { UserDefaults.standard.integer(forKey: dayKey()) }
-
-    private static func countCall() {
-        UserDefaults.standard.set(callsToday() + 1, forKey: dayKey())
-    }
 }

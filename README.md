@@ -87,8 +87,9 @@ Digest** (a standup note).
 - PR titles and status (Open, Merged, Closed, Draft) come from `gh pr view`.
 - **AI summaries** (on by default; toggle in History or the Sessions menu): one-line summaries,
   session recaps and the digest are written by Claude Haiku through your own `claude` login, as
-  headless, tool-less, unsaved runs, in batches, only when you're not typing, at most 150 small
-  calls a day. Off, the summary is Claude's own sentence from right after the action.
+  headless, tool-less, unsaved runs, in batches, only when you're not typing, at most 300 small
+  calls a day. Naming each session's task has its own 200 a day, so the sidebar never goes stale
+  behind a summary backlog; one that's skipped or fails is tried again shortly. Off, the summary is Claude's own sentence from right after the action.
 
 ## Search: ⌘K
 
