@@ -294,6 +294,21 @@ enum Ghostty {
         return (String(data: data, encoding: .utf8) ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
     }
 
+    static let bundleId = "com.mitchellh.ghostty"
+
+    /// Brings up a terminal Deck opened, by id: one whose session hasn't started yet.
+    static func focus(terminal id: String) async throws {
+        _ = try await run("""
+            on run argv
+              tell application "Ghostty"
+                set t to terminal id (item 1 of argv)
+                activate
+                focus t
+              end tell
+            end run
+            """, args: [id])
+    }
+
     static func focus(_ session: Session) async throws {
         try await act(on: session, """
               focus t
@@ -354,8 +369,12 @@ enum Ghostty {
                 set initial working directory of cfg to (item 1 of argv)
                 set initial input of cfg to ((item 2 of argv) & linefeed)
                 set w to new window with configuration cfg
+                set t to focused terminal of selected tab of w
+                -- Activating alone can raise another Ghostty window (one in a full-screen Space);
+                -- focusing the new terminal brings up the window that may be asking you something.
                 activate
-                return id of focused terminal of selected tab of w
+                focus t
+                return id of t
               end tell
             end run
             """, args: [folder, command])

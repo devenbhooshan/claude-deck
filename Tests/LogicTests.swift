@@ -149,6 +149,18 @@ func navTests() {
         let confirmed = SessionNav.applyPendingNames(live: [session("a", title: "New")], recent: [], pending: ["a": "New"])
         expect(confirmed.pending.isEmpty)
     }
+    test("starting: waits on you in the terminal until Claude Code registers the session") {
+        let t0 = Date(timeIntervalSince1970: 1000)
+        let start = StartingSession(sessionId: "s", folder: "/code/orbit-api", name: "", at: t0)
+        expectEqual(start.phase(now: t0), .loading)
+        expectEqual(start.phase(now: t0.addingTimeInterval(2.9)), .loading)
+        expectEqual(start.phase(now: t0.addingTimeInterval(3)), .needsInput)
+        expectEqual(start.phase(now: t0.addingTimeInterval(29 * 60)), .needsInput)
+        expectEqual(start.phase(now: t0.addingTimeInterval(30 * 60)), .abandoned)
+        expect(start.phase() == .abandoned, "defaults to now")
+        expectEqual(start.title, "orbit-api")
+        expectEqual(StartingSession(sessionId: "s", folder: "/x", name: "API work", at: t0).title, "API work")
+    }
     test("restart: the session comes back in its own slot") {
         func started(_ id: String, _ t: Double, pid: Int32 = 1, cwd: String = "/tmp/project") -> Session {
             var s = session(id, pid: pid, cwd: cwd); s.startedAt = Date(timeIntervalSince1970: t); return s

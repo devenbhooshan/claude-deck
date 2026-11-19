@@ -32,9 +32,10 @@ final class SessionStore {
     let routines = RoutineStore()
     /// A PDF, image, web page or markdown file opened from the transcript, shown over the session.
     var viewing: ViewedFile?
-    /// A session we just started (and the terminal it's in): select it as soon as it appears.
     private var removingQueued = false
-    private var starting: (sessionId: String, at: Date, terminal: String?)?
+    /// A session we just started (and the terminal it's in): selected, and Deck brought back, once
+    /// Claude Code registers it. Until then the sidebar shows it waiting on you in the terminal.
+    private(set) var starting: StartingSession?
     /// A session being restarted, and the start times that keep restarted sessions in their slot.
     private(set) var restarting: RestartTicket?
     private var slots: [String: Date] = [:]
@@ -519,21 +520,25 @@ final class SessionStore {
         var launch = options
         launch.sessionId = UUID().uuidString.lowercased()
         launch.fork = source?.sessionId
-        starting = (launch.sessionId!, Date(), nil)
+        let start = StartingSession(sessionId: launch.sessionId!, folder: folder, name: launch.name, at: Date())
+        starting = start
         if let url = source?.transcriptURL { forkedFrom[launch.sessionId!] = url }
         Task {
             do {
                 let terminal = try await Ghostty.newSession(in: folder, launch)
+                guard starting?.sessionId == start.sessionId else { return }
                 starting?.terminal = terminal
-                refresh()
+                // The new Ghostty window has the focus, and keeps it until Claude is running: it may
+                // first ask something there (trust this folder, sign in). Deck comes back once
+                // Claude Code registers the session (see `apply`).
                 HUD.show(source.map { "Forking \($0.displayTitle)" } ?? (launch.remoteControl ? "Starting Claude with Remote Control" : "Starting Claude"),
-                         detail: Theme.shortPath(folder),
+                         detail: "\(Theme.shortPath(folder)) · answer any question in the terminal",
                          symbol: source != nil ? "arrow.triangle.branch" : launch.remoteControl ? "iphone.radiowaves.left.and.right" : "plus.circle.fill",
                          tint: Theme.accent)
-                // A new Ghostty window always takes the focus; you carry on in Deck. Once it has
-                // settled, or Ghostty takes it back.
-                try? await Task.sleep(for: .milliseconds(500))
-                NSApp.activate(ignoringOtherApps: true)
+                refresh()
+                // Re-check once it should have started, so the sidebar shows it's waiting on you.
+                try? await Task.sleep(for: .seconds(StartingSession.loadingFor + 0.2))
+                refresh()
             } catch {
                 starting = nil
                 lastError = error.localizedDescription
@@ -693,6 +698,20 @@ final class SessionStore {
         bringToFront()
         if panel.runModal() == .OK, let url = panel.url { viewing = ViewedFile(url: url) }
     }
+
+    /// Brings up the terminal of a session that's still starting, to answer what it's asking.
+    func openStartingTerminal() {
+        guard let id = starting?.terminal else { return }
+        Task {
+            do { try await Ghostty.focus(terminal: id) } catch {
+                starting = nil
+                lastError = "That terminal was closed, so the session didn't start. Start it again from New Session."
+            }
+        }
+    }
+
+    /// Stops waiting for a session that won't start (its terminal was closed or answered "no").
+    func forgetStarting() { starting = nil }
 
     func openTerminal(_ s: Session) {
         guard !refuseBackground(s) else { return }
@@ -953,7 +972,9 @@ final class SessionStore {
                 Ghostty.adopt(terminal, for: s.sessionId)
                 selectedId = s.id
                 starting = nil
-            } else if Date().timeIntervalSince(start.at) > 60 {
+                // It's running: back to Deck, unless you've since moved on to another app.
+                if NSWorkspace.shared.frontmostApplication?.bundleIdentifier == Ghostty.bundleId { bringToFront() }
+            } else if start.phase() == .abandoned {
                 starting = nil
             }
         }

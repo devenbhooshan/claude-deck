@@ -78,13 +78,16 @@ struct ContentView: View {
                 // One fixed list: a session keeps its place and number (⌘1–9) whatever its status.
                 // Sessions waiting on you stay put and show Allow / Deny in place.
                 Section {
-                    if store.live.isEmpty {
+                    if store.live.isEmpty && store.starting == nil {
                         Text("No running sessions").foregroundStyle(.tertiary).font(.callout)
                     }
                     ForEach(Array(store.live.enumerated()).filter { $0.element.sessionId != store.coordinatorId }, id: \.element.id) { i, s in
                         sessionRow(s, number: i + 1)
                         .modifier(SelectableRow(id: s.id))
                         .contextMenu { rowMenu(s) }
+                    }
+                    if let start = store.starting {
+                        StartingRow(start: start)
                     }
                 } header: {
                     HStack(spacing: 6) {
@@ -660,5 +663,51 @@ struct SelectableRow: ViewModifier {
                     .padding(.horizontal, 10)
             )
             .accessibilityAddTraits(selected ? [.isSelected, .isButton] : .isButton)
+    }
+}
+
+/// A session Deck opened a terminal for that isn't running yet. After a moment that means Claude
+/// Code is asking something in the terminal first (trust this folder, sign in), so it says so,
+/// with the terminal one click away. It turns into the session's row once Claude is running.
+private struct StartingRow: View {
+    @Environment(SessionStore.self) private var store
+    let start: StartingSession
+
+    var body: some View {
+        TimelineView(.periodic(from: start.at, by: 1)) { context in
+            let waiting = start.phase(now: context.date) != .loading
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: waiting ? "terminal.fill" : "hourglass")
+                    .foregroundStyle(waiting ? Theme.waiting : .secondary)
+                    .frame(width: 16)
+                    .padding(.top, 2)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(start.title).lineLimit(1)
+                    Text(waiting ? "Needs your input in the terminal" : "Starting…")
+                        .font(.caption.weight(waiting ? .semibold : .regular))
+                        .foregroundStyle(waiting ? Theme.waiting : .secondary)
+                    if waiting {
+                        Text("Claude asks before it starts (trust this folder, sign in). Answer there; Deck opens the session once it runs.")
+                            .font(.caption2).foregroundStyle(.secondary)
+                            .lineLimit(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 6) {
+                            Button("Open Terminal") { store.openStartingTerminal() }
+                                .buttonStyle(.deck(.primary))
+                                .controlSize(.small)
+                                .disabled(start.terminal == nil)
+                            Button("Dismiss") { store.forgetStarting() }
+                                .buttonStyle(.deck(.secondary))
+                                .controlSize(.small)
+                                .help("Stop waiting for it, if you closed the terminal or answered no")
+                        }
+                        .padding(.top, 2)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .padding(.vertical, 3)
+        }
+        .help("\(start.title) in \(Theme.shortPath(start.folder))")
     }
 }

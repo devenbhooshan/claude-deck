@@ -125,3 +125,35 @@ struct RestartTicket: Equatable {
     let session: Session
     let at: Date
 }
+
+/// A session Deck opened a terminal for that Claude Code hasn't registered yet. Claude Code writes
+/// its session record only once it's running, so until then the terminal is either still loading
+/// or asking something first (trust this folder, sign in, approve the project's MCP servers),
+/// where only you can answer it.
+struct StartingSession: Equatable {
+    let sessionId: String
+    let folder: String
+    let name: String
+    let at: Date
+    var terminal: String?
+
+    enum Phase: Equatable {
+        /// Just opened: Claude Code usually registers within a second or two.
+        case loading
+        /// Still not running: it's waiting on a question in its terminal.
+        case needsInput
+        /// Long enough that it was answered "no" or closed; stop waiting.
+        case abandoned
+    }
+
+    static let loadingFor: TimeInterval = 3
+    static let waitFor: TimeInterval = 30 * 60
+
+    func phase(now: Date = Date()) -> Phase {
+        let t = now.timeIntervalSince(at)
+        return t < Self.loadingFor ? .loading : t < Self.waitFor ? .needsInput : .abandoned
+    }
+
+    /// What the sidebar calls it: its name, or its folder's.
+    var title: String { name.isEmpty ? (folder as NSString).lastPathComponent : name }
+}
