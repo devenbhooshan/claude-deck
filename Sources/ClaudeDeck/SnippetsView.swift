@@ -65,7 +65,11 @@ struct SnippetsSheet: View {
                 Text("Saved in ~/Library/Application Support/ClaudeDeck/snippets.json.")
                     .font(.caption).foregroundStyle(.tertiary)
                 Spacer()
-                Button("Done") { dismiss() }
+                // Done keeps an edit that's still open (it used to be dropped without a word).
+                Button("Done") {
+                    if let editing { save(editing) }
+                    dismiss()
+                }
                     .buttonStyle(.deck(.primary))
                     .keyboardShortcut(editing == nil ? .defaultAction : nil)
             }
@@ -216,10 +220,22 @@ struct SnippetsSheet: View {
         }
     }
 
+    private static func isValid(_ s: Snippet) -> Bool {
+        !s.name.trimmingCharacters(in: .whitespaces).isEmpty && !s.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// Saves the snippet being edited (when it has a name and text) and closes the editor.
+    private func save(_ snippet: Snippet) {
+        guard Self.isValid(snippet) else { return }
+        var s = snippet
+        s.name = s.name.trimmingCharacters(in: .whitespaces)
+        store.change { $0.save(s) }
+        editing = nil
+    }
+
     private func editor(_ snippet: Snippet) -> some View {
         let draft = Binding(get: { editing ?? snippet }, set: { editing = $0 })
-        let valid = !snippet.name.trimmingCharacters(in: .whitespaces).isEmpty
-            && !snippet.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let valid = Self.isValid(snippet)
         return VStack(alignment: .leading, spacing: 10) {
             Text(isNew ? "New snippet" : "Edit snippet").font(.headline)
             HStack(spacing: 10) {
@@ -251,12 +267,7 @@ struct SnippetsSheet: View {
                 Button("Cancel") { editing = nil }
                     .buttonStyle(.deck(.secondary))
                     .keyboardShortcut(.cancelAction)
-                Button(isNew ? "Add" : "Save") {
-                    var s = snippet
-                    s.name = s.name.trimmingCharacters(in: .whitespaces)
-                    store.change { $0.save(s) }
-                    editing = nil
-                }
+                Button(isNew ? "Add" : "Save") { save(snippet) }
                 .buttonStyle(.deck(.primary))
                 .keyboardShortcut(.defaultAction)
                 .disabled(!valid)
